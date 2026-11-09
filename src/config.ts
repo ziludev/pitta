@@ -59,8 +59,13 @@ export const config = {
     allowedChatIds: list("FEISHU_ALLOWED_CHAT_IDS"),
     allowedSenderIds: list("FEISHU_ALLOWED_SENDER_IDS"),
     mentionsOnly: bool("FEISHU_MENTIONS_ONLY", true),
-    /** Group replies go into a thread so the group timeline stays readable. */
-    replyInThread: bool("FEISHU_REPLY_IN_THREAD", true),
+    /**
+     * Threading: "auto" only threads when the message already sits in a thread (topic
+     * groups and replies), "always" forces it, "never" keeps everything in the
+     * timeline. Thread replies are collapsed in a normal group, which looks like the
+     * bot never answered — hence auto.
+     */
+    replyInThread: (process.env.FEISHU_REPLY_IN_THREAD ?? "auto") as "auto" | "always" | "never",
     /** Mention the asker in the reply, so it is clear who is being answered. */
     mentionSender: bool("FEISHU_MENTION_SENDER", true),
   },

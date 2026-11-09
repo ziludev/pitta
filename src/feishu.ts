@@ -232,6 +232,26 @@ type PendingApproval = {
   chatId: string;
 };
 
+/**
+ * A thread reply inside a normal (non-topic) group is collapsed behind "N 条回复",
+ * which reads as "the bot never answered". Only thread when the question itself is
+ * already in a thread; "always"/"never" override it.
+ */
+function wantsThread(message: NonNullable<IncomingMessage["message"]>): boolean {
+  const mode = config.feishu.replyInThread;
+  if (message.chat_type !== "group" || mode === "never") return false;
+  if (mode === "always") return true;
+  return message.thread_id !== undefined && message.thread_id !== message.message_id;
+}
+
+function mentionFor(
+  event: IncomingMessage,
+  message: NonNullable<IncomingMessage["message"]>,
+): string | undefined {
+  if (message.chat_type !== "group" || !config.feishu.mentionSender) return undefined;
+  return event.sender?.sender_id?.open_id ?? undefined;
+}
+
 export type FeishuBridge = { stop(): void };
 
 export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBridge> {
@@ -507,11 +527,8 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
 
     if (/^\/(help|帮助)$/i.test(command)) {
       await replyCard(message.message_id, HELP, "💡 命令一览", {
-        thread: message.chat_type === "group" && config.feishu.replyInThread,
-        mention:
-          message.chat_type === "group" && config.feishu.mentionSender
-            ? (event.sender?.sender_id?.open_id ?? undefined)
-            : undefined,
+        thread: wantsThread(message),
+        mention: mentionFor(event, message),
       });
       return;
     }
@@ -566,10 +583,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
 
     log("feishu", "turn start", { chatId, conversationId: conversation.id, type: message.message_type });
     const inGroup = message.chat_type === "group";
-    const replyOptions = {
-      thread: inGroup && config.feishu.replyInThread,
-      mention: inGroup && config.feishu.mentionSender ? (event.sender?.sender_id?.open_id ?? undefined) : undefined,
-    };
+    const replyOptions = { thread: wantsThread(message), mention: mentionFor(event, message) };
     const cardId = await replyCard(
       message.message_id,
       parsed.audioKey !== undefined
