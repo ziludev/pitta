@@ -1,11 +1,12 @@
 import { mkdir } from "node:fs/promises";
-import { defineExtension } from "@earendil-works/pi-durable";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models";
 import { dirname } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
   AssistantEntry,
   ConversationBusy,
   defineDoc,
+  defineExtension,
   Harness,
   createRegistry,
   type Conversation,
@@ -37,6 +38,15 @@ import { config } from "./config.ts";
 export const context = BACKGROUND_CONTEXT;
 
 /** chat surface id (Feishu chat_id, "cli", ...) -> conversation id. Session-scoped, so it survives restarts. */
+/** Host default model, so "设为默认" survives restarts without editing .env. */
+export const DefaultModel = defineDoc<{ provider: string; modelId: string; thinkingLevel?: string }>({
+  kind: "app.default-model",
+  version: 1,
+  scope: "session",
+  initial: () => ({ provider: "", modelId: "" }),
+  checkpointWhen: () => false,
+});
+
 export const ChatsToken = defineDoc<{ chats: Record<string, number> }>({
   kind: "app.chats",
   version: 1,
@@ -58,7 +68,19 @@ export type AgentRuntime = {
   /** Tool calls of one run, in order, with short output previews. */
   turnSteps(conversation: Conversation, from: number, to: number): Promise<ToolStep[]>;
   budget(surfaceId: string): Promise<BudgetCheck>;
-  models: () => Array<{ provider: string; id: string; name: string; reasoning: boolean }>;
+  models: () => Array<{
+    provider: string;
+    providerName: string;
+    id: string;
+    name: string;
+    reasoning: boolean;
+    contextWindow: number;
+    maxTokens: number;
+    cost: { input: number; output: number };
+    thinkingLevels: string[];
+  }>;
+  defaultModel(): Promise<{ provider: string; modelId: string; thinkingLevel?: string } | undefined>;
+  setDefaultModel(input: { provider: string; modelId: string; thinkingLevel?: string }): Promise<void>;
   setModel(
     conversation: Conversation,
     model: { provider: string; modelId: string; thinkingLevel?: string },
@@ -131,9 +153,13 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     log("usage", "sampler started");
   }
 
+  const storedDefault = await harness.snapshot(DefaultModel, context).catch(() => undefined);
   const agentChange = {
-    model: { provider: config.model.provider, modelId: config.model.modelId },
-    thinkingLevel: config.thinkingLevel,
+    model: {
+      provider: storedDefault?.provider ?? config.model.provider,
+      modelId: storedDefault?.modelId ?? config.model.modelId,
+    },
+    thinkingLevel: (storedDefault?.thinkingLevel ?? config.thinkingLevel) as typeof config.thinkingLevel,
     cwd: workspace,
     maxTurns: config.maxTurns,
   } as const;
@@ -292,14 +318,35 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
       models.getProviders().flatMap((provider) =>
         models
           .getModels(provider.id)
+          .slice(0, 40)
           .map((model) => ({
             provider: provider.id,
+            providerName: provider.name ?? provider.id,
             id: model.id,
             name: model.name ?? model.id,
             reasoning: model.reasoning === true,
-          }))
-          .slice(0, 40),
+            contextWindow: model.contextWindow ?? 0,
+            maxTokens: model.maxTokens ?? 0,
+            cost: { input: model.cost?.input ?? 0, output: model.cost?.output ?? 0 },
+            thinkingLevels: getSupportedThinkingLevels(model) as unknown as string[],
+          })),
       ),
+
+    defaultModel: async () => {
+      const stored = await harness.snapshot(DefaultModel, context);
+      if (stored === undefined) return undefined;
+      return { provider: stored.provider, modelId: stored.modelId, thinkingLevel: stored.thinkingLevel };
+    },
+
+    setDefaultModel: async (input) => {
+      await harness.commit(async (tx) => {
+        const doc = await tx.doc(DefaultModel);
+        doc.provider = input.provider;
+        doc.modelId = input.modelId;
+        if (input.thinkingLevel !== undefined) doc.thinkingLevel = input.thinkingLevel;
+      }, context);
+      log("agent", "default model updated", input);
+    },
     setModel: (conversation, model) =>
       conversation.configure(
         {

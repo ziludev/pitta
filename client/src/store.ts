@@ -46,6 +46,9 @@ type State = {
   model?: ModelRef;
   thinkingLevel?: string;
   models: ModelEntry[];
+  modelsLoadedAt?: number;
+  favorites: string[];
+  recents: string[];
   usageDays: UsageDay[];
 
   init(): Promise<void>;
@@ -73,7 +76,10 @@ type State = {
   removeReviewComment(index: number): void;
   clearReview(): void;
   sendReview(): Promise<void>;
-  loadModels(): Promise<void>;
+  loadModels(force?: boolean): Promise<void>;
+  toggleFavorite(key: string): void;
+  rememberRecent(key: string): void;
+  setDefaultModel(input: { provider: string; modelId: string; thinkingLevel?: string }): Promise<void>;
   setModel(input: { provider: string; modelId: string; thinkingLevel?: string }): Promise<void>;
   loadUsage(): Promise<void>;
 };
@@ -124,6 +130,8 @@ export const useStore = create<State>((set, get) => ({
   review: [],
   models: [],
   usageDays: [],
+  favorites: JSON.parse(localStorage.getItem("agent.favoriteModels") ?? "[]") as string[],
+  recents: JSON.parse(localStorage.getItem("agent.recentModels") ?? "[]") as string[],
 
   async init() {
     set({ home: homeDir });
@@ -328,10 +336,28 @@ export const useStore = create<State>((set, get) => ({
     set({ review: [] });
   },
 
-  async loadModels() {
-    if (get().models.length > 0) return;
+  async loadModels(force = false) {
+    if (!force && get().models.length > 0) return;
     const result = await api<{ models: ModelEntry[] }>("/api/models");
-    set({ models: result.models });
+    set({ models: result.models, modelsLoadedAt: Date.now() });
+  },
+
+  toggleFavorite(key) {
+    const favorites = get().favorites.includes(key)
+      ? get().favorites.filter((item) => item !== key)
+      : [...get().favorites, key];
+    localStorage.setItem("agent.favoriteModels", JSON.stringify(favorites));
+    set({ favorites });
+  },
+
+  rememberRecent(key) {
+    const recents = [key, ...get().recents.filter((item) => item !== key)].slice(0, 6);
+    localStorage.setItem("agent.recentModels", JSON.stringify(recents));
+    set({ recents });
+  },
+
+  async setDefaultModel(input) {
+    await api("/api/default-model", { method: "POST", body: JSON.stringify(input) });
   },
 
   async setModel(input) {
@@ -342,6 +368,7 @@ export const useStore = create<State>((set, get) => ({
       body: JSON.stringify({ conversationId: id, ...input }),
     });
     set({ model: { provider: input.provider, modelId: input.modelId }, thinkingLevel: input.thinkingLevel });
+    get().rememberRecent(`${input.provider}/${input.modelId}`);
   },
 
   async loadUsage() {

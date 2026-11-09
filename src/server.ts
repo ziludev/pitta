@@ -148,7 +148,24 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
       }
 
       if (req.method === "GET" && path === "/api/models") {
-        return send(res, 200, { models: runtime.models() });
+        const [models, fallback] = await Promise.all([
+          Promise.resolve(runtime.models()),
+          runtime.defaultModel().catch(() => undefined),
+        ]);
+        return send(res, 200, {
+          models,
+          default: fallback ?? { provider: config.model.provider, modelId: config.model.modelId },
+        });
+      }
+
+      if (req.method === "POST" && path === "/api/default-model") {
+        const body = await readJson(req);
+        const provider = typeof body["provider"] === "string" ? body["provider"] : "";
+        const modelId = typeof body["modelId"] === "string" ? body["modelId"] : "";
+        if (provider.length === 0 || modelId.length === 0) return send(res, 400, { error: "provider and modelId required" });
+        const thinkingLevel = typeof body["thinkingLevel"] === "string" ? body["thinkingLevel"] : undefined;
+        await runtime.setDefaultModel({ provider, modelId, thinkingLevel });
+        return send(res, 200, { ok: true });
       }
 
       if (req.method === "POST" && path === "/api/model") {

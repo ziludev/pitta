@@ -94,7 +94,7 @@ bun run build    # 产出 build/darwin-arm64/Agent.app + .dmg
 - 左栏：会话列表（飞书 chat / cli / 内部测试）、运行中的后台任务、agent 状态与 重启/备份/日志 按钮、累计花费
 - 中间：transcript 流式渲染（用户/助手/工具输出折叠/思考折叠/需求报告），`/new` `/stop`，插话（steer）开关
 - 右栏：两个 tab —— **改动**（工作区 git diff，逐文件折叠、+/- 着色、一键提交、**合并回主线**）和 **记忆**（全局/工作/本对话）
-- **模型/思考级别逐会话切换**（标题栏右侧）：`configure({model})` 只影响该会话，忙群用便宜模型、私人对话用强模型
+- **模型选择器（命令面板式，参考 ThinkRail）**：搜索框（名称/provider/id）+ 最近使用 + 收藏（★）+ 按 provider 折叠分组（当前 provider 默认展开）+ 每个模型显示 `provider · 每百万 $in/$out · 上下文`；底部「力度」滑杆调 thinking level，还有「设为默认」（写 durable `app.default-model`，新会话生效）和「刷新」。切换只影响该会话（`configure({model})`）
 - **token 方块图**（右栏「用量」tab）：GitHub 贡献图样式，17 周，按日总量着色；近 7/30 天与合计
 - 中英切换（默认跟随系统语言，`?lang=zh|en` 可强制；选择记在 localStorage）
 
@@ -111,7 +111,8 @@ POST /api/commit       把工作区提交成一个 checkpoint
 GET  /api/file?path=   读工作区文件（越界拒绝，512KB 上限）
 GET  /api/search?q=    跨会话搜transcript（返回可读片段）
 POST /api/merge        把会话分支 --no-ff 合并回主线（冲突返回数据，不猜）
-GET  /api/models       可用模型（provider 分组）
+GET  /api/models       可用模型（含价格/上下文/支持的思考级别）+ 宿主默认
+POST /api/default-model 设置宿主默认模型（新会话用它）
 POST /api/model        切某个会话的模型/思考级别
 GET  /api/usage-calendar?days=  按日 token/花费方块图数据
 ```

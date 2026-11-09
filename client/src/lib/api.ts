@@ -40,7 +40,17 @@ export type MergeResult =
   | { status: "error"; message: string };
 
 export type ModelRef = { provider: string; modelId: string };
-export type ModelEntry = { provider: string; id: string; name: string; reasoning: boolean };
+export type ModelEntry = {
+  provider: string;
+  providerName: string;
+  id: string;
+  name: string;
+  reasoning: boolean;
+  contextWindow: number;
+  maxTokens: number;
+  cost: { input: number; output: number };
+  thinkingLevels: string[];
+};
 export type UsageDay = { date: string; cost: number; tokens: number };
 
 export const wsURL = (conversationId: number): string =>
