@@ -7,6 +7,9 @@ import { isAbsolute, resolve } from "node:path";
  * Node's `--env-file` never overrides an already-exported variable, so a stale
  * `FEISHU_APP_ID` in the shell silently pointed this bridge at another app.
  */
+/** Credentials must follow .env: a stale exported app id silently pointed at another app. */
+const ALWAYS_FROM_FILE = new Set(["FEISHU_APP_ID", "FEISHU_APP_SECRET"]);
+
 function loadDotEnv(file = resolve(process.cwd(), ".env")): void {
   if (!existsSync(file)) return;
   for (const rawLine of readFileSync(file, "utf8").split("\n")) {
@@ -15,6 +18,7 @@ function loadDotEnv(file = resolve(process.cwd(), ".env")): void {
     const eq = line.indexOf("=");
     if (eq <= 0) continue;
     const key = line.slice(0, eq).trim();
+    if (key in process.env && !ALWAYS_FROM_FILE.has(key)) continue; // explicit env wins (tests, CI)
     let value = line.slice(eq + 1).trim();
     if (value.length >= 2 && /^(".*"|'.*')$/s.test(value)) value = value.slice(1, -1);
     process.env[key] = value;

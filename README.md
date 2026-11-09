@@ -18,6 +18,8 @@
 | 主动性 | `remind` 工具创建 **durable 定时任务**：存 deadline 睡觉，进程重启后照样到点触发，主动发消息 |
 | 工具审批 | `guard` hook 拦危险调用（`rm -rf`、`git push --force`、`sudo`、写工作区外…），发带按钮的卡片等人点，decision 存 memo |
 | 成本闸门 | `pi.usage` 汇总 → 每日额度（`AGENT_DAILY_BUDGET_USD`），超了拒绝新请求，跨天自动重置 |
+| 多角色分工 | `delegate`（单个角色）/ `delegate_parallel`（并行）/ `build_feature`（设计→实现→测试流水线）。每个子 agent 都是 **task-owned conversation**：独立上下文、独立成本、崩了能续、abort 会级联，且只允许一层（子 agent 拿不到 delegate） |
+| 角色 | `planner` 拆解 / `designer` 写设计文档 / `implementer` 实现 / `tester` 写测试 / `reviewer` 只读评审，各带独立指令与工具白名单 |
 | 话题 / 回复 | 回复某条消息或话题群里的消息 → 在该消息处 `fork` 出一条独立 conversation，各自独立跑，互不阻塞 |
 | 飞书原生 | `lark-cli`（已登录成你的身份）→ `feishu_agenda` 日历、`feishu_tasks` 待办、`feishu_create_task` 建任务（需审批）、`feishu_doc_read` 读文档 |
 | 执行详情 | 有工具调用的轮次，卡片带「查看详情」按钮，点开看每步工具、输出摘要、耗时与花费 |
@@ -98,6 +100,8 @@ src/
   asr.ts         本地 whisper 转写（ffmpeg + whisper CLI）
   mcp.ts         MCP client：连 servers，把它们的工具注册成 durable 工具
   lark-tools.ts  飞书原生工具（日历/待办/文档），走 lark-cli 的用户身份
+  roles.ts       子 agent 角色：指令 + 工具白名单 + 轮次上限
+  subagents.ts   delegate / delegate_parallel / build_feature（durable 子会话）
   details.ts     每轮工具调用明细，供「查看详情」按钮读取
   log.ts         带时间戳的日志（launchd 文件日志需要时间线）
   feishu.ts      长连接、卡片流式、审批按钮、图片、命令、额度闸门
@@ -132,6 +136,28 @@ scripts/import-hermes-memory.ts  从 ~/.hermes/memories 迁移记忆（支持 dr
 - **审批 decision 存 memo**：进程死掉重跑 hook 不会重复问你。
 - **预算按天**：以 session 总花费做基线做差值，跨天重置；不做硬性的 per-request 熔断（避免打断正在跑的任务）。
 - **不做子 agent**：需要时 tool 里 `tx.createConversation()` + `submit()` + `wait()` 即可，天然 durable。
+
+## 多角色分工
+
+需求进来后可以让不同角色分头做，各自是独立的 durable conversation：
+
+```
+build_feature(spec)   → designer 写 docs/<slug>.md → implementer 实现并自测 → tester 写测试并跑
+delegate(role, task)  → 单个角色干一件事，返回它的结论
+delegate_parallel(...) → 并行几个角色（例如 reviewer 评审 + tester 补测试）
+```
+
+为什么用 durable 的会话而不是"一次性 prompt"：
+
+| 特性 | 效果 |
+|---|---|
+| task-owned conversation | 子 agent 的产出留在它自己的 transcript 里，可以回看、steer、重新 fork |
+| `replay: "safe"` | 进程崩了重跑，找的是**同一个子会话**，不会重复开一份工作 |
+| 归属级联 | 父调用被 abort（`/stop`），子 agent 一起停；它自己不会再派活（只允许一层） |
+| 独立计费 | 每个子会话有自己的 `pi.usage`，成本可归因 |
+| 崩溃续跑 | 子 agent 跑到一半挂了，重启后从它的断点继续，不用从头再来 |
+
+实测（tiny feature，132s）：designer 26s 出设计文档 → implementer 写 `todo.py` 并自测 → tester 写 `test_todo.py`（33 个用例，`33 passed`），主 agent 汇总还顺手修了 tester 发现的一个裸 Traceback。
 
 ## 飞书原生工具
 

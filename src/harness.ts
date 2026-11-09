@@ -19,6 +19,7 @@ import type { ToolStep } from "./details.ts";
 import { reminderExtension } from "./reminders.ts";
 import { guardExtension } from "./approval.ts";
 import { larkExtension } from "./lark-tools.ts";
+import { subagentExtension } from "./subagents.ts";
 import { connectMcp, type McpRuntime } from "./mcp.ts";
 import { personalExtension } from "./personal.ts";
 import { checkBudget, type BudgetCheck } from "./budget.ts";
@@ -77,6 +78,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   registry.install(memoryExtension);
   registry.install(reminderExtension);
   registry.install(guardExtension);
+  registry.install(subagentExtension);
   if (mcp.extension !== undefined) registry.install(mcp.extension);
 
   const harness = await Harness.open(
