@@ -37,6 +37,9 @@ let seen = new Set<string>();
 /** Follow the tail while streaming; stop as soon as the user scrolls up. */
 let stick = true;
 let busy = false;
+/** `?entry=<id>` deep-links to one message (also used for screenshots). */
+const focusEntry = Number(new URLSearchParams(location.search).get("entry") ?? "");
+let focusedOnce = false;
 
 function api<T>(path: string, init?: RequestInit): Promise<T> {
   return fetch(`${baseURL}${path}`, {
@@ -122,6 +125,13 @@ function renderEntry(entry: Entry): string {
 
   if (entry.kind === "pi.tool-result") {
     const name = String(parts[0]?.["toolName"] ?? "tool");
+    const summary = diffSummary(text);
+    if (summary !== undefined) {
+      // Bash output that is a patch (git show/diff) renders like an editor, not a wall of text.
+      return `<div class="msg tool"><details class="file-group" open><summary>${escapeHtml(
+        name,
+      )} · diff <span class="muted tiny">${escapeHtml(summary)}</span></summary>${renderDiff(text)}</details></div>`;
+    }
     const body = text.length > 4000 ? `${text.slice(0, 4000)}\n…` : text;
     return `<div class="msg tool"><details><summary>${escapeHtml(name)} · ${t("output")}</summary><pre>${escapeHtml(
       body,
@@ -143,7 +153,9 @@ function renderTranscript(live?: LiveValue): void {
   const list = live?.entries ?? entries;
   const box = $("#transcript");
   const follow = stick;
-  box.innerHTML = list.map(renderEntry).join("");
+  box.innerHTML = list
+    .map((entry) => `<div class="entry-anchor" data-entry="${entry.id}">${renderEntry(entry)}</div>`)
+    .join("");
 
   const liveState = live?.docs?.["pi.live"];
   if (liveState !== undefined) {
@@ -172,6 +184,18 @@ function renderTranscript(live?: LiveValue): void {
     }
   }
   if (follow) box.scrollTop = box.scrollHeight;
+  if (!focusedOnce) focusRequestedEntry();
+}
+
+/** Scrolls to ?entry=<id> once, and stops following the tail so it stays there. */
+function focusRequestedEntry(): void {
+  if (!Number.isFinite(focusEntry) || focusEntry <= 0) return;
+  const node = document.querySelector<HTMLElement>(`.entry-anchor[data-entry="${focusEntry}"]`);
+  if (node === null) return;
+  focusedOnce = true;
+  stick = false;
+  node.classList.add("focused");
+  node.scrollIntoView({ block: "start" });
 }
 
 function setBusy(next: boolean): void {
@@ -301,39 +325,71 @@ function statusLabel(status: string): string {
   return t(key as never);
 }
 
-/** Renders one unified diff: per-file collapsible blocks with +/− line classes. */
-function renderDiff(diff: string): string {
-  if (diff.trim().length === 0) return "";
-  const blocks = diff.split(/^(?=diff --git )/m).filter((block) => block.trim().length > 0);
-  return blocks
-    .map((block) => {
-      const lines = block.split("\n");
-      const header = lines.find((line) => line.startsWith("diff --git ")) ?? "";
-      const match = /b\/(.+)$/.exec(header);
-      const path = match?.[1] ?? header.replace("diff --git ", "");
-      const body = lines
-        .filter(
-          (line) =>
-            !line.startsWith("diff --git ") &&
-            !line.startsWith("index ") &&
-            !line.startsWith("--- ") &&
-            !line.startsWith("+++ "),
-        )
-        .slice(0, 600)
-        .map((line) => {
-          const cls = line.startsWith("@@")
-            ? "hunk"
-            : line.startsWith("+")
-              ? "add"
-              : line.startsWith("-")
-                ? "del"
-                : "ctx";
-          return `<span class="dl ${cls}">${escapeHtml(line)}</span>`;
-        })
-        .join("");
-      return `<details class="file" open><summary>${escapeHtml(path)}</summary><pre class="diff-body">${body}</pre></details>`;
+type DiffFile = { path: string; lines: string[]; added: number; removed: number };
+
+/** Splits a unified diff into files; returns undefined when the text is not one. */
+function parseDiff(text: string): { preamble: string; files: DiffFile[] } | undefined {
+  const lines = text.split("\n");
+  const hasDiff =
+    lines.filter((line) => line.startsWith("diff --git ")).length > 0 ||
+    lines.some((line) => /^@@ -\d+(,\d+)? \+\d+(,\d+)? @@/.test(line));
+  if (!hasDiff) return undefined;
+
+  const firstBlock = lines.findIndex((line) => line.startsWith("diff --git ") || line.startsWith("--- "));
+  const preamble = firstBlock > 0 ? lines.slice(0, firstBlock).join("\n").trim() : "";
+  const body = firstBlock > 0 ? lines.slice(firstBlock) : lines;
+
+  const files: DiffFile[] = [];
+  let current: DiffFile | undefined;
+  for (const line of body) {
+    if (line.startsWith("diff --git ")) {
+      const match = / b\/(.+)$/.exec(line);
+      current = { path: match?.[1] ?? line.replace("diff --git ", ""), lines: [], added: 0, removed: 0 };
+      files.push(current);
+      continue;
+    }
+    current ??= { path: "diff", lines: [], added: 0, removed: 0 };
+    if (!files.includes(current)) files.push(current);
+    if (line.startsWith("--- ") || line.startsWith("+++ ") || line.startsWith("index ") || line.startsWith("new file ")) {
+      // Keep the headers out of the body but remember the path for plain diffs.
+      if (line.startsWith("+++ ") && current.path === "diff") current.path = line.slice(4).replace(/^b\//, "");
+      continue;
+    }
+    if (line.startsWith("+")) current.added += 1;
+    else if (line.startsWith("-")) current.removed += 1;
+    current.lines.push(line);
+  }
+  return { preamble, files: files.filter((file) => file.lines.length > 0) };
+}
+
+function renderDiffFile(file: DiffFile, open: boolean): string {
+  const body = file.lines
+    .slice(0, 800)
+    .map((line) => {
+      const cls = line.startsWith("@@") ? "hunk" : line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : "ctx";
+      return `<span class="dl ${cls}">${escapeHtml(line) || " "}</span>`;
     })
     .join("");
+  const counts = `${file.added > 0 ? `+${file.added}` : ""}${file.removed > 0 ? ` −${file.removed}` : ""}`;
+  return `<details class="file" ${open ? "open" : ""}><summary><span class="fpath">${escapeHtml(
+    file.path,
+  )}</span><span class="muted tiny">${counts}</span></summary><pre class="diff-body">${body}</pre></details>`;
+}
+
+function renderDiff(text: string): string {
+  const parsed = parseDiff(text);
+  if (parsed === undefined) return "";
+  const pre = parsed.preamble.length > 0 ? `<pre class="code muted">${escapeHtml(parsed.preamble)}</pre>` : "";
+  return pre + parsed.files.map((file) => renderDiffFile(file, parsed.files.length <= 3)).join("");
+}
+
+/** A one-glance summary of a diff, for the collapsed tool row. */
+function diffSummary(text: string): string | undefined {
+  const parsed = parseDiff(text);
+  if (parsed === undefined) return undefined;
+  const added = parsed.files.reduce((sum, file) => sum + file.added, 0);
+  const removed = parsed.files.reduce((sum, file) => sum + file.removed, 0);
+  return `${parsed.files.length} file${parsed.files.length === 1 ? "" : "s"} · +${added} −${removed}`;
 }
 
 async function loadChanges(): Promise<void> {

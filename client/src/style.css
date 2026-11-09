@@ -534,3 +534,44 @@ code.inline {
 .dl.ctx {
   color: var(--muted);
 }
+
+/* ---- entry anchors, diff-in-tool-output ---- */
+
+.entry-anchor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scroll-margin-top: 12px;
+}
+
+.entry-anchor.focused {
+  outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 6px;
+  border-radius: 10px;
+}
+
+/* A diff inside tool output should not wrap: an editor scrolls instead. */
+.diff-body {
+  white-space: pre;
+  overflow-x: auto;
+  word-break: normal;
+}
+
+.file-group {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: var(--panel);
+}
+
+.file-group > summary {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.file summary {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
