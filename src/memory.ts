@@ -1,5 +1,6 @@
 import { defineDoc, defineExtension, defineTool, section } from "@earendil-works/pi-durable";
 import { obj, opt, str } from "@earendil-works/pi-schema";
+import { ChatPolicy } from "./guest.ts";
 
 export type Note = { at: string; text: string };
 
@@ -57,7 +58,11 @@ const remember = defineTool({
   }),
   execute: async (args, api, context) => {
     const at = new Date().toISOString();
-    const scope = args.scope === "chat" ? "chat" : args.scope === "work" ? "work" : "global";
+    // In a guest conversation nothing may be written to the shared memories.
+    const policy = await api.snapshot(ChatPolicy, api.conversationId, context).catch(() => undefined);
+    const guest = policy?.guest === true;
+    const requested = args.scope === "chat" ? "chat" : args.scope === "work" ? "work" : "global";
+    const scope = guest && requested !== "chat" ? "chat" : requested;
     let total = 0;
     let duplicate = false;
     await api.commit(async (tx) => {
@@ -163,6 +168,9 @@ function renderNotes(notes: Note[] | undefined, limit: number): string | undefin
 /** Memory sections + tools, ready for the personal extension. */
 export const memorySections = [
   section("global_memory", async (input, context) => {
+    // Guest conversations (shared groups) must never see the owner's memory.
+    const policy = await input.read.snapshot(ChatPolicy, input.conversationId, context).catch(() => undefined);
+    if (policy?.guest === true) return undefined;
     const doc = await input.read.snapshot(GlobalMemory, context);
     return renderNotes(doc?.notes, MAX_GLOBAL_NOTES);
   }),

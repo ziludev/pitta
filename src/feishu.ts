@@ -11,6 +11,7 @@ import { transcribeAudio } from "./asr.ts";
 import { attachSubmission, clearCardPending, leftoverCards, markCardPending } from "./cards.ts";
 import { readTurnDetails, saveTurnDetails, type TurnDetails } from "./details.ts";
 import { allowChat, extraChats } from "./allowed.ts";
+import { guestChatIds, markGuestChat, setGuestPolicy } from "./guest.ts";
 
 type IncomingMessage = {
   sender?: { sender_id?: { open_id?: string } };
@@ -197,6 +198,7 @@ function rejectionReason(
   event: IncomingMessage,
   parsedContent: ParsedContent,
   extraAllowed: readonly string[] = [],
+  guestChats: readonly string[] = [],
 ): string | undefined {
   const message = event.message;
   const chatId = message?.chat_id ?? "";
@@ -214,7 +216,10 @@ function rejectionReason(
     return "empty-content";
   }
   if (allowedChats.length > 0 && !allowedChats.includes(chatId)) return "chat-not-allowed";
-  if (allowedSenderIds.length > 0 && !allowedSenderIds.includes(senderId)) return "sender-not-allowed";
+  const guestChat = guestChats.includes(chatId);
+  if (!guestChat && allowedSenderIds.length > 0 && !allowedSenderIds.includes(senderId)) {
+    return "sender-not-allowed";
+  }
   if (mentionsOnly && message?.chat_type === "group" && (message.mentions ?? []).length === 0) {
     return "group-message-without-mention";
   }
@@ -412,13 +417,36 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     const senderId = event.sender?.sender_id?.open_id ?? "";
     const isOwner = owner.length === 0 || owner.includes(senderId);
     const extraAllowed = await extraChats(runtime.harness, context).catch(() => [] as string[]);
-    const reason = rejectionReason(event, parsed, extraAllowed);
+    const guests = await guestChatIds(runtime.harness, context).catch(() => [] as string[]);
+    const reason = rejectionReason(event, parsed, extraAllowed, guests);
+    const isGuestChat = guests.includes(message.chat_id);
 
     // Self-service onboarding: the owner authorizes a new group from the group.
     if (text.trim() === "/allow" && isOwner) {
       await allowChat(runtime.harness, context, message.chat_id);
       await sendText(message.chat_id, "已把本群加入白名单，之后 @我 就能用。");
       return;
+    }
+    if (text.trim() === "/open" && isOwner) {
+      await allowChat(runtime.harness, context, message.chat_id);
+      await markGuestChat(runtime.harness, context, message.chat_id);
+      const conv = await runtime.conversationFor(message.chat_id);
+      await setGuestPolicy(runtime.harness, context, conv.id as unknown as number);
+      await conv.configure(
+        {
+          instructions:
+            "这是一个共享群（群里有其他人）。只回答与 Android 客户端相关的问题；\n" +
+            "- 不要透露主人（Alex）的个人信息、记忆、日程、其他会话内容。\n" +
+            "- 不要写任何记忆。\n- 工作目录与工具保持只读使用（read/bash 可查证，不要改文件、不要 git push）。",
+        },
+        context,
+      );
+      await sendText(message.chat_id, "已把本群开放给所有成员（guest 模式）：共享群只答本群主题，不会透露主人信息。");
+      return;
+    }
+    if (reason === "sender-not-allowed" && isGuestChat) {
+      // Should not happen; logged for diagnosis.
+      console.log(`[feishu] guest chat rejected sender ${senderId}`);
     }
     if (reason === "chat-not-allowed" && isOwner) {
       console.log(`[feishu] unknown chat ${message.chat_id}, asking owner to authorize`);
@@ -460,6 +488,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       threadKey === undefined
         ? await runtime.conversationFor(chatId)
         : await runtime.conversationForThread(chatId, { threadKey, parentMessageId });
+    if (isGuestChat) {
+      await setGuestPolicy(runtime.harness, context, conversation.id as unknown as number).catch(() => {});
+    }
     const command = text.trim();
 
     if (/^\/(help|帮助)$/i.test(command)) {

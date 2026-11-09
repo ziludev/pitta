@@ -35,7 +35,8 @@
 | 卡片时间 | 正常轮次 `✅ 12.3s（20:01 起）`；重启恢复的提示与结果都带「开始于 HH:MM，已跑 Xm Ys」 |
 | 卡片自愈 | 卡片 id 存进 durable `app.pending-cards`，进程重启后重新接管 submission 并把答案单独发出来；PATCH 失败自动降级为纯文本消息 |
 | 命令 | `/help` `/new` `/stop` `/cost` `/memory` `/id` |
-| 群聊 | 群里 @机器人 才响应；`FEISHU_ALLOWED_CHAT_IDS` 要包含群 id，`FEISHU_ALLOWED_SENDER_IDS` 决定谁能触发（群成员都能看到回复）。**新增群不用改配置**：拉进群后发 `/allow`（仅 `ALLOWED_SENDER_IDS` 里的人可以），群 id 会存进 durable doc `app.allowed-chats` 立即生效 |
+| 群聊 | 群里 @机器人 才响应；`FEISHU_ALLOWED_CHAT_IDS` 要包含群 id，`FEISHU_ALLOWED_SENDER_IDS` 决定谁能触发（群成员都能看到回复）。**新增群不用改配置**：拉进群后发 `/allow`（仅 owner）授权本群，或发 `/open` 开放给群里所有人（guest 模式）|
+| guest 群 | `/open` 把群加进 `app.guest-chats` 并给该会话打 `app.chat-policy: {guest:true}`：**任何群成员**都能 @它，但 prompt 里**不注入 global_memory**、`remember` 只能写 chat 作用域、审批按钮仍只有 owner 能点 |
 | 幂等 | `requestId = feishu:<message_id>`，飞书 at-least-once 重投不会问两遍 |
 
 ## 快速开始
