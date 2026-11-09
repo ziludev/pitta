@@ -1,0 +1,88 @@
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { isAbsolute, resolve } from "node:path";
+
+/**
+ * Loads `.env` with precedence over the ambient environment.
+ * Node's `--env-file` never overrides an already-exported variable, so a stale
+ * `FEISHU_APP_ID` in the shell silently pointed this bridge at another app.
+ */
+function loadDotEnv(file = resolve(process.cwd(), ".env")): void {
+  if (!existsSync(file)) return;
+  for (const rawLine of readFileSync(file, "utf8").split("\n")) {
+    const line = rawLine.trim();
+    if (line === "" || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+    if (value.length >= 2 && /^(".*"|'.*')$/s.test(value)) value = value.slice(1, -1);
+    process.env[key] = value;
+  }
+}
+
+loadDotEnv();
+
+function list(name: string): string[] {
+  return (process.env[name] ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+}
+
+function bool(name: string, fallback: boolean): boolean {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  return raw === "1" || raw.toLowerCase() === "true";
+}
+
+function num(name: string, fallback: number): number {
+  const raw = Number(process.env[name]);
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+}
+
+/** Absolute path helper: relative env values resolve against the process cwd. */
+function path(name: string, fallback: string): string {
+  const raw = process.env[name] || fallback;
+  const expanded = raw.startsWith("~") ? `${homedir()}${raw.slice(1)}` : raw;
+  return isAbsolute(expanded) ? expanded : resolve(process.cwd(), expanded);
+}
+
+export const config = {
+  feishu: {
+    appId: process.env.FEISHU_APP_ID ?? "",
+    appSecret: process.env.FEISHU_APP_SECRET ?? "",
+    allowedChatIds: list("FEISHU_ALLOWED_CHAT_IDS"),
+    allowedSenderIds: list("FEISHU_ALLOWED_SENDER_IDS"),
+    mentionsOnly: bool("FEISHU_MENTIONS_ONLY", true),
+  },
+  model: {
+    provider: process.env.AGENT_PROVIDER ?? "magpie",
+    modelId: process.env.AGENT_MODEL ?? "auto/deepseek-flash",
+  },
+  thinkingLevel: (process.env.AGENT_THINKING ?? "high") as
+    | "off"
+    | "minimal"
+    | "low"
+    | "medium"
+    | "high"
+    | "xhigh"
+    | "max",
+  workspace: path("AGENT_WORKSPACE", "./workspace"),
+  dbPath: path("AGENT_DB", "./.data/agent.sqlite"),
+  maxTurns: num("AGENT_MAX_TURNS", 40),
+  /** USD per day; 0 or less means unlimited. */
+  dailyBudgetUsd: num("AGENT_DAILY_BUDGET_USD", 0),
+  magpie: {
+    baseUrl: process.env.MAGPIE_BASE_URL ?? "http://127.0.0.1:3425/v1",
+    apiKey: process.env.MAGPIE_API_KEY ?? "magpie",
+  },
+} as const;
+
+export function requireFeishuCredentials(): { appId: string; appSecret: string } {
+  const { appId, appSecret } = config.feishu;
+  if (!appId || !appSecret) {
+    throw new Error("FEISHU_APP_ID / FEISHU_APP_SECRET are required to run the Feishu bridge");
+  }
+  return { appId, appSecret };
+}

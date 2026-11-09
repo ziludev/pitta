@@ -1,0 +1,27 @@
+{
+  "name": "pi-durable-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal agent on Pi Durable, reachable from Feishu",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "ask": "node src/cli.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "card": "node src/feishu-selftest.ts"
+  },
+  "dependencies": {
+    "@earendil-works/chord": "1.5.0",
+    "@earendil-works/pi-ai": "1.5.0",
+    "@earendil-works/pi-durable": "1.5.0",
+    "@earendil-works/pi-schema": "^1.5.0",
+    "@larksuiteoapi/node-sdk": "^1.76.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^5.9.3"
+  }
+}

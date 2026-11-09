@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.alex.pi-durable-agent</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/example/.local/share/nodejs/node-v24.22.2-darwin-arm64/bin/node</string>
+    <string>/Users/example/learn/pi-durable-agent/src/main.ts</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/example/learn/pi-durable-agent</string>
+
+  <!-- A durable harness should outlive crashes, not just be restarted by hand. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/example/learn/pi-durable-agent/logs/agent.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/example/learn/pi-durable-agent/logs/agent.err.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- launchd has a minimal PATH; keep the one the shell uses so bash tools find things. -->
+    <key>PATH</key>
+    <string>/Users/example/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HOME</key>
+    <string>/Users/example</string>
+  </dict>
+</dict>
+</plist>

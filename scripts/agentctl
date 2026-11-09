@@ -1,0 +1,39 @@
+#!/bin/bash
+# Control the launchd-managed agent.
+#   ./scripts/agentctl install|start|stop|restart|status|logs
+set -euo pipefail
+
+LABEL="com.alex.pi-durable-agent"
+PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
+PLIST="$PROJECT/launchd/$LABEL.plist"
+TARGET="$HOME/Library/LaunchAgents/$LABEL.plist"
+
+case "${1:-status}" in
+  install)
+    mkdir -p "$PROJECT/logs" "$HOME/Library/LaunchAgents"
+    cp "$PLIST" "$TARGET"
+    launchctl bootout "gui/$(id -u)" "$TARGET" 2>/dev/null || true
+    launchctl bootstrap "gui/$(id -u)" "$TARGET"
+    launchctl enable "gui/$(id -u)/$LABEL"
+    echo "installed; logs: $PROJECT/logs/agent.log"
+    ;;
+  start)
+    launchctl kickstart "gui/$(id -u)/$LABEL"
+    ;;
+  stop)
+    launchctl kill SIGTERM "gui/$(id -u)/$LABEL" 2>/dev/null || launchctl bootout "gui/$(id -u)/$TARGET"
+    ;;
+  restart)
+    launchctl kickstart -k "gui/$(id -u)/$LABEL"
+    ;;
+  status)
+    launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null | grep -E "state|pid|last exit|program" || echo "not loaded"
+    ;;
+  logs)
+    tail -n "${2:-50}" "$PROJECT/logs/agent.log"
+    ;;
+  *)
+    echo "usage: $0 install|start|stop|restart|status|logs [n]" >&2
+    exit 2
+    ;;
+esac
