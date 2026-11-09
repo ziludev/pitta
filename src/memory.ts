@@ -26,7 +26,9 @@ export const GlobalMemory = defineDoc<{ notes: Note[] }>({
   checkpointWhen: () => false,
 });
 
-const MAX_SECTION_NOTES = 40;
+/** Injected every request, so keep it bounded: recent memory only, everything else via `recall`. */
+const MAX_GLOBAL_NOTES = 60;
+const MAX_CHAT_NOTES = 20;
 
 const remember = defineTool({
   name: "remember",
@@ -40,15 +42,22 @@ const remember = defineTool({
     const at = new Date().toISOString();
     const scope = args.scope === "chat" ? "chat" : "global";
     let total = 0;
+    let duplicate = false;
     await api.commit(async (tx) => {
       const doc =
         scope === "global" ? await tx.doc(GlobalMemory) : await tx.doc(ChatMemory, api.conversationId);
-      doc.notes.push({ at, text: args.text });
+      duplicate = doc.notes.some((note) => note.text.trim() === args.text.trim());
+      if (!duplicate) doc.notes.push({ at, text: args.text.trim() });
       total = doc.notes.length;
     }, context);
     return {
       output: [
-        { type: "text" as const, text: `已记住（${scope}，共 ${total} 条）：${args.text}` },
+        {
+          type: "text" as const,
+          text: duplicate
+            ? `这条已经在记忆里了（${scope}，共 ${total} 条）`
+            : `已记住（${scope}，共 ${total} 条）：${args.text}`,
+        },
       ],
     };
   },
@@ -82,27 +91,64 @@ const forget = defineTool({
   },
 });
 
-function renderNotes(notes: Note[] | undefined): string | undefined {
+const recall = defineTool({
+  name: "recall",
+  description:
+    "在长期记忆里搜索：多个关键词用空格分开，全部命中才算。记忆很多、prompt 里只显示最近若干条时用它找旧信息。",
+  parameters: obj({ query: str({ description: "关键词，空格分隔" }) }),
+  replay: "safe",
+  execute: async (args, api, context) => {
+    const terms = args.query
+      .split(/\s+/)
+      .map((term) => term.trim())
+      .filter((term) => term.length > 0);
+    const global = await api.snapshot(GlobalMemory, context);
+    const chat = await api.snapshot(ChatMemory, api.conversationId, context);
+    const hits: string[] = [];
+    for (const [label, notes] of [
+      ["全局", global?.notes ?? []],
+      ["本对话", chat?.notes ?? []],
+    ] as const) {
+      for (const note of notes) {
+        if (terms.every((term) => note.text.includes(term))) {
+          hits.push(`- [${label}] ${note.at.slice(0, 10)} ${note.text}`);
+        }
+      }
+    }
+    return {
+      output: [
+        {
+          type: "text" as const,
+          text: hits.length === 0 ? `没有匹配「${args.query}」的记忆` : hits.join("\n"),
+        },
+      ],
+    };
+  },
+});
+
+function renderNotes(notes: Note[] | undefined, limit: number): string | undefined {
   if (notes === undefined || notes.length === 0) return undefined;
-  return notes
-    .slice(-MAX_SECTION_NOTES)
-    .map((note) => `- ${note.at.slice(0, 10)} ${note.text}`)
-    .join("\n");
+  const hidden = Math.max(0, notes.length - limit);
+  const lines = notes
+    .slice(-limit)
+    .map((note) => `- ${note.at.slice(0, 10)} ${note.text}`);
+  if (hidden > 0) lines.unshift(`（还有 ${hidden} 条更早的，用 recall 搜索）`);
+  return lines.join("\n");
 }
 
 /** Memory sections + tools, ready for the personal extension. */
 export const memorySections = [
   section("global_memory", async (input, context) => {
     const doc = await input.read.snapshot(GlobalMemory, context);
-    return renderNotes(doc?.notes);
+    return renderNotes(doc?.notes, MAX_GLOBAL_NOTES);
   }),
   section("chat_memory", async (input, context) => {
     const doc = await input.read.snapshot(ChatMemory, input.conversationId, context);
-    return renderNotes(doc?.notes);
+    return renderNotes(doc?.notes, MAX_CHAT_NOTES);
   }),
 ];
 
-export const memoryTools = [remember, forget];
+export const memoryTools = [remember, forget, recall];
 
 export const memoryExtension = defineExtension({
   name: "memory",

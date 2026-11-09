@@ -73,6 +73,15 @@ export const config = {
   maxTurns: num("AGENT_MAX_TURNS", 40),
   /** USD per day; 0 or less means unlimited. */
   dailyBudgetUsd: num("AGENT_DAILY_BUDGET_USD", 0),
+  asr: {
+    mode: (process.env.AGENT_ASR ?? "auto") as "auto" | "off",
+    whisper: process.env.AGENT_ASR_WHISPER ?? "whisper",
+    ffmpeg: process.env.AGENT_ASR_FFMPEG ?? "ffmpeg",
+    model: process.env.AGENT_ASR_MODEL ?? "base",
+    /** Explicit .pt path; skips the cache lookup (useful when the download lives elsewhere). */
+    modelPath: process.env.AGENT_ASR_MODEL_PATH ?? "",
+    language: process.env.AGENT_ASR_LANG ?? "zh",
+  },
   magpie: {
     baseUrl: process.env.MAGPIE_BASE_URL ?? "http://127.0.0.1:3425/v1",
     apiKey: process.env.MAGPIE_API_KEY ?? "magpie",

@@ -20,6 +20,7 @@ import { guardExtension } from "./approval.ts";
 import { personalExtension } from "./personal.ts";
 import { checkBudget, type BudgetCheck } from "./budget.ts";
 import { rememberSurface } from "./channel.ts";
+import { forkAt, lookupMessage, lookupThread, recordMessage, recordThread } from "./threads.ts";
 import { config } from "./config.ts";
 
 export const context = BACKGROUND_CONTEXT;
@@ -36,6 +37,12 @@ const Chats = defineDoc<{ chats: Record<string, number> }>({
 export type AgentRuntime = {
   harness: Harness;
   conversationFor(surfaceId: string): Promise<Conversation>;
+  /** Reply/thread conversation: forked at the answered message, or the chat itself. */
+  conversationForThread(
+    surfaceId: string,
+    options: { threadKey?: string; parentMessageId?: string },
+  ): Promise<Conversation>;
+  recordMessage(messageId: string, conversation: Conversation, entryId: number): Promise<void>;
   answerText(conversation: Conversation, answerId: EntryId): Promise<string>;
   budget(surfaceId: string): Promise<BudgetCheck>;
   memories(conversation: Conversation): Promise<{ global: Note[]; chat: Note[] }>;
@@ -110,6 +117,53 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     return created;
   }
 
+  async function conversationForThread(
+    surfaceId: string,
+    options: { threadKey?: string; parentMessageId?: string },
+  ): Promise<Conversation> {
+    const threadKey = options.threadKey ?? options.parentMessageId;
+    if (threadKey !== undefined) {
+      const known = await lookupThread(harness, context, threadKey);
+      if (known !== undefined) {
+        const existing = await harness.conversation(
+          known as unknown as Parameters<typeof harness.conversation>[0],
+          context,
+        );
+        if (existing !== undefined) {
+          rememberSurface(existing.id as unknown as number, surfaceId);
+          return existing;
+        }
+      }
+      // First message of this thread: fork the chat conversation where it branched off.
+      const anchor =
+        options.parentMessageId === undefined
+          ? undefined
+          : await lookupMessage(harness, context, options.parentMessageId);
+      if (anchor !== undefined) {
+        const parent = await harness.conversation(
+          anchor.conversationId as unknown as Parameters<typeof harness.conversation>[0],
+          context,
+        );
+        if (parent !== undefined) {
+          const forked = await forkAt(parent, anchor.entryId, agentChange, context);
+          await recordThread(harness, context, threadKey, forked.id as unknown as number);
+          rememberSurface(forked.id as unknown as number, surfaceId);
+          console.log(`[agent] forked conversation ${forked.id} from ${parent.id} at entry ${anchor.entryId}`);
+          return forked;
+        }
+      }
+    }
+    return conversationFor(surfaceId);
+  }
+
+  async function recordMessageFor(
+    messageId: string,
+    conversation: Conversation,
+    entryId: number,
+  ): Promise<void> {
+    await recordMessage(harness, context, messageId, conversation.id as unknown as number, entryId);
+  }
+
   async function answerText(conversation: Conversation, answerId: EntryId): Promise<string> {
     const entry = await conversation.commit((tx) => tx.entry(AssistantEntry, answerId), context);
     const messages = (entry?.model ?? []) as unknown as Array<{ content?: unknown }>;
@@ -126,6 +180,8 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   return {
     harness,
     conversationFor,
+    conversationForThread,
+    recordMessage: recordMessageFor,
     answerText,
     memories: async (conversation) => ({
       global: (await harness.snapshot(GlobalMemory, context))?.notes ?? [],

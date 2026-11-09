@@ -14,10 +14,12 @@
 |---|---|
 | 对话 | 每个飞书 chat 一个独立 conversation，流式卡片输出（`pi.live` → 卡片 PATCH，1.5s 节流） |
 | 崩溃续跑 | 模型请求/工具调用/压缩都是 durable task；进程被 `kill -9`，重启后从断点继续 |
-| 长期记忆 | 两层：`global_memory`（跨 chat 共享）+ `chat_memory`（本对话）。`remember` / `forget` 工具，`/memory` 查看 |
+| 长期记忆 | 两层：`global_memory`（跨 chat 共享）+ `chat_memory`（本对话）。`remember` / `forget` / `recall`（关键词搜索旧记忆），`/memory` 查看。注入只带最近 60/20 条，更早的用 `recall` 捞 |
 | 主动性 | `remind` 工具创建 **durable 定时任务**：存 deadline 睡觉，进程重启后照样到点触发，主动发消息 |
 | 工具审批 | `guard` hook 拦危险调用（`rm -rf`、`git push --force`、`sudo`、写工作区外…），发带按钮的卡片等人点，decision 存 memo |
 | 成本闸门 | `pi.usage` 汇总 → 每日额度（`AGENT_DAILY_BUDGET_USD`），超了拒绝新请求，跨天自动重置 |
+| 话题 / 回复 | 回复某条消息或话题群里的消息 → 在该消息处 `fork` 出一条独立 conversation，各自独立跑，互不阻塞 |
+| 语音 | `audio` 消息 → ffmpeg 转 16k wav → 本地 whisper 转写（中文），不需要 API key |
 | 图片 | `image` 与 `post`（图文混排）都解析 → 下载 → base64 → 多模态模型；带锚定提示，先描述图再答题 |
 | 卡片自愈 | 卡片 id 存进 durable `app.pending-cards`，进程重启后重新接管 submission 并把答案单独发出来；PATCH 失败自动降级为纯文本消息 |
 | 命令 | `/help` `/new` `/stop` `/cost` `/memory` `/id` |
@@ -88,6 +90,8 @@ src/
   harness.ts     Harness.open、扩展装配、chat↔conversation 映射
   live.ts        订阅 pi.live，读出流式文本和当前工具
   cards.ts       durable 卡片登记：重启后接管未完成的提交
+  threads.ts     消息 id → entry 索引 + thread → fork 出来的会话
+  asr.ts         本地 whisper 转写（ffmpeg + whisper CLI）
   log.ts         带时间戳的日志（launchd 文件日志需要时间线）
   feishu.ts      长连接、卡片流式、审批按钮、图片、命令、额度闸门
   main.ts        进程入口
@@ -120,6 +124,25 @@ scripts/backup-db sqlite 热备 + 完整性校验 + 轮转
 - **审批 decision 存 memo**：进程死掉重跑 hook 不会重复问你。
 - **预算按天**：以 session 总花费做基线做差值，跨天重置；不做硬性的 per-request 熔断（避免打断正在跑的任务）。
 - **不做子 agent**：需要时 tool 里 `tx.createConversation()` + `submit()` + `wait()` 即可，天然 durable。
+
+## 语音识别
+
+`audio` 消息 → ffmpeg 转 16k mono wav → 本地 `whisper` CLI 转写。
+
+```bash
+brew install ffmpeg          # 已有
+pip install -U openai-whisper
+# 模型首次需要下载到 ~/.cache/whisper/（base 约 142MB）
+```
+
+请求路径里**不会**触发生效模型下载：模型文件不存在时直接回「whisper 模型还没下载好」，
+避免把一次对话卡在几十分钟的下载上。想换模型或用别处的模型文件：
+
+```bash
+AGENT_ASR_MODEL=small AGENT_ASR_MODEL_PATH=/path/to/model.pt
+```
+
+`AGENT_ASR=off` 可整体关掉（此时语音消息会回一句"转写失败"并显示原因）。
 
 ## 排查手册
 

@@ -7,6 +7,7 @@ import { context, type AgentRuntime } from "./harness.ts";
 import { watchLive, type LiveSnapshot } from "./live.ts";
 import { setApprovalDecider, setNotifier, type ApprovalRequest } from "./channel.ts";
 import { log, logError } from "./log.ts";
+import { transcribeAudio } from "./asr.ts";
 import { attachSubmission, clearCardPending, leftoverCards, markCardPending } from "./cards.ts";
 
 type IncomingMessage = {
@@ -17,6 +18,11 @@ type IncomingMessage = {
     chat_type?: string;
     message_type?: string;
     content?: string;
+    /** Reply chain: `parent_id` is the answered message, `root_id` the chain start. */
+    parent_id?: string;
+    root_id?: string;
+    /** 话题 groups give every message a thread id. */
+    thread_id?: string;
     mentions?: Array<{ key?: string; name?: string }>;
   };
 };
@@ -90,7 +96,7 @@ function renderLive(live: LiveSnapshot): string {
 }
 
 type PostElement = { tag?: string; text?: string; image_key?: string };
-export type ParsedContent = { text: string; imageKeys: string[] };
+export type ParsedContent = { text: string; imageKeys: string[]; audioKey?: string };
 
 function stripMentions(message: NonNullable<IncomingMessage["message"]>, text: string): string {
   // Feishu renders mentions as "@_user_1"; drop them so the model sees a clean sentence.
@@ -120,6 +126,10 @@ export function parseContent(message: NonNullable<IncomingMessage["message"]>): 
   if (message.message_type === "image") {
     const key = (body as { image_key?: string }).image_key;
     return { text: "", imageKeys: key === undefined ? [] : [key] };
+  }
+  if (message.message_type === "audio") {
+    const key = (body as { file_key?: string }).file_key;
+    return { text: "", imageKeys: [], audioKey: key };
   }
   if (message.message_type === "post") {
     const rows = (body as { content?: PostElement[][] }).content ?? [];
@@ -151,9 +161,12 @@ function rejectionReason(
   const supported =
     message?.message_type === "text" ||
     message?.message_type === "image" ||
-    message?.message_type === "post";
+    message?.message_type === "post" ||
+    message?.message_type === "audio";
   if (!supported) return `unsupported-message-type:${message?.message_type ?? "?"}`;
-  if (content.text.length === 0 && content.imageKeys.length === 0) return "empty-content";
+  if (content.text.length === 0 && content.imageKeys.length === 0 && content.audioKey === undefined) {
+    return "empty-content";
+  }
   if (allowedChatIds.length > 0 && !allowedChatIds.includes(chatId)) return "chat-not-allowed";
   if (allowedSenderIds.length > 0 && !allowedSenderIds.includes(senderId)) return "sender-not-allowed";
   if (mentionsOnly && message?.chat_type === "group" && (message.mentions ?? []).length === 0) {
@@ -227,11 +240,15 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     return response?.data?.message_id;
   }
 
-  async function downloadImage(messageId: string, fileKey: string): Promise<{ data: string; mimeType: string } | undefined> {
+  async function downloadResource(
+    messageId: string,
+    fileKey: string,
+    type: "image" | "file",
+  ): Promise<Buffer | undefined> {
     try {
       const resource = (await client.im.messageResource.get({
         path: { message_id: messageId, file_key: fileKey },
-        params: { type: "image" },
+        params: { type },
       })) as unknown as {
         writeFile?: (path: string) => Promise<void>;
         getReadableStream?: () => NodeJS.ReadableStream;
@@ -241,18 +258,27 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         await resource.writeFile(file);
         const bytes = await readFile(file);
         await rm(file, { force: true });
-        return { data: bytes.toString("base64"), mimeType: sniff(bytes) };
+        return bytes;
       }
       if (typeof resource?.getReadableStream === "function") {
         const chunks: Buffer[] = [];
         for await (const chunk of resource.getReadableStream()) chunks.push(Buffer.from(chunk as Buffer));
-        const bytes = Buffer.concat(chunks);
-        return { data: bytes.toString("base64"), mimeType: sniff(bytes) };
+        return Buffer.concat(chunks);
       }
+      logError("feishu", "unexpected resource shape", Object.keys(resource ?? {}).join(","));
     } catch (error) {
-      console.error("[feishu] image download failed", error);
+      logError("feishu", `resource download failed (${type})`, error);
     }
     return undefined;
+  }
+
+  async function downloadImage(
+    messageId: string,
+    fileKey: string,
+  ): Promise<{ data: string; mimeType: string } | undefined> {
+    const bytes = await downloadResource(messageId, fileKey, "image");
+    if (bytes === undefined) return undefined;
+    return { data: bytes.toString("base64"), mimeType: sniff(bytes) };
   }
 
   // The extensions reach back through these two hooks.
@@ -333,7 +359,15 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
 
     const chatId = message.chat_id;
     const startedAt = Date.now();
-    const conversation = await runtime.conversationFor(chatId);
+    // A reply or a 话题 message gets its own conversation forked at the message it
+    // answers; everything else shares the chat conversation.
+    const rawThreadKey = message.thread_id ?? message.root_id ?? message.parent_id;
+    const threadKey = rawThreadKey === message.message_id ? undefined : rawThreadKey;
+    const parentMessageId = message.parent_id ?? message.root_id;
+    const conversation =
+      threadKey === undefined
+        ? await runtime.conversationFor(chatId)
+        : await runtime.conversationForThread(chatId, { threadKey, parentMessageId });
     const command = text.trim();
 
     if (/^\/(help|帮助)$/i.test(command)) {
@@ -373,7 +407,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       return;
     }
     if (/^\/(id|会话)$/i.test(command)) {
-      await sendText(chatId, `chat: ${chatId}\nconversation: ${conversation.id}`);
+      await sendText(
+        chatId,
+        `chat: ${chatId}\nconversation: ${conversation.id}${threadKey === undefined ? "" : `\nthread: ${threadKey}（已 fork）`}`,
+      );
       return;
     }
 
@@ -389,7 +426,11 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     log("feishu", "turn start", { chatId, conversationId: conversation.id, type: message.message_type });
     const cardId = await replyCard(
       message.message_id,
-      parsed.imageKeys.length > 0 ? "🖼️ 看图…" : "🤔 收到，处理中…",
+      parsed.audioKey !== undefined
+        ? "🎧 听语音…"
+        : parsed.imageKeys.length > 0
+          ? "🖼️ 看图…"
+          : "🤔 收到，处理中…",
     );
     if (cardId === undefined) {
       log("feishu", "reply card creation failed, continuing without streaming");
@@ -433,6 +474,12 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       const settled = await submission.wait(context);
       const seconds = Math.round((Date.now() - startedAt) / 100) / 10;
       log("feishu", "settled", { status: settled.status, reason: settled.reason ?? null, seconds });
+      if (settled.entry !== undefined) {
+        // Remember where this message landed so a later reply can fork at it.
+        await runtime
+          .recordMessage(message.message_id, conversation, settled.entry as unknown as number)
+          .catch((error) => logError("feishu", "could not index message", error));
+      }
 
       if (settled.status === "done" && settled.answer !== undefined) {
         const answer = await runtime.answerText(conversation, settled.answer);
@@ -457,6 +504,14 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     message: NonNullable<IncomingMessage["message"]>,
     parsed: ParsedContent,
   ): Promise<string | Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>> {
+    if (parsed.audioKey !== undefined) {
+      const bytes = await downloadResource(message.message_id ?? "", parsed.audioKey, "file");
+      if (bytes === undefined) return `${parsed.text}\n（语音下载失败）`.trim();
+      const asr = await transcribeAudio(bytes, "opus");
+      if (!asr.ok) return `${parsed.text}\n（语音转写失败：${asr.error}）`.trim();
+      if (asr.text.length === 0) return `${parsed.text}\n（语音里没听出内容）`.trim();
+      return `[语音转写] ${asr.text}${parsed.text.length > 0 ? `\n（随语音附带的文字）${parsed.text}` : ""}`;
+    }
     if (parsed.imageKeys.length === 0) return parsed.text;
     const images: Array<{ type: "image"; data: string; mimeType: string }> = [];
     for (const key of parsed.imageKeys.slice(0, 3)) {
