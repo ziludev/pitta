@@ -21,6 +21,9 @@ const RISKY: Array<{ pattern: RegExp; reason: string }> = [
 
 const WRITE_TOOLS = new Set(["write", "edit"]);
 
+/** Tools that change something outside the workspace, in someone else's system. */
+const EXTERNAL_WRITES = new Set(["feishu_create_task"]);
+
 function outsideWorkspace(path: string): boolean {
   const absolute = isAbsolute(path) ? path : resolve(config.workspace, path);
   const rel = relative(config.workspace, absolute);
@@ -35,6 +38,9 @@ export function approvalReason(tool: string, args: Record<string, unknown>): str
       if (risky.pattern.test(command)) return `${risky.reason}：${command.slice(0, 120)}`;
     }
     return undefined;
+  }
+  if (EXTERNAL_WRITES.has(tool)) {
+    return `会写入你的飞书：${JSON.stringify(args).slice(0, 200)}`;
   }
   if (WRITE_TOOLS.has(tool)) {
     const path = typeof args["path"] === "string" ? args["path"] : "";

@@ -15,8 +15,10 @@ import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { assertModelAvailable, createAgentModels, warnIfRoutingGroup } from "./models.ts";
 import { ChatMemory, GlobalMemory, memoryExtension, type Note } from "./memory.ts";
+import type { ToolStep } from "./details.ts";
 import { reminderExtension } from "./reminders.ts";
 import { guardExtension } from "./approval.ts";
+import { larkExtension } from "./lark-tools.ts";
 import { connectMcp, type McpRuntime } from "./mcp.ts";
 import { personalExtension } from "./personal.ts";
 import { checkBudget, type BudgetCheck } from "./budget.ts";
@@ -46,6 +48,8 @@ export type AgentRuntime = {
   ): Promise<Conversation>;
   recordMessage(messageId: string, conversation: Conversation, entryId: number): Promise<void>;
   answerText(conversation: Conversation, answerId: EntryId): Promise<string>;
+  /** Tool calls of one run, in order, with short output previews. */
+  turnSteps(conversation: Conversation, from: number, to: number): Promise<ToolStep[]>;
   budget(surfaceId: string): Promise<BudgetCheck>;
   mcp: McpRuntime;
   memories(conversation: Conversation): Promise<{ global: Note[]; chat: Note[] }>;
@@ -69,6 +73,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   const registry = createRegistry();
   registry.install(CodingTools);
   registry.install(personalExtension);
+  registry.install(larkExtension);
   registry.install(memoryExtension);
   registry.install(reminderExtension);
   registry.install(guardExtension);
@@ -174,6 +179,47 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     await recordMessage(harness, context, messageId, conversation.id as unknown as number, entryId);
   }
 
+  async function turnSteps(conversation: Conversation, from: number, to: number): Promise<ToolStep[]> {
+    const page = await conversation.entries(
+      { minEntryId: from as unknown as EntryId, maxEntryId: to as unknown as EntryId, order: "ascending" },
+      200,
+      undefined,
+      context,
+    );
+    const calls = new Map<string, string>();
+    const steps: ToolStep[] = [];
+    for (const entry of page.items) {
+      const messages = (entry.model ?? []) as unknown as Array<Record<string, unknown>>;
+      for (const message of messages) {
+        const role = message["role"];
+        const content = message["content"];
+        if (role === "assistant" && Array.isArray(content)) {
+          for (const part of content as Array<Record<string, unknown>>) {
+            if (part["type"] === "toolCall" && typeof part["id"] === "string" && typeof part["name"] === "string") {
+              calls.set(part["id"], part["name"]);
+            }
+          }
+        } else if (role === "toolResult") {
+          // A tool result is a message of its own: { role: "toolResult", toolName, content }.
+          const callId = typeof message["toolCallId"] === "string" ? message["toolCallId"] : "";
+          const body = Array.isArray(content) ? (content as Array<Record<string, unknown>>) : [];
+          const text = body
+            .filter((item) => item["type"] === "text" && typeof item["text"] === "string")
+            .map((item) => String(item["text"]))
+            .join("")
+            .replace(/\s+/g, " ")
+            .trim();
+          steps.push({
+            name: typeof message["toolName"] === "string" ? message["toolName"] : calls.get(callId) ?? "tool",
+            ok: message["isError"] !== true,
+            preview: text.slice(0, 240),
+          });
+        }
+      }
+    }
+    return steps;
+  }
+
   async function answerText(conversation: Conversation, answerId: EntryId): Promise<string> {
     const entry = await conversation.commit((tx) => tx.entry(AssistantEntry, answerId), context);
     const messages = (entry?.model ?? []) as unknown as Array<{ content?: unknown }>;
@@ -194,6 +240,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     conversationFor,
     conversationForThread,
     recordMessage: recordMessageFor,
+    turnSteps,
     answerText,
     memories: async (conversation) => ({
       global: (await harness.snapshot(GlobalMemory, context))?.notes ?? [],

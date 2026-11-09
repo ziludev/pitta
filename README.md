@@ -19,6 +19,8 @@
 | 工具审批 | `guard` hook 拦危险调用（`rm -rf`、`git push --force`、`sudo`、写工作区外…），发带按钮的卡片等人点，decision 存 memo |
 | 成本闸门 | `pi.usage` 汇总 → 每日额度（`AGENT_DAILY_BUDGET_USD`），超了拒绝新请求，跨天自动重置 |
 | 话题 / 回复 | 回复某条消息或话题群里的消息 → 在该消息处 `fork` 出一条独立 conversation，各自独立跑，互不阻塞 |
+| 飞书原生 | `lark-cli`（已登录成你的身份）→ `feishu_agenda` 日历、`feishu_tasks` 待办、`feishu_create_task` 建任务（需审批）、`feishu_doc_read` 读文档 |
+| 执行详情 | 有工具调用的轮次，卡片带「查看详情」按钮，点开看每步工具、输出摘要、耗时与花费 |
 | 工具生态 | `mcp.json` 里声明的 MCP servers（stdio / streamable HTTP）在启动时连接，工具以 `mcp__<server>__<tool>` 注册成 durable tool task；默认 `replay: unsafe`，被中断就报告模型而不是重放 |
 | 进度反馈 | 流式文本 + 工具名；静默期间每 15s 心跳更新卡片（耗时 · 进行中）；结束给 `✅ 12.3s · 3 个工具 · $0.0021` |
 | 语音 | `audio` 消息 → ffmpeg 转 16k wav → 本地 whisper 转写（中文），不需要 API key |
@@ -95,6 +97,8 @@ src/
   threads.ts     消息 id → entry 索引 + thread → fork 出来的会话
   asr.ts         本地 whisper 转写（ffmpeg + whisper CLI）
   mcp.ts         MCP client：连 servers，把它们的工具注册成 durable 工具
+  lark-tools.ts  飞书原生工具（日历/待办/文档），走 lark-cli 的用户身份
+  details.ts     每轮工具调用明细，供「查看详情」按钮读取
   log.ts         带时间戳的日志（launchd 文件日志需要时间线）
   feishu.ts      长连接、卡片流式、审批按钮、图片、命令、额度闸门
   main.ts        进程入口
@@ -127,6 +131,25 @@ scripts/backup-db sqlite 热备 + 完整性校验 + 轮转
 - **审批 decision 存 memo**：进程死掉重跑 hook 不会重复问你。
 - **预算按天**：以 session 总花费做基线做差值，跨天重置；不做硬性的 per-request 熔断（避免打断正在跑的任务）。
 - **不做子 agent**：需要时 tool 里 `tx.createConversation()` + `submit()` + `wait()` 即可，天然 durable。
+
+## 飞书原生工具
+
+这些工具走本机已登录的 `lark-cli`（你的用户身份），不是在 bot 权限范围内扩权：
+
+| 工具 | 作用 | 状态 |
+|---|---|---|
+| `feishu_tasks` | 我的待办 | ✅ 可用 |
+| `feishu_agenda` | 日历日程 | ⚠️ 需要授权 `calendar:calendar.event:read` |
+| `feishu_create_task` | 建待办（写，走审批） | ✅ 可用 |
+| `feishu_doc_read` | 读云文档 | ✅ 可用 |
+
+缺权限时授权（工具输出里也会带这条命令）：
+
+```bash
+lark-cli auth login --scope "calendar:calendar.event:read" --no-wait --json
+# 打开返回的 verification_url 确认，再跑
+lark-cli auth login --device-code <device_code>
+```
 
 ## MCP（外接应用生态）
 

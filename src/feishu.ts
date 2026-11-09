@@ -9,6 +9,7 @@ import { setApprovalDecider, setNotifier, type ApprovalRequest } from "./channel
 import { log, logError } from "./log.ts";
 import { transcribeAudio } from "./asr.ts";
 import { attachSubmission, clearCardPending, leftoverCards, markCardPending } from "./cards.ts";
+import { readTurnDetails, saveTurnDetails, type TurnDetails } from "./details.ts";
 
 type IncomingMessage = {
   sender?: { sender_id?: { open_id?: string } };
@@ -45,12 +46,36 @@ const HELP = [
   "直接说话就行：能查文件、跑命令、定时提醒、记长期记忆。",
 ].join("\n");
 
-function card(markdown: string, meta?: string): Record<string, unknown> {
+type CardButton = { label: string; value: Record<string, unknown>; type?: "primary" | "danger" | "default" };
+
+function card(markdown: string, meta?: string, buttons?: CardButton[]): Record<string, unknown> {
   const elements: Array<Record<string, unknown>> = [{ tag: "markdown", content: markdown }];
   if (meta !== undefined) {
     elements.push({ tag: "note", elements: [{ tag: "plain_text", content: meta }] });
   }
+  if (buttons !== undefined && buttons.length > 0) {
+    elements.push({
+      tag: "action",
+      actions: buttons.map((button) => ({
+        tag: "button",
+        text: { tag: "plain_text", content: button.label },
+        type: button.type ?? "default",
+        value: button.value,
+      })),
+    });
+  }
   return { config: { wide_screen_mode: true, update_multi: true }, elements };
+}
+
+function renderDetails(details: TurnDetails): string {
+  const lines = details.steps.map((step, index) => {
+    const mark = step.ok ? "✅" : "⚠️";
+    return `${index + 1}. ${mark} **${step.name}**\n${step.preview.length > 0 ? `　${step.preview}` : "　（无输出）"}`;
+  });
+  const header = `本轮用了 **${details.steps.length}** 个工具，耗时 **${details.seconds}s**${
+    details.costUsd > 0.00005 ? `，花费 **$${details.costUsd.toFixed(4)}**` : ""
+  }`;
+  return `${header}\n\n${lines.join("\n\n")}`;
 }
 
 function approvalCard(request: ApprovalRequest): Record<string, unknown> {
@@ -196,10 +221,15 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     });
   }
 
-  async function patchCard(messageId: string, markdown: string, meta?: string): Promise<void> {
+  async function patchCard(
+    messageId: string,
+    markdown: string,
+    meta?: string,
+    buttons?: CardButton[],
+  ): Promise<void> {
     const response = await client.im.message.patch({
       path: { message_id: messageId },
-      data: { content: JSON.stringify(card(markdown, meta)) },
+      data: { content: JSON.stringify(card(markdown, meta, buttons)) },
     });
     if (response?.code !== 0) {
       throw new Error(`patch failed: ${response?.code} ${response?.msg ?? ""}`);
@@ -216,9 +246,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     cardId: string,
     markdown: string,
     meta: string,
+    buttons?: CardButton[],
   ): Promise<void> {
     try {
-      await patchCard(cardId, markdown, meta);
+      await patchCard(cardId, markdown, meta, buttons);
       log("feishu", "final card patched", { chatId, cardId, chars: markdown.length });
       return;
     } catch (error) {
@@ -310,6 +341,25 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
 
   async function handleCardAction(payload: CardAction): Promise<Record<string, unknown>> {
     const value = payload.action?.value ?? {};
+
+    if (value["kind"] === "detail") {
+      const messageId = typeof value["messageId"] === "string" ? value["messageId"] : "";
+      const chatId = payload.context?.open_chat_id ?? "";
+      const details = await readTurnDetails(runtime.harness, context, messageId);
+      if (details === undefined) return { toast: { type: "info", content: "这轮没有工具调用记录" } };
+      if (chatId.length > 0) {
+        await client.im.message.create({
+          params: { receive_id_type: "chat_id" },
+          data: {
+            receive_id: chatId,
+            msg_type: "interactive",
+            content: JSON.stringify(card(renderDetails(details), "🔍 本轮执行详情")),
+          },
+        });
+      }
+      return { toast: { type: "success", content: "详情已发送" } };
+    }
+
     const callId = typeof value["approval"] === "string" ? value["approval"] : "";
     const operator = payload.operator?.open_id ?? "";
     const entry = pendingApprovals.get(callId);
@@ -501,7 +551,21 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         const meta = `✅ ${seconds}s${toolsUsed.size > 0 ? ` · ${toolsUsed.size} 个工具` : ""}${
           cost > 0.00005 ? ` · $${cost.toFixed(4)}` : ""
         }`;
-        await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", meta);
+        let buttons: CardButton[] | undefined;
+        if (settled.entry !== undefined) {
+          const steps = await runtime
+            .turnSteps(conversation, settled.entry as unknown as number, settled.answer as unknown as number)
+            .catch(() => []);
+          if (steps.length > 0) {
+            await saveTurnDetails(runtime.harness, context, message.message_id, {
+              steps,
+              seconds,
+              costUsd: cost,
+            }).catch((error) => logError("feishu", "could not save turn details", error));
+            buttons = [{ label: "查看详情", value: { kind: "detail", messageId: message.message_id } }];
+          }
+        }
+        await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", meta, buttons);
       } else {
         const reasonText = settled.reason ?? "unanswered";
         const detail = settled.detail === undefined ? "" : `\n\n${String(settled.detail)}`;
