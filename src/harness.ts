@@ -25,6 +25,7 @@ import { personalExtension } from "./personal.ts";
 import { checkBudget, type BudgetCheck } from "./budget.ts";
 import { rememberSurface } from "./channel.ts";
 import { log } from "./log.ts";
+import { acquireStorageLock } from "./storage-lock.ts";
 import { ensureRepo } from "./changes.ts";
 import { ensureWorktree, worktreePaths } from "./worktree.ts";
 import { setHarnessRef } from "./runtime-ref.ts";
@@ -66,6 +67,9 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   // A repo in the workspace makes every edit reviewable and revertible from the client.
   if ((process.env.AGENT_WORKSPACE_GIT ?? "auto") !== "off") await ensureRepo(workspace);
   await mkdir(dirname(config.dbPath), { recursive: true });
+
+  // Fail loudly instead of corrupting a running session.
+  acquireStorageLock(config.dbPath);
 
   const models = createAgentModels();
   assertModelAvailable(models);

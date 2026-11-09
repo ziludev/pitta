@@ -111,6 +111,20 @@ function approvalCard(request: ApprovalRequest): Record<string, unknown> {
   };
 }
 
+/** `HH:MM` in the owner's timezone, for "started at" lines. */
+function clock(at: number): string {
+  return new Date(at).toLocaleTimeString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
+}
+
+/** "3m 12s" — duration as a human reads it. */
+function duration(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
 function clip(text: string): string {
   return text.length <= MAX_CARD_CHARS ? text : `${text.slice(0, MAX_CARD_CHARS)}\n\n…（已截断）`;
 }
@@ -574,9 +588,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         log("feishu", "answer read", { chars: answer.length });
         const after = await runtime.budget(chatId).catch(() => undefined);
         const cost = after === undefined ? 0 : Math.max(0, after.spentToday - budget.spentToday);
-        const meta = `✅ ${seconds}s${toolsUsed.size > 0 ? ` · ${toolsUsed.size} 个工具` : ""}${
-          cost > 0.00005 ? ` · $${cost.toFixed(4)}` : ""
-        }`;
+        const meta = `✅ ${seconds}s（${clock(startedAt)} 起）${
+          toolsUsed.size > 0 ? ` · ${toolsUsed.size} 个工具` : ""
+        }${cost > 0.00005 ? ` · $${cost.toFixed(4)}` : ""}`;
         let buttons: CardButton[] | undefined;
         if (settled.entry !== undefined) {
           const steps = await runtime
@@ -682,12 +696,22 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     const leftovers = await leftoverCards(runtime.harness, context).catch(() => []);
     for (const card of leftovers) {
       log("feishu", "unfinished card from previous process", { cardId: card.cardId, submissionId: card.submissionId });
+      const startedAt = clock(card.at);
+      const elapsed = duration(Date.now() - card.at);
       if (card.submissionId === undefined) {
-        await patchCard(card.cardId, "🔁 进程重启过，这条消息没来得及提交。麻烦再发一次。", "🔁 未提交").catch(() => {});
+        await patchCard(
+          card.cardId,
+          `🔁 进程重启过，这条消息没来得及提交（${startedAt} 发出）。麻烦再发一次。`,
+          `🔁 未提交 · ${elapsed} 前`,
+        ).catch(() => {});
         await clearCardPending(runtime.harness, context, card.requestId).catch(() => {});
         continue;
       }
-      await patchCard(card.cardId, "🔁 进程重启过，这条任务已在后台恢复，结果稍后单独发你。", "🔁 已恢复").catch(() => {});
+      await patchCard(
+        card.cardId,
+        `🔁 进程重启过，这条任务已在后台恢复。\n\n开始于 ${startedAt}，已跑 ${elapsed}，结果稍后单独发你。`,
+        `🔁 已恢复 · ${startedAt} 起`,
+      ).catch(() => {});
       void (async () => {
         try {
           const submission = await runtime.harness.submission(
@@ -700,12 +724,20 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
             card.conversationId as unknown as Parameters<typeof runtime.harness.conversation>[0],
             context,
           );
+          const total = duration(Date.now() - card.at);
+          log("feishu", "recovered delivery footer", `${startedAt} 起 · ${total}`);
           if (settled.status === "done" && settled.answer !== undefined && conversation !== undefined) {
             const answer = await runtime.answerText(conversation, settled.answer);
-            await sendText(card.chatId, answer.length > 0 ? answer : "（模型没有返回文本）");
-            log("feishu", "recovered answer delivered", { chatId: card.chatId, chars: answer.length });
+            await sendText(
+              card.chatId,
+              `${answer.length > 0 ? answer : "（模型没有返回文本）"}\n\n—— ✅ ${total}（${startedAt} 起，中途进程重启过）`,
+            );
+            log("feishu", "recovered answer delivered", { chatId: card.chatId, chars: answer.length, total });
           } else {
-            await sendText(card.chatId, `上次那条没答出来：${settled.reason ?? "unanswered"}`);
+            await sendText(
+              card.chatId,
+              `上次那条没答出来：${settled.reason ?? "unanswered"}（${startedAt} 起，${total}）`,
+            );
           }
         } catch (error) {
           logError("feishu", "could not recover answer", error);

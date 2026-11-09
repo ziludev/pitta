@@ -32,6 +32,7 @@
 | 进度反馈 | 流式文本 + 工具名；静默期间每 15s 心跳更新卡片（耗时 · 进行中）；结束给 `✅ 12.3s · 3 个工具 · $0.0021` |
 | 语音 | `audio` 消息 → ffmpeg 转 16k wav → 本地 whisper 转写（中文），不需要 API key |
 | 图片 | `image` 与 `post`（图文混排）都解析 → 下载 → base64 → 多模态模型；带锚定提示，先描述图再答题 |
+| 卡片时间 | 正常轮次 `✅ 12.3s（20:01 起）`；重启恢复的提示与结果都带「开始于 HH:MM，已跑 Xm Ys」 |
 | 卡片自愈 | 卡片 id 存进 durable `app.pending-cards`，进程重启后重新接管 submission 并把答案单独发出来；PATCH 失败自动降级为纯文本消息 |
 | 命令 | `/help` `/new` `/stop` `/cost` `/memory` `/id` |
 | 群聊 | 群里 @机器人 才响应；`FEISHU_ALLOWED_CHAT_IDS` 要包含群 id，`FEISHU_ALLOWED_SENDER_IDS` 决定谁能触发（群成员都能看到回复）。**新增群不用改配置**：拉进群后发 `/allow`（仅 `ALLOWED_SENDER_IDS` 里的人可以），群 id 会存进 durable doc `app.allowed-chats` 立即生效 |
@@ -150,7 +151,8 @@ plist 是模板（`launchd/*.plist.tmpl`），`install` 时把 `__PROJECT__` / `
 - 日志：`logs/agent.log`、`logs/agent.err.log`、`logs/backup.log`
 - 出错会打 `[report] <kind>`（hook/tool/listener 的失败不会抛进 harness，只能在这看）
 - `FEISHU_LOG_LEVEL=debug` 打印每条入站 ws 帧，用来区分"控制台没推"和"我们丢了"
-- **一份 storage 只能一个进程写**：不要在 `main.ts` 跑着的时候再 `npm run ask`
+- **一份 storage 只能一个进程写**：`openRuntime()` 会写 `.data/agent.owner`（pid），
+  第二个进程直接报错 `storage … is owned by pid N`，而不是把运行中的会话搞坏（`AGENT_ALLOW_CONCURRENT=1` 可强制放行）
 
 ## 结构
 
