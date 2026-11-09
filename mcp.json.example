@@ -1,0 +1,13 @@
+{
+  "_comment": "复制成 mcp.json 后按需改；工具名会变成 mcp__<server>__<tool>",
+  "servers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/example/learn/pi-durable-agent/workspace"]
+    },
+    "example-http": {
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer ${TOKEN}" }
+    }
+  }
+}

@@ -13,13 +13,15 @@ import {
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { assertModelAvailable, createAgentModels } from "./models.ts";
+import { assertModelAvailable, createAgentModels, warnIfRoutingGroup } from "./models.ts";
 import { ChatMemory, GlobalMemory, memoryExtension, type Note } from "./memory.ts";
 import { reminderExtension } from "./reminders.ts";
 import { guardExtension } from "./approval.ts";
+import { connectMcp, type McpRuntime } from "./mcp.ts";
 import { personalExtension } from "./personal.ts";
 import { checkBudget, type BudgetCheck } from "./budget.ts";
 import { rememberSurface } from "./channel.ts";
+import { log } from "./log.ts";
 import { forkAt, lookupMessage, lookupThread, recordMessage, recordThread } from "./threads.ts";
 import { config } from "./config.ts";
 
@@ -45,6 +47,7 @@ export type AgentRuntime = {
   recordMessage(messageId: string, conversation: Conversation, entryId: number): Promise<void>;
   answerText(conversation: Conversation, answerId: EntryId): Promise<string>;
   budget(surfaceId: string): Promise<BudgetCheck>;
+  mcp: McpRuntime;
   memories(conversation: Conversation): Promise<{ global: Note[]; chat: Note[] }>;
   close(): Promise<void>;
 };
@@ -56,6 +59,12 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
 
   const models = createAgentModels();
   assertModelAvailable(models);
+  warnIfRoutingGroup();
+
+  const mcp = await connectMcp(
+    config.mcpConfig.startsWith("/") ? config.mcpConfig : `${process.cwd()}/${config.mcpConfig}`,
+    workspace,
+  );
 
   const registry = createRegistry();
   registry.install(CodingTools);
@@ -63,6 +72,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   registry.install(memoryExtension);
   registry.install(reminderExtension);
   registry.install(guardExtension);
+  if (mcp.extension !== undefined) registry.install(mcp.extension);
 
   const harness = await Harness.open(
     await openNodeSqliteStorage(config.dbPath),
@@ -177,6 +187,8 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     return parts.join("").trim();
   }
 
+  log("agent", `mcp: ${mcp.serverCount} servers, ${mcp.toolCount} tools`);
+
   return {
     harness,
     conversationFor,
@@ -189,7 +201,11 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     }),
     // Budget is session-wide: one owner, one daily allowance.
     budget: (_surfaceId: string) => checkBudget(harness, context, config.dailyBudgetUsd),
-    close: () => harness.close(context),
+    close: async () => {
+      await harness.close(context);
+      await mcp.close();
+    },
+    mcp: mcp as McpRuntime,
   };
 }
 

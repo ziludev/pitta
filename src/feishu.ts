@@ -359,6 +359,8 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
 
     const chatId = message.chat_id;
     const startedAt = Date.now();
+    /** Seconds since the turn started, for progress lines. */
+    const elapsed = (): string => `${Math.round((Date.now() - startedAt) / 1000)}s`;
     // A reply or a 话题 message gets its own conversation forked at the message it
     // answers; everything else shares the chat conversation.
     const rawThreadKey = message.thread_id ?? message.root_id ?? message.parent_id;
@@ -448,18 +450,28 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
 
     // If the run stalls (provider hang, restart mid-run), say so instead of spinning forever.
     const watchdog = setTimeout(() => {
-      void patchCard(cardId, "⏳ 还在跑，已经超过 5 分钟。可以发 /stop 中断。", "⚠️ 超时提示").catch(() => {});
+      void patchCard(cardId, body, `⏳ ${elapsed()} · 超过 5 分钟，可 /stop 中断`).catch(() => {});
     }, 300_000);
 
     let streamErrors = 0;
+    let body = "🤔 思考中…";
+    const toolsUsed = new Set<string>();
     const watcher = await watchLive(conversation, (live) => {
-      void patchCard(cardId, renderLive(live), "▶️ 处理中").catch((error) => {
+      body = renderLive(live);
+      for (const tool of live.tools) toolsUsed.add(tool);
+      void patchCard(cardId, body, `▶️ 处理中 · ${elapsed()}`).catch((error) => {
         if (streamErrors < 3) {
           streamErrors += 1;
           logError("feishu", "stream patch failed", error);
         }
       });
     });
+
+    // A silent model or a long tool round produces no commits, so tick the card
+    // ourselves: the user should never have to ask "is it still working?".
+    const heartbeat = setInterval(() => {
+      void patchCard(cardId, body, `⏳ ${elapsed()} · 进行中`).catch(() => {});
+    }, 15_000);
 
     try {
       const userContent = await buildUserContent(message, parsed);
@@ -484,7 +496,12 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       if (settled.status === "done" && settled.answer !== undefined) {
         const answer = await runtime.answerText(conversation, settled.answer);
         log("feishu", "answer read", { chars: answer.length });
-        await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", `✅ ${seconds}s`);
+        const after = await runtime.budget(chatId).catch(() => undefined);
+        const cost = after === undefined ? 0 : Math.max(0, after.spentToday - budget.spentToday);
+        const meta = `✅ ${seconds}s${toolsUsed.size > 0 ? ` · ${toolsUsed.size} 个工具` : ""}${
+          cost > 0.00005 ? ` · $${cost.toFixed(4)}` : ""
+        }`;
+        await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", meta);
       } else {
         const reasonText = settled.reason ?? "unanswered";
         const detail = settled.detail === undefined ? "" : `\n\n${String(settled.detail)}`;
@@ -495,6 +512,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       await deliverAnswer(chatId, cardId, `❌ 出错：${(error as Error).message}`, "⏹️ 失败");
     } finally {
       clearTimeout(watchdog);
+      clearInterval(heartbeat);
       await watcher.stop();
       await clearCardPending(runtime.harness, context, requestId).catch(() => {});
     }

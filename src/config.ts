@@ -58,7 +58,9 @@ export const config = {
   },
   model: {
     provider: process.env.AGENT_PROVIDER ?? "magpie",
-    modelId: process.env.AGENT_MODEL ?? "auto/deepseek-flash",
+    // Pinned model id on purpose: routing groups (auto/*, group/*) pick a different
+    // backend per request, which makes the same task succeed one day and fail the next.
+    modelId: process.env.AGENT_MODEL ?? "vendor/deepseek-flash",
   },
   thinkingLevel: (process.env.AGENT_THINKING ?? "high") as
     | "off"
@@ -73,6 +75,8 @@ export const config = {
   maxTurns: num("AGENT_MAX_TURNS", 40),
   /** USD per day; 0 or less means unlimited. */
   dailyBudgetUsd: num("AGENT_DAILY_BUDGET_USD", 0),
+  /** MCP servers: JSON file with { "servers": { name: {...} } }. Empty = none. */
+  mcpConfig: process.env.AGENT_MCP_CONFIG ?? "./mcp.json",
   asr: {
     mode: (process.env.AGENT_ASR ?? "auto") as "auto" | "off",
     whisper: process.env.AGENT_ASR_WHISPER ?? "whisper",

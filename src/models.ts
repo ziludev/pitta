@@ -72,6 +72,21 @@ export function createAgentModels(): MutableModels {
   return models;
 }
 
+/**
+ * `auto/*` and `group/*` are routing groups: the backend changes per request, so the
+ * same prompt can behave differently run to run. Warn loudly instead of silently
+ * shipping an unstable agent.
+ */
+export function warnIfRoutingGroup(): void {
+  const { provider, modelId } = config.model;
+  if (provider === "magpie" && (modelId.startsWith("auto/") || modelId.startsWith("group/"))) {
+    console.warn(
+      `[models] ${modelId} is a routing group: identical tasks may route to different models. ` +
+        "Pin a concrete id (e.g. vendor/deepseek-flash) for stable behaviour.",
+    );
+  }
+}
+
 /** Fail fast with a readable message instead of a `no_model` run failure. */
 export function assertModelAvailable(models: MutableModels): void {
   const { provider, modelId } = config.model;

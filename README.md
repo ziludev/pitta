@@ -19,6 +19,8 @@
 | 工具审批 | `guard` hook 拦危险调用（`rm -rf`、`git push --force`、`sudo`、写工作区外…），发带按钮的卡片等人点，decision 存 memo |
 | 成本闸门 | `pi.usage` 汇总 → 每日额度（`AGENT_DAILY_BUDGET_USD`），超了拒绝新请求，跨天自动重置 |
 | 话题 / 回复 | 回复某条消息或话题群里的消息 → 在该消息处 `fork` 出一条独立 conversation，各自独立跑，互不阻塞 |
+| 工具生态 | `mcp.json` 里声明的 MCP servers（stdio / streamable HTTP）在启动时连接，工具以 `mcp__<server>__<tool>` 注册成 durable tool task；默认 `replay: unsafe`，被中断就报告模型而不是重放 |
+| 进度反馈 | 流式文本 + 工具名；静默期间每 15s 心跳更新卡片（耗时 · 进行中）；结束给 `✅ 12.3s · 3 个工具 · $0.0021` |
 | 语音 | `audio` 消息 → ffmpeg 转 16k wav → 本地 whisper 转写（中文），不需要 API key |
 | 图片 | `image` 与 `post`（图文混排）都解析 → 下载 → base64 → 多模态模型；带锚定提示，先描述图再答题 |
 | 卡片自愈 | 卡片 id 存进 durable `app.pending-cards`，进程重启后重新接管 submission 并把答案单独发出来；PATCH 失败自动降级为纯文本消息 |
@@ -92,6 +94,7 @@ src/
   cards.ts       durable 卡片登记：重启后接管未完成的提交
   threads.ts     消息 id → entry 索引 + thread → fork 出来的会话
   asr.ts         本地 whisper 转写（ffmpeg + whisper CLI）
+  mcp.ts         MCP client：连 servers，把它们的工具注册成 durable 工具
   log.ts         带时间戳的日志（launchd 文件日志需要时间线）
   feishu.ts      长连接、卡片流式、审批按钮、图片、命令、额度闸门
   main.ts        进程入口
@@ -125,6 +128,17 @@ scripts/backup-db sqlite 热备 + 完整性校验 + 轮转
 - **预算按天**：以 session 总花费做基线做差值，跨天重置；不做硬性的 per-request 熔断（避免打断正在跑的任务）。
 - **不做子 agent**：需要时 tool 里 `tx.createConversation()` + `submit()` + `wait()` 即可，天然 durable。
 
+## MCP（外接应用生态）
+
+```bash
+cp mcp.json.example mcp.json   # 改 servers
+./scripts/agentctl restart
+grep '\[mcp\]' logs/agent.log
+```
+
+支持 `command`（stdio，自动带 workspace 作为 cwd）和 `url`（streamable HTTP）。
+连接失败的 server 只记日志，不影响其它 server 和 agent 启动。
+
 ## 语音识别
 
 `audio` 消息 → ffmpeg 转 16k mono wav → 本地 `whisper` CLI 转写。
@@ -155,6 +169,8 @@ AGENT_ASR_MODEL=small AGENT_ASR_MODEL_PATH=/path/to/model.pt
 
 ## 已知限制
 
+- **模型要钉死**：`auto/*`、`group/*` 是路由组，同一任务可能路由到不同模型，行为不稳定。
+  默认已改成 `vendor/deepseek-flash`；用路由组时启动会打警告。
 - Pi Durable 是 **experimental**，1.x 之间 API 会变，升级前先 `npm run typecheck`。
 - SQLite 用 `synchronous=NORMAL`：进程崩不丢，掉电可能丢最后一个 commit。
 - `bash` 理论上能 `cd` 出工作区；靠 guard hook 兜危险性，不是沙箱。要多租户就换远程 `ExecutionEnv`。
