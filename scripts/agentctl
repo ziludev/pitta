@@ -1,39 +1,129 @@
 #!/bin/bash
-# Control the launchd-managed agent.
-#   ./scripts/agentctl install|start|stop|restart|status|logs
+# Control and install the launchd-managed agent.
+#
+#   ./scripts/agentctl install           # render + load the agent job (auto-start, auto-restart)
+#   ./scripts/agentctl install-backup    # render + load the daily 04:10 sqlite backup
+#   ./scripts/agentctl uninstall         # unload both jobs
+#   ./scripts/agentctl start|stop|restart|status
+#   ./scripts/agentctl logs [n]          # agent log tail
+#   ./scripts/agentctl backup            # run a backup now
+#   ./scripts/agentctl backups           # list snapshots
+#   ./scripts/agentctl restore <file>    # restore a snapshot (stops the agent first)
+#
+# NODE_BIN overrides the node binary baked into the plist (default: `command -v node`).
 set -euo pipefail
 
 LABEL="com.alex.pi-durable-agent"
+BACKUP_LABEL="$LABEL.backup"
 PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
-PLIST="$PROJECT/launchd/$LABEL.plist"
-TARGET="$HOME/Library/LaunchAgents/$LABEL.plist"
+AGENTS="$HOME/Library/LaunchAgents"
+DOMAIN="gui/$(id -u)"
+
+render() {
+  local template="$1" label="$2" output="$3"
+  if [ ! -f "$template" ]; then
+    echo "missing template: $template" >&2
+    exit 1
+  fi
+  local node_bin="${NODE_BIN:-}"
+  if [ -z "$node_bin" ]; then
+    node_bin="$(command -v node || true)"
+  fi
+  if [ -z "$node_bin" ]; then
+    echo "node not found in PATH; set NODE_BIN=/path/to/node" >&2
+    exit 1
+  fi
+  mkdir -p "$AGENTS" "$PROJECT/logs"
+  # Paths may contain spaces or slashes; sed with | as separator keeps this readable.
+  sed -e "s|__LABEL__|$label|g" \
+      -e "s|__PROJECT__|$PROJECT|g" \
+      -e "s|__NODE__|$node_bin|g" \
+      -e "s|__HOME__|$HOME|g" \
+      "$template" > "$output"
+  echo "rendered $output (node: $node_bin)"
+}
+
+load() {
+  local label="$1" plist="$2"
+  launchctl bootout "$DOMAIN" "$plist" 2>/dev/null || true
+  launchctl bootstrap "$DOMAIN" "$plist"
+  launchctl enable "$DOMAIN/$label"
+}
 
 case "${1:-status}" in
   install)
-    mkdir -p "$PROJECT/logs" "$HOME/Library/LaunchAgents"
-    cp "$PLIST" "$TARGET"
-    launchctl bootout "gui/$(id -u)" "$TARGET" 2>/dev/null || true
-    launchctl bootstrap "gui/$(id -u)" "$TARGET"
-    launchctl enable "gui/$(id -u)/$LABEL"
-    echo "installed; logs: $PROJECT/logs/agent.log"
+    render "$PROJECT/launchd/agent.plist.tmpl" "$LABEL" "$AGENTS/$LABEL.plist"
+    load "$LABEL" "$AGENTS/$LABEL.plist"
+    echo "agent installed; logs: $PROJECT/logs/agent.log"
+    ;;
+  install-backup)
+    render "$PROJECT/launchd/backup.plist.tmpl" "$BACKUP_LABEL" "$AGENTS/$BACKUP_LABEL.plist"
+    load "$BACKUP_LABEL" "$AGENTS/$BACKUP_LABEL.plist"
+    echo "daily backup installed (04:10); logs: $PROJECT/logs/backup.log"
+    ;;
+  uninstall)
+    for pair in "$LABEL:$AGENTS/$LABEL.plist" "$BACKUP_LABEL:$AGENTS/$BACKUP_LABEL.plist"; do
+      label="${pair%%:*}"; plist="${pair#*:}"
+      launchctl bootout "$DOMAIN" "$plist" 2>/dev/null || true
+      rm -f "$plist"
+      echo "unloaded $label"
+    done
     ;;
   start)
-    launchctl kickstart "gui/$(id -u)/$LABEL"
+    launchctl kickstart "$DOMAIN/$LABEL"
     ;;
   stop)
-    launchctl kill SIGTERM "gui/$(id -u)/$LABEL" 2>/dev/null || launchctl bootout "gui/$(id -u)/$TARGET"
+    launchctl kill SIGTERM "$DOMAIN/$LABEL" 2>/dev/null || launchctl bootout "$DOMAIN" "$AGENTS/$LABEL.plist"
     ;;
   restart)
-    launchctl kickstart -k "gui/$(id -u)/$LABEL"
+    launchctl kickstart -k "$DOMAIN/$LABEL"
     ;;
   status)
-    launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null | grep -E "state|pid|last exit|program" || echo "not loaded"
+    for label in "$LABEL" "$BACKUP_LABEL"; do
+      if launchctl print "$DOMAIN/$label" >/dev/null 2>&1; then
+        echo "== $label"
+        launchctl print "$DOMAIN/$label" | grep -E "state = |pid = |last exit code|runs = " | sed 's/^/  /'
+      else
+        echo "== $label: not loaded"
+      fi
+    done
     ;;
   logs)
     tail -n "${2:-50}" "$PROJECT/logs/agent.log"
     ;;
+  backup)
+    "$PROJECT/scripts/backup-db"
+    ;;
+  backups)
+    ls -lht "${BACKUP_DIR:-$PROJECT/backups}" 2>/dev/null | head -n "${2:-10}" || echo "no backups yet"
+    ;;
+  restore)
+    src="${2:-}"
+    if [ -z "$src" ] || [ ! -f "$src" ]; then
+      echo "usage: $0 restore <backup file>" >&2
+      exit 2
+    fi
+    echo "stopping agent before replacing the database"
+    launchctl kill SIGTERM "$DOMAIN/$LABEL" 2>/dev/null || true
+    # Wait for the process to actually exit: replacing the file under a live
+    # connection would leave a stale WAL behind and lose the restore.
+    for _ in $(seq 1 20); do
+      if ! pgrep -f "$PROJECT/src/main.ts" >/dev/null 2>&1; then break; fi
+      sleep 1
+    done
+    if pgrep -f "$PROJECT/src/main.ts" >/dev/null 2>&1; then
+      echo "agent still running after 20s; aborting restore" >&2
+      exit 1
+    fi
+    db="${AGENT_DB:-$PROJECT/.data/agent.sqlite}"
+    cp "$db" "$db.before-restore-$(date +%Y%m%d-%H%M%S)" 2>/dev/null || true
+    cp "$src" "$db"
+    rm -f "${db}-wal" "${db}-shm"
+    echo "restored $src → $db; starting agent"
+    launchctl kickstart "$DOMAIN/$LABEL"
+    ;;
   *)
-    echo "usage: $0 install|start|stop|restart|status|logs [n]" >&2
+    grep '^#' "$0" | sed -n '2,15p' | sed 's/^# \{0,1\}//' >&2
     exit 2
     ;;
 esac

@@ -1,0 +1,44 @@
+#!/bin/bash
+# Hot backup of the durable store. Safe while the agent runs: SQLite `.backup`
+# takes a consistent snapshot through the WAL instead of copying files.
+#   ./scripts/backup-db            keep last 14
+#   KEEP=30 ./scripts/backup-db
+set -euo pipefail
+
+PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
+DB="${AGENT_DB:-$PROJECT/.data/agent.sqlite}"
+DEST="${BACKUP_DIR:-$PROJECT/backups}"
+KEEP="${KEEP:-14}"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+OUT="$DEST/agent-$STAMP.sqlite"
+
+if [ ! -f "$DB" ]; then
+  echo "no database at $DB, nothing to back up"
+  exit 0
+fi
+if ! command -v sqlite3 >/dev/null 2>&1; then
+  echo "sqlite3 not found in PATH" >&2
+  exit 1
+fi
+
+mkdir -p "$DEST"
+sqlite3 "$DB" ".backup '$OUT'"
+# The snapshot inherits WAL mode; consolidate so one file is a complete backup.
+sqlite3 "$OUT" "PRAGMA journal_mode=DELETE;" >/dev/null
+rm -f "$OUT-wal" "$OUT-shm"
+
+# Prove the snapshot is usable before trusting it.
+if [ "$(sqlite3 "$OUT" 'PRAGMA integrity_check;')" != "ok" ]; then
+  echo "backup FAILED integrity check: $OUT" >&2
+  rm -f "$OUT"
+  exit 1
+fi
+
+SIZE="$(du -h "$OUT" | cut -f1)"
+echo "$(date '+%Y-%m-%d %H:%M:%S') backup ok: $(basename "$OUT") ($SIZE)"
+
+# Rotate oldest first.
+ls -1t "$DEST"/agent-*.sqlite 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r old; do
+  rm -f "$old"
+  echo "$(date '+%Y-%m-%d %H:%M:%S') pruned: $(basename "$old")"
+done

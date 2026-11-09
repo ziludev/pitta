@@ -46,10 +46,29 @@ npm run ask -- "用一句话介绍你自己"      # 本地冒烟（不碰飞书�
 ## 运维
 
 ```bash
-./scripts/agentctl install|start|stop|restart|status|logs [n]
+./scripts/agentctl install          # 渲染 plist 并装载（开机自启 + 崩溃重启）
+./scripts/agentctl install-backup   # 装载每天 04:10 的 sqlite 热备份
+./scripts/agentctl start|stop|restart|status
+./scripts/agentctl logs [n]         # agent 日志
+./scripts/agentctl backup           # 立刻备份一次
+./scripts/agentctl backups          # 看快照
+./scripts/agentctl restore <file>   # 用快照恢复（会先停 agent，等进程真正退出）
+./scripts/agentctl uninstall        # 卸载两个 launchd job
 ```
 
-- 日志：`logs/agent.log`、`logs/agent.err.log`
+plist 是模板（`launchd/*.plist.tmpl`），`install` 时把 `__PROJECT__` / `__NODE__` / `__HOME__`
+渲染成实路径，所以换机器不用手改。node 路径在安装时从 `command -v node` 取，
+换 node 版本后重跑一次 `install` 即可（`NODE_BIN=/path/to/node` 可覆盖）。
+
+### 备份
+
+`.data/agent.sqlite` 是唯一数据源（会话、记忆、提醒、卡片登记全在里面）。
+
+- 每天 04:10 自动 `sqlite3 .backup`（WAL 热备，不用停 agent），备份后 `PRAGMA integrity_check` 校验，默认保留 14 份（`KEEP=30 ./scripts/backup-db` 可调）
+- 快照会 `journal_mode=DELETE` 收成单文件，避免带上 `-wal/-shm`
+- 恢复：`./scripts/agentctl restore backups/agent-YYYYMMDD-HHMMSS.sqlite`，会先备份当前库为 `.before-restore-*`
+
+- 日志：`logs/agent.log`、`logs/agent.err.log`、`logs/backup.log`
 - 出错会打 `[report] <kind>`（hook/tool/listener 的失败不会抛进 harness，只能在这看）
 - `FEISHU_LOG_LEVEL=debug` 打印每条入站 ws 帧，用来区分"控制台没推"和"我们丢了"
 - **一份 storage 只能一个进程写**：不要在 `main.ts` 跑着的时候再 `npm run ask`
@@ -73,8 +92,9 @@ src/
   feishu.ts      长连接、卡片流式、审批按钮、图片、命令、额度闸门
   main.ts        进程入口
   cli.ts         本地冒烟（stdin 审批、stdout 通知）
-launchd/         plist
-scripts/agentctl 启动/停止/日志
+launchd/         plist 模板（agent + 每日备份）
+scripts/agentctl 安装/启动/停止/备份/恢复
+scripts/backup-db sqlite 热备 + 完整性校验 + 轮转
 ```
 
 ## 实测过的行为
