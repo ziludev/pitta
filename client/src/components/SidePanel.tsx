@@ -9,6 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fileStatusLabel, tr } from "@/i18n";
 import { CommitDialog } from "@/components/CommitDialog";
+import { MergeButton } from "@/components/MergeButton";
 import { DiffView } from "@/lib/diff";
 import { useStore } from "@/store";
 
@@ -31,9 +32,11 @@ function Changes() {
   if (changes === undefined) {
     return <div className="p-3 text-[11px] text-muted-foreground">{changesLoading ? "…" : ""}</div>;
   }
-  if (!changes.repo || changes.files.length === 0) {
+  if (!changes.repo) {
     return <div className="p-3 text-[11px] text-muted-foreground">{tr(lang, "noChanges")}</div>;
   }
+  // A clean tree is exactly when merging makes sense, so the header stays.
+  const empty = changes.files.length === 0;
 
   function takeComment() {
     if (picked === undefined || note.trim().length === 0) return;
@@ -55,10 +58,14 @@ function Changes() {
             <RefreshCw className="size-3" />
           </Button>
           <CommitDialog files={changes.files.length} />
+          {changes.branch?.startsWith("agent/") ? <MergeButton /> : null}
         </div>
       </div>
 
       <ScrollArea className="min-h-0 flex-1 px-3 pb-2">
+        {empty ? (
+          <div className="pt-1 text-[11px] text-muted-foreground">{tr(lang, "noChanges")}</div>
+        ) : (
         <div className="flex flex-col gap-1.5">
           {changes.files.map((file) => (
             <button
@@ -88,6 +95,7 @@ function Changes() {
           </div>
           <div className="mt-1 text-[10px] text-muted-foreground">{tr(lang, "reviewHint")}</div>
         </div>
+        )}
       </ScrollArea>
 
       <div className="border-t border-border p-2">

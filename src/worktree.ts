@@ -92,3 +92,62 @@ export async function listWorktrees(repoRoot: string): Promise<WorktreeInfo[]> {
     return [];
   }
 }
+
+export type MergeResult =
+  | { status: "merged"; branch: string; base: string; commits: number }
+  | { status: "up-to-date"; branch: string; base: string }
+  | { status: "dirty"; branch: string; files: string[] }
+  | { status: "main-dirty"; base: string; files: string[] }
+  | { status: "conflict"; branch: string; base: string; conflicts: string[] }
+  | { status: "error"; message: string };
+
+/**
+ * Merges a conversation's branch back into the main worktree's branch.
+ * Refuses instead of guessing: both sides must be committed, and a conflict aborts
+ * the merge and comes back as data so the agent can be asked to resolve it.
+ */
+export async function mergeWorktree(repoRoot: string, conversationId: number): Promise<MergeResult> {
+  const { dir, branch } = worktreePaths(repoRoot, conversationId);
+  try {
+    const base = (await git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
+    if (branch === base) return { status: "up-to-date", branch, base };
+
+    const worktreeDirty = (await git(dir, ["status", "--porcelain"])).trim();
+    if (worktreeDirty.length > 0) {
+      return { status: "dirty", branch, files: worktreeDirty.split("\n").map((line) => line.slice(3)) };
+    }
+
+    const ahead = Number((await git(repoRoot, ["rev-list", "--count", `${base}..${branch}`])).trim());
+    if (!Number.isFinite(ahead) || ahead === 0) return { status: "up-to-date", branch, base };
+
+    const mainDirty = (await git(repoRoot, ["status", "--porcelain"])).trim();
+    if (mainDirty.length > 0) {
+      return {
+        status: "main-dirty",
+        base,
+        files: mainDirty.split("\n").map((line) => line.slice(3)),
+      };
+    }
+
+    try {
+      await git(repoRoot, ["merge", "--no-ff", "-m", `merge ${branch} into ${base}`, branch]);
+      log("worktree", "merged", { conversationId, branch, base, commits: ahead });
+      return { status: "merged", branch, base, commits: ahead };
+    } catch (error) {
+      const unmerged = await git(repoRoot, ["diff", "--name-only", "--diff-filter=U"]).catch(() => "");
+      await git(repoRoot, ["merge", "--abort"]).catch(() => {});
+      const conflicts = unmerged
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+      if (conflicts.length > 0) {
+        log("worktree", "merge conflicted", { conversationId, branch, base, conflicts });
+        return { status: "conflict", branch, base, conflicts };
+      }
+      return { status: "error", message: (error as Error).message };
+    }
+  } catch (error) {
+    logError("worktree", `merge failed for conversation ${conversationId}`, error);
+    return { status: "error", message: (error as Error).message };
+  }
+}

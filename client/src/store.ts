@@ -12,6 +12,7 @@ import {
   type Task,
 } from "@/lib/api";
 import { initialLang, type Lang } from "@/i18n";
+import type { MergeResult } from "@/lib/api";
 
 export type LiveDoc = {
   run?: unknown;
@@ -52,6 +53,8 @@ type State = {
   abort(): Promise<void>;
   reset(): Promise<void>;
   commit(message: string): Promise<string>;
+  merge(): Promise<MergeResult>;
+  askAgentToResolve(result: MergeResult): Promise<void>;
   control(action: "start" | "stop" | "restart" | "backup"): Promise<string>;
   openLogs(): Promise<void>;
   setLang(lang: Lang): void;
@@ -222,6 +225,35 @@ export const useStore = create<State>((set, get) => ({
   },
 
   control: (action) => controlAgent(action),
+
+  async merge() {
+    const id = get().current;
+    if (id === undefined) throw new Error("no conversation");
+    const result = await api<MergeResult>("/api/merge", {
+      method: "POST",
+      body: JSON.stringify({ conversationId: id }),
+    });
+    await Promise.all([get().loadChanges(), get().loadMemory()]).catch(() => {});
+    return result;
+  },
+
+  /** Conflicts come back as data; hand them to the agent instead of guessing. */
+  async askAgentToResolve(result) {
+    const id = get().current;
+    if (id === undefined) return;
+    const files = result.status === "conflict" ? result.conflicts : [];
+    await api("/api/submit", {
+      method: "POST",
+      body: JSON.stringify({
+        conversationId: id,
+        text:
+          `把分支 ${"branch" in result ? result.branch : ""} 合并到 ${"base" in result ? result.base : "主线"} 时出现冲突：\n` +
+          files.map((file) => `- ${file}`).join("\n") +
+          "\n请在当前 worktree 里解决冲突（可以 git merge 主线到本分支来就地解决），跑通验证，然后提交。",
+        mode: "followUp",
+      }),
+    });
+  },
 
   async openLogs() {
     const { Agent } = await import("@/mygo");

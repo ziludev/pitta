@@ -31,6 +31,14 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+export type MergeResult =
+  | { status: "merged"; branch: string; base: string; commits: number }
+  | { status: "up-to-date"; branch: string; base: string }
+  | { status: "dirty"; branch: string; files: string[] }
+  | { status: "main-dirty"; base: string; files: string[] }
+  | { status: "conflict"; branch: string; base: string; conflicts: string[] }
+  | { status: "error"; message: string };
+
 export const wsURL = (conversationId: number): string =>
   `${baseURL.replace(/^http/, "ws")}/ws?conversationId=${conversationId}${
     token ? `&token=${encodeURIComponent(token)}` : ""

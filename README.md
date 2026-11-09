@@ -90,7 +90,7 @@ bun run build    # 产出 build/darwin-arm64/Agent.app + .dmg
 
 - 左栏：会话列表（飞书 chat / cli / 内部测试）、运行中的后台任务、agent 状态与 重启/备份/日志 按钮、累计花费
 - 中间：transcript 流式渲染（用户/助手/工具输出折叠/思考折叠/需求报告），`/new` `/stop`，插话（steer）开关
-- 右栏：两个 tab —— **改动**（工作区 git diff，逐文件折叠、+/- 着色、一键提交）和 **记忆**（全局/工作/本对话）
+- 右栏：两个 tab —— **改动**（工作区 git diff，逐文件折叠、+/- 着色、一键提交、**合并回主线**）和 **记忆**（全局/工作/本对话）
 - 中英切换（默认跟随系统语言，`?lang=zh|en` 可强制；选择记在 localStorage）
 
 协议就是给客户端准备的：`src/server.ts` 暴露本机 `127.0.0.1:8787`
@@ -105,7 +105,11 @@ GET  /api/changes      工作区 git status + unified diff（含未跟踪文件�
 POST /api/commit       把工作区提交成一个 checkpoint
 GET  /api/file?path=   读工作区文件（越界拒绝，512KB 上限）
 GET  /api/search?q=    跨会话搜transcript（返回可读片段）
+POST /api/merge        把会话分支 --no-ff 合并回主线（冲突返回数据，不猜）
 ```
+
+**合并闭环**：改动面板右上角「合并」把 `agent/conv-N` 用 `--no-ff` 合回主线；未提交/主线脏会拒绝，
+冲突则 `merge --abort` 回滚并把冲突文件返回，客户端可以一键「让 agent 解决」（agent 在自己的 worktree 里就地解）。
 
 **每个会话一个 worktree**：新建会话时自动 `git worktree add` 到 `workspace/.worktrees/conv-<id>`、
 分支 `agent/conv-<id>`，该会话的工具 cwd 就是这个目录。并行会话不再互相踩文件，主分支保持干净，

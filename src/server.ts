@@ -6,6 +6,7 @@ import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { log, logError } from "./log.ts";
 import { config } from "./config.ts";
 import { collectChanges, commitChanges, ensureRepo } from "./changes.ts";
+import { mergeWorktree } from "./worktree.ts";
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import { ChatMemory, GlobalMemory, WorkMemory } from "./memory.ts";
@@ -285,6 +286,15 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
           }
         }
         return send(res, 200, { hits });
+      }
+
+      if (req.method === "POST" && path === "/api/merge") {
+        const body = await readJson(req);
+        const conversationId = conversationIdOf(body);
+        if (conversationId === undefined) return send(res, 400, { error: "conversationId required" });
+        const result = await mergeWorktree(config.workspace, conversationId);
+        log("http", "merge requested", { conversationId, status: result.status });
+        return send(res, 200, result);
       }
 
       if (req.method === "GET" && path === "/api/tasks") {
