@@ -33,7 +33,7 @@ const MAX_CHAT_NOTES = 20;
 const remember = defineTool({
   name: "remember",
   description:
-    "记住一条值得长期保留的事实（主人的偏好、习惯、重要的人/项目/日期）。一句话一条，不要记流水账和临时信息。默认写进全局记忆，所有对话共享。",
+    "记住一条值得长期保留的事实（主人的偏好、习惯、重要的人/项目/日期）。一句话一条。不要记流水账、临时代号、验证码、一次性口令或本轮任务的中间结果。默认写进全局记忆，所有对话共享。",
   parameters: obj({
     text: str({ description: "要记住的内容，一句话" }),
     scope: opt(str({ description: "global（默认，跨对话共享）或 chat（只属于当前对话）" })),
