@@ -6,6 +6,7 @@ import { CollapsibleContent, CollapsibleTrigger, Collapsible as CollapsibleRoot 
 import { tr } from "@/i18n";
 import type { Entry } from "@/lib/api";
 import { DiffView, diffStats } from "@/lib/diff";
+import { ToolOutput } from "@/components/ToolOutput";
 import { Markdown } from "@/lib/markdown";
 import { useStore } from "@/store";
 
@@ -32,8 +33,16 @@ const textOf = (parts: Part[]): string =>
     .map((part) => String(part["text"] ?? ""))
     .join("");
 
-function Collapsible({ title, children }: { title: string; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
+function Collapsible({
+  title,
+  children,
+  defaultOpen = false,
+}: {
+  title: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <CollapsibleRoot open={open} onOpenChange={setOpen} className="rounded-lg border border-border bg-card/50">
       <CollapsibleTrigger className="group flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-[11px] text-muted-foreground hover:text-foreground">
@@ -122,10 +131,8 @@ function EntryView({ entry }: { entry: Entry }) {
     }
     return (
       <div className="max-w-[92%]">
-        <Collapsible title={`${name} · ${tr(lang, "output")}`}>
-          <pre className="max-h-80 overflow-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
-            {text.length > 4000 ? `${text.slice(0, 4000)}\n…` : text}
-          </pre>
+        <Collapsible title={`${name} · ${tr(lang, "output")}`} defaultOpen={text.length <= 400}>
+          <ToolOutput text={text} />
         </Collapsible>
       </div>
     );

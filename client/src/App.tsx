@@ -8,6 +8,7 @@ import { Composer } from "@/components/Composer";
 import { Rail } from "@/components/Rail";
 import { SidePanel } from "@/components/SidePanel";
 import { Transcript } from "@/components/Transcript";
+import { FileViewer } from "@/components/FileViewer";
 import { tr } from "@/i18n";
 import { ThemeProvider } from "next-themes";
 import { useStore } from "@/store";
@@ -17,7 +18,7 @@ function Handle() {
 }
 
 export function App() {
-  const { lang, current, surfaces, init, busy, abort, reset } = useStore();
+  const { lang, current, surfaces, init, busy, abort, reset, view } = useStore();
   // ?theme=dark|light forces a theme (screenshots, demos); otherwise follow the system.
   const forced = new URLSearchParams(location.search).get("theme");
   const forcedTheme = forced === "dark" || forced === "light" ? forced : undefined;
@@ -62,8 +63,14 @@ export function App() {
                   </Button>
                 </div>
               </div>
-              <Transcript />
-              <Composer />
+              {view.kind === "file" ? (
+                <FileViewer path={view.path} />
+              ) : (
+                <>
+                  <Transcript />
+                  <Composer />
+                </>
+              )}
             </div>
           </Panel>
 

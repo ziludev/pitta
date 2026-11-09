@@ -3,10 +3,12 @@ import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { Conversation } from "@earendil-works/pi-durable";
 import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
-import { ChatMemory, GlobalMemory, WorkMemory } from "./memory.ts";
 import { log, logError } from "./log.ts";
 import { config } from "./config.ts";
 import { collectChanges, commitChanges, ensureRepo } from "./changes.ts";
+import { readFile, stat } from "node:fs/promises";
+import { isAbsolute, relative, resolve } from "node:path";
+import { ChatMemory, GlobalMemory, WorkMemory } from "./memory.ts";
 
 /**
  * Local HTTP + WebSocket bridge so a desktop client is just another watcher.
@@ -43,6 +45,25 @@ function send(res: ServerResponse, status: number, body: unknown): void {
     "access-control-allow-methods": "GET, POST, OPTIONS",
   });
   res.end(payload);
+}
+
+/** Plain text of one entry's messages, for search snippets. */
+function entryText(model: unknown): string {
+  const messages = Array.isArray(model) ? (model as Array<Record<string, unknown>>) : [];
+  const parts: string[] = [];
+  for (const message of messages) {
+    const content = message["content"];
+    if (typeof content === "string") parts.push(content);
+    else if (Array.isArray(content)) {
+      for (const part of content as Array<Record<string, unknown>>) {
+        if (part["type"] === "text" && typeof part["text"] === "string") parts.push(part["text"]);
+        else if (part["type"] === "thinking" && typeof part["thinking"] === "string") parts.push(part["thinking"]);
+        else if (part["type"] === "toolCall") parts.push(`[${String(part["name"] ?? "tool")}]`);
+      }
+    }
+    if (typeof message["toolName"] === "string") parts.push(`[${message["toolName"]}]`);
+  }
+  return parts.join("\n");
 }
 
 async function readJson(req: IncomingMessage): Promise<Json> {
@@ -114,15 +135,13 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         const id = Number(url.searchParams.get("id"));
         const conversation = await resolveConversation(Number.isFinite(id) ? id : undefined);
         if (conversation === undefined) return send(res, 404, { error: "no such conversation" });
-        const page = await conversation.entries(
-          { order: "ascending" },
-          Math.min(Number(url.searchParams.get("limit") ?? 100) || 100, 500),
-          undefined,
-          context,
-        );
+        // Newest N, then flipped: `limit` must cut the tail, not the head.
+        const limit = Math.min(Number(url.searchParams.get("limit") ?? 100) || 100, 500);
+        const page = await conversation.entries({ order: "descending" }, limit, undefined, context);
+        const newestFirst = [...page.items].reverse();
         return send(res, 200, {
           conversationId: conversation.id as unknown as number,
-          entries: page.items.map((entry) => ({
+          entries: newestFirst.map((entry) => ({
             id: entry.id,
             kind: entry.kind,
             model: entry.model ?? null,
@@ -189,6 +208,63 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         await ensureRepo(config.workspace);
         const head = await commitChanges(config.workspace, message);
         return send(res, 200, { head });
+      }
+
+
+      if (req.method === "GET" && path === "/api/file") {
+        const requested = url.searchParams.get("path") ?? "";
+        const absolute = isAbsolute(requested) ? requested : resolve(config.workspace, requested);
+        const rel = relative(config.workspace, absolute);
+        // The client may only read inside the workspace it belongs to.
+        if (rel.startsWith("..") || isAbsolute(rel)) return send(res, 400, { error: "path outside workspace" });
+        const info = await stat(absolute).catch(() => undefined);
+        if (info === undefined || !info.isFile()) return send(res, 404, { error: "not a file" });
+        const MAX = 512 * 1024;
+        const raw = await readFile(absolute);
+        const truncated = raw.byteLength > MAX;
+        const content = raw.subarray(0, MAX).toString("utf8");
+        return send(res, 200, {
+          path: rel,
+          size: info.size,
+          truncated,
+          lines: content.split("\n").length,
+          content,
+        });
+      }
+
+      if (req.method === "GET" && path === "/api/search") {
+        const query = (url.searchParams.get("q") ?? "").trim();
+        if (query.length < 2) return send(res, 200, { hits: [] });
+        const needle = query.toLowerCase();
+        const chats = (await runtime.harness.snapshot(ChatsToken, context).catch(() => undefined)) as
+          | { chats: Record<string, number> }
+          | undefined;
+        const ids = Object.values(chats?.chats ?? {}).slice(0, 60);
+        const hits: Array<{ conversationId: number; entryId: number; kind: string; snippet: string }> = [];
+        for (const id of ids) {
+          if (hits.length >= 30) break;
+          const conversation = await resolveConversation(id);
+          if (conversation === undefined) continue;
+          const page = await conversation
+            .entries({ order: "descending" }, 300, undefined, context)
+            .catch(() => undefined);
+          if (page === undefined) continue;
+          for (const entry of page.items) {
+            // Search the readable text, not the raw JSON: a snippet of escaped
+            // tool payloads is useless in a result list.
+            const text = entryText(entry.model);
+            const at = text.toLowerCase().indexOf(needle);
+            if (at === -1) continue;
+            hits.push({
+              conversationId: id,
+              entryId: entry.id as unknown as number,
+              kind: entry.kind,
+              snippet: text.slice(Math.max(0, at - 60), at + 120).replace(/\s+/g, " ").trim(),
+            });
+            if (hits.length >= 30) break;
+          }
+        }
+        return send(res, 200, { hits });
       }
 
       if (req.method === "GET" && path === "/api/tasks") {

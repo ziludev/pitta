@@ -69,7 +69,15 @@ function lineClass(line: string): string {
 }
 
 /** Files of one diff, each collapsible, no wrapping (an editor scrolls sideways). */
-export function DiffView({ text, open = true }: { text: string; open?: boolean }): ReactNode {
+export function DiffView({
+  text,
+  open = true,
+  onPickLine,
+}: {
+  text: string;
+  open?: boolean;
+  onPickLine?: (file: string, line: string) => void;
+}): ReactNode {
   const parsed = parseDiff(text);
   if (parsed === undefined) return null;
   return (
@@ -94,7 +102,13 @@ export function DiffView({ text, open = true }: { text: string; open?: boolean }
           </summary>
           <pre className="mt-1.5 max-h-80 overflow-auto rounded-md bg-background/60 p-2 font-mono text-[11px] leading-[1.5] whitespace-pre">
             {file.lines.slice(0, 800).map((line, index) => (
-              <span key={index} className={`block ${lineClass(line)}`}>
+              <span
+                key={index}
+                onClick={onPickLine === undefined ? undefined : () => onPickLine(file.path, line)}
+                className={`block ${lineClass(line)} ${
+                  onPickLine === undefined ? "" : "cursor-pointer hover:outline hover:outline-primary/40"
+                }`}
+              >
                 {line.length === 0 ? " " : line}
               </span>
             ))}

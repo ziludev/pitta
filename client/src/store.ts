@@ -38,6 +38,10 @@ type State = {
   pinned: number[];
   tab: "changes" | "memory";
   focusEntry?: number;
+  /** Middle pane: the transcript, or one workspace file. */
+  view: { kind: "transcript" } | { kind: "file"; path: string };
+  filter: string;
+  review: Array<{ path: string; line: string; note: string }>;
 
   init(): Promise<void>;
   select(conversationId: number): Promise<void>;
@@ -54,6 +58,14 @@ type State = {
   setOrder(order: number[]): void;
   togglePin(conversationId: number): void;
   setTab(tab: "changes" | "memory"): void;
+  openFile(path: string): void;
+  closeFile(): void;
+  setFilter(filter: string): void;
+  setFocusEntry(entryId: number | undefined): void;
+  addReviewComment(input: { path: string; line: string; note: string }): void;
+  removeReviewComment(index: number): void;
+  clearReview(): void;
+  sendReview(): Promise<void>;
 };
 
 let socket: WebSocket | undefined;
@@ -91,6 +103,11 @@ export const useStore = create<State>((set, get) => ({
   pinned: savedPinned(),
   tab: "changes",
   focusEntry: Number(new URLSearchParams(location.search).get("entry") ?? "") || undefined,
+  view: new URLSearchParams(location.search).get("file")
+    ? { kind: "file", path: new URLSearchParams(location.search).get("file")! }
+    : { kind: "transcript" },
+  filter: "",
+  review: [],
 
   async init() {
     set({ home: homeDir });
@@ -103,7 +120,11 @@ export const useStore = create<State>((set, get) => ({
       if (ai !== -1 && bi !== -1) return ai - bi;
       return a.conversationId - b.conversationId;
     });
-    const target = sorted[sorted.length - 1]?.conversationId;
+    const requested = Number(new URLSearchParams(location.search).get("conv") ?? "");
+    const target =
+      Number.isFinite(requested) && requested > 0 && sorted.some((item) => item.conversationId === requested)
+        ? requested
+        : sorted[sorted.length - 1]?.conversationId;
     if (target !== undefined) await get().select(target);
     setInterval(() => {
       void get()
@@ -229,5 +250,51 @@ export const useStore = create<State>((set, get) => ({
   setTab(tab) {
     set({ tab });
     if (tab === "changes") void get().loadChanges().catch(() => {});
+  },
+
+  openFile(path) {
+    set({ view: { kind: "file", path } });
+  },
+
+  closeFile() {
+    set({ view: { kind: "transcript" } });
+  },
+
+  setFilter(filter) {
+    set({ filter });
+  },
+
+  setFocusEntry(entryId) {
+    set({ focusEntry: entryId, view: { kind: "transcript" } });
+  },
+
+  addReviewComment(input) {
+    set({ review: [...get().review, input] });
+  },
+
+  removeReviewComment(index) {
+    set({ review: get().review.filter((_, at) => at !== index) });
+  },
+
+  clearReview() {
+    set({ review: [] });
+  },
+
+  /** Anchored comments go to the agent as one review message, like a PR review. */
+  async sendReview() {
+    const { review, current } = get();
+    if (current === undefined || review.length === 0) return;
+    const body = review
+      .map((item, index) => `${index + 1}. ${item.path}\n   ${item.line.trim().slice(0, 200)}\n   → ${item.note}`)
+      .join("\n\n");
+    await api("/api/submit", {
+      method: "POST",
+      body: JSON.stringify({
+        conversationId: current,
+        text: `工作区改动上的评审意见，请逐条处理：\n\n${body}`,
+        mode: "followUp",
+      }),
+    });
+    set({ review: [] });
   },
 }));

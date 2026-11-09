@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { SearchBox } from "@/components/SearchBox";
 import { tr } from "@/i18n";
 import type { Surface, Task } from "@/lib/api";
 import { useStore } from "@/store";
@@ -81,6 +82,7 @@ export function Rail() {
     connection,
     busy,
     home,
+    filter,
     select,
     setOrder,
     togglePin,
@@ -90,7 +92,17 @@ export function Rail() {
   } = useStore();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
-  const sorted = [...surfaces].sort((a, b) => {
+  const visible = filter.trim().length === 0
+    ? surfaces
+    : surfaces.filter((surface) => {
+        const needle = filter.trim().toLowerCase();
+        return (
+          surface.surfaceId.toLowerCase().includes(needle) ||
+          String(surface.conversationId).includes(needle)
+        );
+      });
+
+  const sorted = [...visible].sort((a, b) => {
     const ap = pinned.indexOf(a.conversationId);
     const bp = pinned.indexOf(b.conversationId);
     if (ap !== -1 || bp !== -1) {
@@ -159,6 +171,7 @@ export function Rail() {
       <div className="px-2.5 pt-3 pb-1 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
         {tr(lang, "sessions")}
       </div>
+      <SearchBox />
       <ScrollArea className="min-h-0 flex-1 px-1.5">
         <DndContext
           sensors={sensors}

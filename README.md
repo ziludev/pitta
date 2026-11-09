@@ -22,6 +22,10 @@
 | 角色 | `planner` 拆解 / `designer` 写设计文档 / `implementer` 实现 / `tester` 写测试 / `reviewer` 只读评审，各带独立指令与工具白名单 |
 | 话题 / 回复 | 回复某条消息或话题群里的消息 → 在该消息处 `fork` 出一条独立 conversation，各自独立跑，互不阻塞 |
 | 飞书原生 | `lark-cli`（已登录成你的身份）→ `feishu_agenda` 日历、`feishu_tasks` 待办、`feishu_create_task` 建任务（需审批）、`feishu_doc_read` 读文档 |
+| 文件查看 | 改动面板点文件名 → 中间栏变成带行号的只读文件视图（`?file=` 可深链） |
+| 输出规整 | 工具输出按形状渲染：JSON 高亮、日志按 ERROR/WARN/INFO 着色、TSV/表格转表格、其余原样 |
+| 会话搜索 | 左栏搜索框：即时过滤会话名，回车跑跨会话全文搜索，点结果跳到那条消息 |
+| 评审意见 | 点 diff 行 → 写一句 → 收集成"评审意见" → 一次发给 agent（对齐 PR review 的回路） |
 | 执行详情 | 有工具调用的轮次，卡片带「查看详情」按钮，点开看每步工具、输出摘要、耗时与花费 |
 | 工具生态 | `mcp.json` 里声明的 MCP servers（stdio / streamable HTTP）在启动时连接，工具以 `mcp__<server>__<tool>` 注册成 durable tool task；默认 `replay: unsafe`，被中断就报告模型而不是重放 |
 | 进度反馈 | 流式文本 + 工具名；静默期间每 15s 心跳更新卡片（耗时 · 进行中）；结束给 `✅ 12.3s · 3 个工具 · $0.0021` |
@@ -98,6 +102,8 @@ POST /api/submit | /api/abort | /api/reset
 GET  /api/memory?chat=  /api/tasks
 GET  /api/changes      工作区 git status + unified diff（含未跟踪文件）
 POST /api/commit       把工作区提交成一个 checkpoint
+GET  /api/file?path=   读工作区文件（越界拒绝，512KB 上限）
+GET  /api/search?q=    跨会话搜transcript（返回可读片段）
 ```
 
 **工作区是个 git 仓库**：启动时如果 `workspace/` 没有 `.git` 就 `git init` + 初始提交
@@ -223,6 +229,25 @@ cancel_task(id)       → 取消后台任务（级联停掉它的子 agent）
 | 崩溃续跑 | 子 agent 跑到一半挂了，重启后从它的断点继续，不用从头再来 |
 
 实测（tiny feature，132s）：designer 26s 出设计文档 → implementer 写 `todo.py` 并自测 → tester 写 `test_todo.py`（33 个用例，`33 passed`），主 agent 汇总还顺手修了 tester 发现的一个裸 Traceback。
+
+## 参考：JetBrains ThinkRail
+
+ThinkRail 的定位和我们几乎一样（"a thin host that runs `pi` and bridges it to a rich UI"），
+读了它仓库里的 `goal-and-requirements.md`，抄了三样、缓了三样。
+
+已抄：
+
+| ThinkRail 的做法 | 我们的落地 |
+|---|---|
+| **Review**：在文件/diff 上锚定评论，攒起来一次性交给 agent | 点 diff 行 → 收集 → "发给 agent"，把评论拼成一条评审消息 |
+| **Workbench**：编辑器/差分/聊天在一个工作台里 | 改动列表点开即文件视图，中间栏在 transcript / 文件之间切换 |
+| **Expose, don't recompute**：宿主只展示 pi 报告的东西 | 成本、工具调用、usage 全部读 `pi.live` / `pi.usage`，客户端不自己算 |
+
+暂缓（成本高，等有需要再说）：
+
+- **隔离 = git worktree**：它是"一个 workspace 一个 worktree、一条分支，主分支保持干净"；我们目前所有会话共用一个 workspace。要做的话是 per-conversation worktree + 分支，牵扯到工具 cwd 与合并流程。
+- **Specs as ground truth**：意图沉淀成 spec 图供 agent 检索维护。我们现在靠 `global_memory` + `docs/`，够用但不结构化。
+- **Open PR / 终端面板**：属于 IDE 化，收益不如上面几条直接。
 
 ## 飞书原生工具
 

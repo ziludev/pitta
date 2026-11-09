@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { MessageSquarePlus, Send, Trash2 } from "lucide-react";
 import { AnimateService, motion } from "motion/react";
 import { Brain, GitCompareArrows, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fileStatusLabel, tr } from "@/i18n";
@@ -11,13 +13,33 @@ import { DiffView } from "@/lib/diff";
 import { useStore } from "@/store";
 
 function Changes() {
-  const { lang, changes, changesLoading, loadChanges } = useStore();
+  const {
+    lang,
+    changes,
+    changesLoading,
+    loadChanges,
+    openFile,
+    review,
+    addReviewComment,
+    removeReviewComment,
+    clearReview,
+    sendReview,
+  } = useStore();
+  const [picked, setPicked] = useState<{ path: string; line: string } | undefined>();
+  const [note, setNote] = useState("");
 
   if (changes === undefined) {
     return <div className="p-3 text-[11px] text-muted-foreground">{changesLoading ? "…" : ""}</div>;
   }
   if (!changes.repo || changes.files.length === 0) {
     return <div className="p-3 text-[11px] text-muted-foreground">{tr(lang, "noChanges")}</div>;
+  }
+
+  function takeComment() {
+    if (picked === undefined || note.trim().length === 0) return;
+    addReviewComment({ ...picked, note: note.trim() });
+    setPicked(undefined);
+    setNote("");
   }
 
   return (
@@ -35,10 +57,14 @@ function Changes() {
         </div>
       </div>
 
-      <ScrollArea className="min-h-0 flex-1 px-3 pb-3">
+      <ScrollArea className="min-h-0 flex-1 px-3 pb-2">
         <div className="flex flex-col gap-1.5">
           {changes.files.map((file) => (
-            <div key={file.path} className="flex items-baseline gap-2 text-[11px]">
+            <button
+              key={file.path}
+              onClick={() => openFile(file.path)}
+              className="flex items-baseline gap-2 rounded px-1 text-left text-[11px] hover:bg-accent/10"
+            >
               <Badge variant="outline" className="shrink-0 text-[9px]">
                 {fileStatusLabel(lang, file.status)}
               </Badge>
@@ -47,13 +73,76 @@ function Changes() {
                 {file.added > 0 ? `+${file.added}` : ""}
                 {file.removed > 0 ? ` −${file.removed}` : ""}
               </span>
-            </div>
+            </button>
           ))}
           <div className="mt-1">
-            <DiffView text={changes.diff} open={changes.files.length <= 3} />
+            <DiffView
+              text={changes.diff}
+              open={changes.files.length <= 3}
+              onPickLine={(path, line) => {
+                setPicked({ path, line });
+                setNote("");
+              }}
+            />
           </div>
+          <div className="mt-1 text-[10px] text-muted-foreground">{tr(lang, "reviewHint")}</div>
         </div>
       </ScrollArea>
+
+      <div className="border-t border-border p-2">
+        {picked !== undefined ? (
+          <div className="mb-2 flex flex-col gap-1">
+            <div className="truncate font-mono text-[10px] text-muted-foreground">
+              {picked.path} · {picked.line.trim().slice(0, 60)}
+            </div>
+            <div className="flex gap-1">
+              <Input
+                autoFocus
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                placeholder={tr(lang, "review")}
+                className="h-7 text-[11px]"
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") return;
+                  event.preventDefault();
+                  takeComment();
+                }}
+              />
+              <Button size="icon-xs" variant="secondary" onClick={takeComment}>
+                <MessageSquarePlus className="size-3" />
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {review.length > 0 ? (
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+              <span>
+                {tr(lang, "review")} · {review.length}
+              </span>
+              <button onClick={clearReview} className="hover:text-foreground" title={tr(lang, "clearReview")}>
+                <Trash2 className="size-3" />
+              </button>
+            </div>
+            <div className="max-h-24 overflow-y-auto">
+              {review.map((item, index) => (
+                <button
+                  key={index}
+                  onClick={() => removeReviewComment(index)}
+                  className="block w-full truncate text-left text-[10px] text-muted-foreground hover:text-foreground"
+                >
+                  {item.path} → {item.note}
+                </button>
+              ))}
+            </div>
+            <Button size="xs" onClick={() => void sendReview()}>
+              <Send className="size-3" />
+              {tr(lang, "sendReview")}
+            </Button>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
