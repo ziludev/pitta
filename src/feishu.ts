@@ -289,10 +289,22 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     }
   }
 
-  async function replyCard(messageId: string, markdown: string, meta?: string): Promise<string | undefined> {
+  async function replyCard(
+    messageId: string,
+    markdown: string,
+    meta?: string,
+    options: { thread?: boolean; mention?: string } = {},
+  ): Promise<string | undefined> {
+    const body = options.mention === undefined ? markdown : `<at id=${options.mention}></at> ${markdown}`;
     const response = await client.im.message.reply({
       path: { message_id: messageId },
-      data: { msg_type: "interactive", content: JSON.stringify(card(markdown, meta ?? "▶️ 处理中")) },
+      data: {
+        msg_type: "interactive",
+        content: JSON.stringify(card(body, meta ?? "▶️ 处理中")),
+        // Group replies stay in one thread: the timeline stays readable and the
+        // thread itself becomes the conversation (our fork logic keys on thread_id).
+        ...(options.thread === true ? { reply_in_thread: true } : {}),
+      },
     });
     return response?.data?.message_id;
   }
@@ -494,7 +506,13 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     const command = text.trim();
 
     if (/^\/(help|帮助)$/i.test(command)) {
-      await replyCard(message.message_id, HELP, "💡 命令一览");
+      await replyCard(message.message_id, HELP, "💡 命令一览", {
+        thread: message.chat_type === "group" && config.feishu.replyInThread,
+        mention:
+          message.chat_type === "group" && config.feishu.mentionSender
+            ? (event.sender?.sender_id?.open_id ?? undefined)
+            : undefined,
+      });
       return;
     }
     if (/^\/(new|reset|新会话|清空)$/i.test(command)) {
@@ -547,6 +565,11 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     }
 
     log("feishu", "turn start", { chatId, conversationId: conversation.id, type: message.message_type });
+    const inGroup = message.chat_type === "group";
+    const replyOptions = {
+      thread: inGroup && config.feishu.replyInThread,
+      mention: inGroup && config.feishu.mentionSender ? (event.sender?.sender_id?.open_id ?? undefined) : undefined,
+    };
     const cardId = await replyCard(
       message.message_id,
       parsed.audioKey !== undefined
@@ -554,6 +577,8 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         : parsed.imageKeys.length > 0
           ? "🖼️ 看图…"
           : "🤔 收到，处理中…",
+      undefined,
+      replyOptions,
     );
     if (cardId === undefined) {
       log("feishu", "reply card creation failed, continuing without streaming");

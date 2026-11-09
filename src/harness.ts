@@ -180,7 +180,9 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
           context,
         );
         if (parent !== undefined) {
-          const forked = await forkAt(parent, anchor.entryId, agentChange, context);
+          // Empty change: the fork inherits the parent's agent at the fork entry,
+          // which keeps it in the same worktree as the chat it branched from.
+          const forked = await forkAt(parent, anchor.entryId, {}, context);
           await recordThread(harness, context, threadKey, forked.id as unknown as number);
           rememberSurface(forked.id as unknown as number, surfaceId);
           console.log(`[agent] forked conversation ${forked.id} from ${parent.id} at entry ${anchor.entryId}`);

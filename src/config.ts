@@ -59,6 +59,10 @@ export const config = {
     allowedChatIds: list("FEISHU_ALLOWED_CHAT_IDS"),
     allowedSenderIds: list("FEISHU_ALLOWED_SENDER_IDS"),
     mentionsOnly: bool("FEISHU_MENTIONS_ONLY", true),
+    /** Group replies go into a thread so the group timeline stays readable. */
+    replyInThread: bool("FEISHU_REPLY_IN_THREAD", true),
+    /** Mention the asker in the reply, so it is clear who is being answered. */
+    mentionSender: bool("FEISHU_MENTION_SENDER", true),
   },
   model: {
     provider: process.env.AGENT_PROVIDER ?? "magpie",
