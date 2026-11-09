@@ -18,7 +18,7 @@
 | 主动性 | `remind` 工具创建 **durable 定时任务**：存 deadline 睡觉，进程重启后照样到点触发，主动发消息 |
 | 工具审批 | `guard` hook 拦危险调用（`rm -rf`、`git push --force`、`sudo`、写工作区外…），发带按钮的卡片等人点，decision 存 memo |
 | 成本闸门 | `pi.usage` 汇总 → 每日额度（`AGENT_DAILY_BUDGET_USD`），超了拒绝新请求，跨天自动重置 |
-| 多角色分工 | `delegate`（单个角色）/ `delegate_parallel`（并行）/ `build_feature`（设计→实现→测试流水线）。每个子 agent 都是 **task-owned conversation**：独立上下文、独立成本、崩了能续、abort 会级联，且只允许一层（子 agent 拿不到 delegate） |
+| 多角色分工 | `delegate`（单个角色）/ `delegate_parallel`（并行）/ `build_feature`（设计→实现→测试流水线；`background="1"` 丢后台跑）。每个子 agent 都是 **task-owned conversation**：独立上下文、独立成本、崩了能续、abort 会级联，且只允许一层（子 agent 拿不到 delegate） |
 | 角色 | `planner` 拆解 / `designer` 写设计文档 / `implementer` 实现 / `tester` 写测试 / `reviewer` 只读评审，各带独立指令与工具白名单 |
 | 话题 / 回复 | 回复某条消息或话题群里的消息 → 在该消息处 `fork` 出一条独立 conversation，各自独立跑，互不阻塞 |
 | 飞书原生 | `lark-cli`（已登录成你的身份）→ `feishu_agenda` 日历、`feishu_tasks` 待办、`feishu_create_task` 建任务（需审批）、`feishu_doc_read` 读文档 |
@@ -142,10 +142,16 @@ scripts/import-hermes-memory.ts  从 ~/.hermes/memories 迁移记忆（支持 dr
 需求进来后可以让不同角色分头做，各自是独立的 durable conversation：
 
 ```
-build_feature(spec)   → designer 写 docs/<slug>.md → implementer 实现并自测 → tester 写测试并跑
-delegate(role, task)  → 单个角色干一件事，返回它的结论
+build_feature(spec, background="1")
+   → 后台 durable task（app.feature）：designer → implementer → tester
+   → 立即返回 taskId，父对话保持空闲，做完主动发飞书消息 + 写回父对话记录
+build_feature(spec)    → 同步等待，适合 30 秒内的小活
+delegate(role, task)   → 单个角色干一件事，返回它的结论
 delegate_parallel(...) → 并行几个角色（例如 reviewer 评审 + tester 补测试）
 ```
+
+后台任务的保证：每个阶段的产出写进 task memo，崩溃后从**第一个未完成的阶段**续跑；
+`/stop` 只中断当前轮次，不会杀掉后台任务；`agentctl restart` 之后照样继续。
 
 为什么用 durable 的会话而不是"一次性 prompt"：
 
