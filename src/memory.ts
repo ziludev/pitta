@@ -118,6 +118,18 @@ const forget = defineTool({
   },
 });
 
+/**
+ * Deleted notes stay dead: transcripts still contain the text, so a curator or a
+ * model could otherwise resurrect something the owner removed on purpose.
+ */
+export const MemoryTombstones = defineDoc<{ texts: string[] }>({
+  kind: "app.memory-tombstones",
+  version: 1,
+  scope: "session",
+  initial: () => ({ texts: [] }),
+  checkpointWhen: () => false,
+});
+
 const recall = defineTool({
   name: "recall",
   description:

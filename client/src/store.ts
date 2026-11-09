@@ -12,7 +12,7 @@ import {
   type Task,
 } from "@/lib/api";
 import { initialLang, type Lang } from "@/i18n";
-import type { MergeResult, ModelEntry, ModelRef, UsageDay } from "@/lib/api";
+import type { MemorySuggestion, MergeResult, ModelEntry, ModelRef, UsageDay } from "@/lib/api";
 
 export type LiveDoc = {
   run?: unknown;
@@ -50,6 +50,9 @@ type State = {
   favorites: string[];
   recents: string[];
   usageDays: UsageDay[];
+  memoryQuery: string;
+  memorySuggestions: MemorySuggestion[];
+  curating: boolean;
 
   init(): Promise<void>;
   select(conversationId: number): Promise<void>;
@@ -82,6 +85,10 @@ type State = {
   setDefaultModel(input: { provider: string; modelId: string; thinkingLevel?: string }): Promise<void>;
   setModel(input: { provider: string; modelId: string; thinkingLevel?: string }): Promise<void>;
   loadUsage(): Promise<void>;
+  setMemoryQuery(query: string): void;
+  curateMemory(hours?: number): Promise<{ scanned: number; suggested: number }>;
+  applySuggestions(accepted: MemorySuggestion[]): Promise<{ added: number; skipped: number }>;
+  clearSuggestions(): void;
 };
 
 let socket: WebSocket | undefined;
@@ -130,6 +137,9 @@ export const useStore = create<State>((set, get) => ({
   review: [],
   models: [],
   usageDays: [],
+  memoryQuery: "",
+  memorySuggestions: [],
+  curating: false,
   favorites: JSON.parse(localStorage.getItem("agent.favoriteModels") ?? "[]") as string[],
   recents: JSON.parse(localStorage.getItem("agent.recentModels") ?? "[]") as string[],
 
@@ -374,6 +384,38 @@ export const useStore = create<State>((set, get) => ({
   async loadUsage() {
     const result = await api<{ days: UsageDay[] }>("/api/usage-calendar?days=120");
     set({ usageDays: result.days });
+  },
+
+  setMemoryQuery(query) {
+    set({ memoryQuery: query });
+  },
+
+  async curateMemory(hours = 24) {
+    set({ curating: true });
+    try {
+      const result = await api<{ suggestions: MemorySuggestion[]; scanned: number }>("/api/memory/curate", {
+        method: "POST",
+        body: JSON.stringify({ hours }),
+      });
+      set({ memorySuggestions: result.suggestions });
+      return { scanned: result.scanned, suggested: result.suggestions.length };
+    } finally {
+      set({ curating: false });
+    }
+  },
+
+  async applySuggestions(accepted) {
+    const result = await api<{ added: number; skipped: number }>("/api/memory/apply", {
+      method: "POST",
+      body: JSON.stringify({ suggestions: accepted }),
+    });
+    set({ memorySuggestions: [] });
+    await get().loadMemory();
+    return result;
+  },
+
+  clearSuggestions() {
+    set({ memorySuggestions: [] });
   },
 
   /** Anchored comments go to the agent as one review message, like a PR review. */

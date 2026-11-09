@@ -113,6 +113,7 @@ GET  /api/search?q=    跨会话搜transcript（返回可读片段）
 POST /api/merge        把会话分支 --no-ff 合并回主线（冲突返回数据，不猜）
 GET  /api/models       可用模型（含价格/上下文/支持的思考级别）+ 宿主默认
 POST /api/default-model 设置宿主默认模型（新会话用它）
+POST /api/memory/curate 生成记忆建议（不写入）；POST /api/memory/apply 写入勾选的建议
 POST /api/model        切某个会话的模型/思考级别
 GET  /api/usage-calendar?days=  按日 token/花费方块图数据
 ```

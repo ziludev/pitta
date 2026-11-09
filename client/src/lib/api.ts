@@ -51,6 +51,7 @@ export type ModelEntry = {
   cost: { input: number; output: number };
   thinkingLevels: string[];
 };
+export type MemorySuggestion = { text: string; scope: "global" | "work" | "chat"; reason?: string };
 export type UsageDay = { date: string; cost: number; tokens: number };
 
 export const wsURL = (conversationId: number): string =>

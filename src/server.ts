@@ -340,6 +340,22 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         return send(res, 200, result);
       }
 
+      if (req.method === "POST" && path === "/api/memory/curate") {
+        const body = await readJson(req);
+        const hours = Number(body["hours"] ?? 24);
+        const result = await runtime.curateMemory(Number.isFinite(hours) ? hours : 24);
+        return send(res, 200, result);
+      }
+
+      if (req.method === "POST" && path === "/api/memory/apply") {
+        const body = await readJson(req);
+        const accepted = Array.isArray(body["suggestions"])
+          ? (body["suggestions"] as import("./curator.ts").Suggestion[])
+          : [];
+        const result = await runtime.applyMemorySuggestions(accepted);
+        return send(res, 200, result);
+      }
+
       if (req.method === "GET" && path === "/api/tasks") {
         const inspection = await runtime.harness.inspect(context);
         return send(res, 200, {

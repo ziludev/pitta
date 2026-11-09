@@ -23,6 +23,7 @@ import { guardExtension } from "./approval.ts";
 import { larkExtension } from "./lark-tools.ts";
 import { subagentExtension } from "./subagents.ts";
 import { UsageSampler, UsageDays, sampleUsage, usageCalendar } from "./usage-days.ts";
+import { applySuggestions, curateMemory } from "./curator.ts";
 import { connectMcp, type McpRuntime } from "./mcp.ts";
 import { personalExtension } from "./personal.ts";
 import { checkBudget, type BudgetCheck } from "./budget.ts";
@@ -86,6 +87,10 @@ export type AgentRuntime = {
     model: { provider: string; modelId: string; thinkingLevel?: string },
   ): Promise<void>;
   usageCalendar(days: number): Promise<Array<{ date: string; cost: number; tokens: number }>>;
+  curateMemory(hours?: number): Promise<import("./curator.ts").CurateResult>;
+  applyMemorySuggestions(
+    accepted: import("./curator.ts").Suggestion[],
+  ): Promise<{ added: number; skipped: number }>;
   mcp: McpRuntime;
   memories(conversation: Conversation): Promise<{ global: Note[]; chat: Note[] }>;
   close(): Promise<void>;
@@ -355,6 +360,8 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
         },
         context,
       ),
+    curateMemory: (hours) => curateMemory(harness, models, context, { hours }),
+    applyMemorySuggestions: (accepted) => applySuggestions(harness, context, accepted),
     usageCalendar: async (days) => {
       // Sample first: the background sampler only runs every 10 minutes.
       await sampleUsage(harness, context).catch(() => {});
