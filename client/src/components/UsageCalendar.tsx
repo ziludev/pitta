@@ -65,7 +65,7 @@ export function UsageCalendar() {
   for (let index = 0; index < cells.length; index += 7) columns.push(cells.slice(index, index + 7));
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-3 py-3">
       <div className="flex items-baseline justify-between text-[11px] text-muted-foreground">
         <span>
           {tr(lang, "tokens7")} <span className="text-foreground tabular-nums">{formatTokens(last7)}</span>

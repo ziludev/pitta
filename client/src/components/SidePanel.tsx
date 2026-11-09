@@ -169,8 +169,8 @@ function Memory() {
     return <div className="p-3 text-[11px] text-muted-foreground">{tr(lang, "noMemory")}</div>;
   }
   return (
-    <ScrollArea className="min-h-0 flex-1 px-3 pb-3">
-      <div className="flex flex-col gap-3">
+    <ScrollArea className="h-full min-h-0 w-full">
+      <div className="flex flex-col gap-3 px-3 pb-3">
         {groups.map(([title, notes]) =>
           notes.length === 0 ? null : (
             <div key={title} className="flex flex-col gap-1">
@@ -231,13 +231,13 @@ export function SidePanel() {
             transition={{ duration: 0.12 }}
             className="flex min-h-0 flex-1 flex-col"
           >
-            <TabsContent value="changes" className="min-h-0 flex-1">
+            <TabsContent value="changes" className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <Changes />
             </TabsContent>
-            <TabsContent value="usage" className="min-h-0 flex-1">
+            <TabsContent value="usage" className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <UsageCalendar />
             </TabsContent>
-            <TabsContent value="memory" className="min-h-0 flex-1">
+            <TabsContent value="memory" className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <Memory />
             </TabsContent>
           </motion.div>
