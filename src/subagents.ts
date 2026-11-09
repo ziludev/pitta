@@ -12,6 +12,7 @@ import { obj, opt, str } from "@earendil-works/pi-schema";
 import type { TaskRuntime, ToolExecutionApi } from "@earendil-works/pi-durable";
 import { ROLES, toolsFor, type RoleName } from "./roles.ts";
 import { notify, surfaceForConversation } from "./channel.ts";
+import { getHarness } from "./runtime-ref.ts";
 import { log, logError } from "./log.ts";
 
 const ROLE_NAMES = Object.keys(ROLES) as RoleName[];
@@ -432,8 +433,77 @@ const buildFeature = defineTool({
   },
 });
 
+
+const taskStatus = defineTool({
+  name: "task_status",
+  description:
+    "看后台任务状态：不传 taskId 列出当前所有在跑的后台任务（含 app.feature 流水线）；传 taskId 看单个详情。",
+  parameters: obj({ taskId: opt(str({ description: "任务 id，可选" })) }),
+  replay: "safe",
+  execute: async (args, _api, context) => {
+    const harness = getHarness();
+    if (harness === undefined) {
+      return { output: [{ type: "text" as const, text: "拿不到 harness 句柄" }], isError: true };
+    }
+    if (typeof args.taskId === "string" && args.taskId.length > 0) {
+      const record = await harness.getTask(args.taskId as never, context);
+      if (record === undefined) {
+        return { output: [{ type: "text" as const, text: `没有 task ${args.taskId}（可能已经结束并被清理）` }] };
+      }
+      const state = record.state as unknown as { status?: string; kind?: string; outcome?: unknown };
+      return {
+        output: [
+          {
+            type: "text" as const,
+            text: `task ${record.id}
+kind: ${record.kind}
+status: ${state.status ?? state.kind}
+outcome: ${JSON.stringify(
+              state.outcome ?? null,
+            ).slice(0, 500)}`,
+          },
+        ],
+      };
+    }
+
+    const inspection = await harness.inspect(context);
+    const live = inspection.tasks.filter((task) => task.record.kind !== "pi.generation");
+    if (live.length === 0) {
+      return { output: [{ type: "text" as const, text: "现在没有在跑的后台任务" }] };
+    }
+    const lines = live.map((task) => {
+      const state = task.state as unknown as { kind?: string } & Record<string, unknown>;
+      const detail = state.kind === "running" ? "running" : state.kind ?? "?";
+      return `- ${task.record.id} ${task.record.kind} [${detail}] conversation=${task.record.conversationId}`;
+    });
+    return { output: [{ type: "text" as const, text: `在跑的任务：\n${lines.join("\n")}` }] };
+  },
+});
+
+const cancelTask = defineTool({
+  name: "cancel_task",
+  description: "取消一个后台任务（例如跑偏的 app.feature 流水线）。会级联停掉它拥有的子 agent。",
+  parameters: obj({ taskId: str({ description: "要取消的 task id" }) }),
+  execute: async (args, _api, context) => {
+    const harness = getHarness();
+    if (harness === undefined) {
+      return { output: [{ type: "text" as const, text: "拿不到 harness 句柄" }], isError: true };
+    }
+    const result = await harness.abortTask(args.taskId as never, context);
+    log("subagent", "cancel requested", { taskId: args.taskId, result });
+    return {
+      output: [
+        {
+          type: "text" as const,
+          text: result === "terminal" ? `task ${args.taskId} 已经是结束状态` : `已取消 task ${args.taskId}（连带子 agent）`,
+        },
+      ],
+    };
+  },
+});
+
 export const subagentExtension = defineExtension({
   name: "subagents",
-  tools: [delegate, delegateParallel, buildFeature],
+  tools: [delegate, delegateParallel, buildFeature, taskStatus, cancelTask],
   tasks: [FeatureTask],
 });

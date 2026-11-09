@@ -29,6 +29,7 @@
 | 图片 | `image` 与 `post`（图文混排）都解析 → 下载 → base64 → 多模态模型；带锚定提示，先描述图再答题 |
 | 卡片自愈 | 卡片 id 存进 durable `app.pending-cards`，进程重启后重新接管 submission 并把答案单独发出来；PATCH 失败自动降级为纯文本消息 |
 | 命令 | `/help` `/new` `/stop` `/cost` `/memory` `/id` |
+| 群聊 | 群里 @机器人 才响应；`FEISHU_ALLOWED_CHAT_IDS` 要包含群 id，`FEISHU_ALLOWED_SENDER_IDS` 决定谁能触发（群成员都能看到回复） |
 | 幂等 | `requestId = feishu:<message_id>`，飞书 at-least-once 重投不会问两遍 |
 
 ## 快速开始
@@ -148,6 +149,8 @@ build_feature(spec, background="1")
 build_feature(spec)    → 同步等待，适合 30 秒内的小活
 delegate(role, task)   → 单个角色干一件事，返回它的结论
 delegate_parallel(...) → 并行几个角色（例如 reviewer 评审 + tester 补测试）
+task_status(id?)      → 列出/查看在跑的后台任务
+cancel_task(id)       → 取消后台任务（级联停掉它的子 agent）
 ```
 
 后台任务的保证：每个阶段的产出写进 task memo，崩溃后从**第一个未完成的阶段**续跑；

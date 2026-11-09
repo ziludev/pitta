@@ -25,6 +25,7 @@ import { personalExtension } from "./personal.ts";
 import { checkBudget, type BudgetCheck } from "./budget.ts";
 import { rememberSurface } from "./channel.ts";
 import { log } from "./log.ts";
+import { setHarnessRef } from "./runtime-ref.ts";
 import { forkAt, lookupMessage, lookupThread, recordMessage, recordThread } from "./threads.ts";
 import { config } from "./config.ts";
 
@@ -100,6 +101,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     context,
   );
   harness.resume();
+  setHarnessRef(harness);
 
   const agentChange = {
     model: { provider: config.model.provider, modelId: config.model.modelId },
