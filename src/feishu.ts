@@ -385,6 +385,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       },
     });
     const cardId = sent?.data?.message_id;
+    log("feishu", "approval card sent", { cardId, callId: request.callId.slice(-12), tool: request.tool });
     return new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => {
         pendingApprovals.delete(request.callId);
@@ -398,6 +399,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
   });
 
   async function handleCardAction(payload: CardAction): Promise<Record<string, unknown>> {
+    const receivedAt = Date.now();
     const value = payload.action?.value ?? {};
 
     if (value["kind"] === "detail") {
@@ -406,14 +408,17 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       const details = await readTurnDetails(runtime.harness, context, messageId);
       if (details === undefined) return { toast: { type: "info", content: "这轮没有工具调用记录" } };
       if (chatId.length > 0) {
-        await client.im.message.create({
-          params: { receive_id_type: "chat_id" },
-          data: {
-            receive_id: chatId,
-            msg_type: "interactive",
-            content: JSON.stringify(card(renderDetails(details), "🔍 本轮执行详情")),
-          },
-        });
+        // Fire and forget: the callback response has a ~3s budget.
+        void client.im.message
+          .create({
+            params: { receive_id_type: "chat_id" },
+            data: {
+              receive_id: chatId,
+              msg_type: "interactive",
+              content: JSON.stringify(card(renderDetails(details), "🔍 本轮执行详情")),
+            },
+          })
+          .catch((error) => logError("feishu", "could not send detail card", error));
       }
       return { toast: { type: "success", content: "详情已发送" } };
     }
@@ -421,6 +426,14 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     const callId = typeof value["approval"] === "string" ? value["approval"] : "";
     const operator = payload.operator?.open_id ?? "";
     const entry = pendingApprovals.get(callId);
+    log("feishu", "card action received", {
+      callId: callId.slice(-12),
+      operator: operator.slice(-6),
+      ok: value["ok"],
+      pending: entry !== undefined,
+      pendingIds: pendingApprovals.size,
+      messageId: payload.context?.open_message_id,
+    });
     if (entry === undefined) return { toast: { type: "info", content: "已处理" } };
 
     const { allowedSenderIds } = config.feishu;
@@ -432,12 +445,18 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     clearTimeout(entry.timer);
     const approved = value["ok"] === true;
     entry.resolve(approved);
+    const text = approved ? "✅ 已允许，继续执行" : "🛑 已拒绝";
+    const meta = `由 ${operator.slice(-6)} 确认`;
     const messageId = payload.context?.open_message_id;
     if (messageId !== undefined) {
-      const text = approved ? "✅ 已允许，继续执行" : "🛑 已拒绝";
-      await patchCard(messageId, text, `由 ${operator.slice(-6)} 确认`).catch(() => {});
+      // Never await here: Feishu drops a callback response that takes too long, and
+      // then the click looks like it did nothing at all.
+      void patchCard(messageId, text, meta).catch((error) =>
+        logError("feishu", "could not patch approval card", error),
+      );
     }
-    return { toast: { type: "success", content: approved ? "已允许" : "已拒绝" } };
+    log("feishu", "approval answered", { approved, callId: callId.slice(-12), ms: Date.now() - receivedAt });
+    return { toast: { type: "success", content: approved ? "已允许，继续执行" : "已拒绝" } };
   }
 
   async function handle(event: IncomingMessage): Promise<void> {
