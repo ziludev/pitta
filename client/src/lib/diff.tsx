@@ -55,9 +55,9 @@ export function diffStats(text: string): { files: number; added: number; removed
 }
 
 const LINE_CLASS: Record<string, string> = {
-  add: "bg-emerald-500/15 text-emerald-300",
-  del: "bg-rose-500/15 text-rose-300",
-  hunk: "text-sky-400",
+  add: "bg-emerald-500/15 text-emerald-800 dark:text-emerald-300",
+  del: "bg-rose-500/15 text-rose-800 dark:text-rose-300",
+  hunk: "text-sky-700 dark:text-sky-400",
   ctx: "text-muted-foreground",
 };
 

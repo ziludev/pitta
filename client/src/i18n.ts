@@ -51,6 +51,9 @@ const dict = {
     onlyDesktop: "只在桌面客户端里可用",
     diffSummary: "个文件",
     language: "语言",
+    theme: "主题",
+    pinned: "置顶",
+    preview: "预览",
   },
   en: {
     sessions: "Sessions",
@@ -97,6 +100,9 @@ const dict = {
     onlyDesktop: "Desktop app only",
     diffSummary: "files",
     language: "Language",
+    theme: "Theme",
+    pinned: "Pinned",
+    preview: "Preview",
   },
 } as const;
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { cn } from "cn";
 import { ChevronRight } from "lucide-react";
+import { CollapsibleContent, CollapsibleTrigger, Collapsible as CollapsibleRoot } from "@/components/ui/collapsible";
 import { tr } from "@/i18n";
 import type { Entry } from "@/lib/api";
 import { DiffView, diffStats } from "@/lib/diff";
@@ -34,16 +35,15 @@ const textOf = (parts: Part[]): string =>
 function Collapsible({ title, children }: { title: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-lg border border-border bg-card/50">
-      <button
-        onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-[11px] text-muted-foreground hover:text-foreground"
-      >
-        <ChevronRight className={cn("size-3 transition-transform", open && "rotate-90")} />
+    <CollapsibleRoot open={open} onOpenChange={setOpen} className="rounded-lg border border-border bg-card/50">
+      <CollapsibleTrigger className="group flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-[11px] text-muted-foreground hover:text-foreground">
+        <ChevronRight className={cn("size-3 transition-transform group-data-[state=open]:rotate-90")} />
         {title}
-      </button>
-      {open ? <div className="border-t border-border px-2.5 py-2">{children}</div> : null}
-    </div>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="border-t border-border px-2.5 py-2">{children}</div>
+      </CollapsibleContent>
+    </CollapsibleRoot>
   );
 }
 

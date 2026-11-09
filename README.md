@@ -68,6 +68,10 @@ npm run ask -- "用一句话介绍你自己"      # 本地冒烟（不碰飞书�
 | 拖拽 | dnd-kit（会话列表可拖拽排序，顺序持久化） |
 | 状态 | Zustand（单一 store：会话/条目/live/记忆/改动/语言/连接状态） |
 
+交互细节：会话可**拖拽排序**，拖到最顶或点图钉 = **置顶**（顺序与置顶都持久化）；
+主题跟随系统（左上角按钮循环 system → light → dark）；提交说明用 Dialog；
+`?theme=dark|light`、`?lang=zh|en`、`?entry=<id>` 三个 query 参数方便演示和截图。
+
 ```
 
 ```bash

@@ -35,6 +35,7 @@ type State = {
   changes?: Changes;
   changesLoading: boolean;
   order: number[];
+  pinned: number[];
   tab: "changes" | "memory";
   focusEntry?: number;
 
@@ -51,12 +52,22 @@ type State = {
   openLogs(): Promise<void>;
   setLang(lang: Lang): void;
   setOrder(order: number[]): void;
+  togglePin(conversationId: number): void;
   setTab(tab: "changes" | "memory"): void;
 };
 
 let socket: WebSocket | undefined;
 
 const ORDER_KEY = "agent.surfaceOrder";
+const PIN_KEY = "agent.pinned";
+
+function savedPinned(): number[] {
+  try {
+    return JSON.parse(localStorage.getItem(PIN_KEY) ?? "[]") as number[];
+  } catch {
+    return [];
+  }
+}
 
 function savedOrder(): number[] {
   try {
@@ -77,6 +88,7 @@ export const useStore = create<State>((set, get) => ({
   memory: { global: [], work: [], chat: [] },
   changesLoading: false,
   order: savedOrder(),
+  pinned: savedPinned(),
   tab: "changes",
   focusEntry: Number(new URLSearchParams(location.search).get("entry") ?? "") || undefined,
 
@@ -204,6 +216,14 @@ export const useStore = create<State>((set, get) => ({
   setOrder(order) {
     localStorage.setItem(ORDER_KEY, JSON.stringify(order));
     set({ order });
+  },
+
+  togglePin(conversationId) {
+    const pinned = get().pinned.includes(conversationId)
+      ? get().pinned.filter((id) => id !== conversationId)
+      : [...get().pinned, conversationId];
+    localStorage.setItem(PIN_KEY, JSON.stringify(pinned));
+    set({ pinned });
   },
 
   setTab(tab) {

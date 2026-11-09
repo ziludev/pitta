@@ -1,17 +1,17 @@
 import { useState } from "react";
 import { AnimateService, motion } from "motion/react";
-import { Brain, GitCompareArrows, RefreshCw, Check } from "lucide-react";
-import { toast } from "sonner";
+import { Brain, GitCompareArrows, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fileStatusLabel, tr } from "@/i18n";
+import { CommitDialog } from "@/components/CommitDialog";
 import { DiffView } from "@/lib/diff";
 import { useStore } from "@/store";
 
 function Changes() {
-  const { lang, changes, changesLoading, loadChanges, commit } = useStore();
+  const { lang, changes, changesLoading, loadChanges } = useStore();
 
   if (changes === undefined) {
     return <div className="p-3 text-[11px] text-muted-foreground">{changesLoading ? "…" : ""}</div>;
@@ -31,21 +31,7 @@ function Changes() {
           <Button variant="ghost" size="icon-xs" onClick={() => void loadChanges()} title={tr(lang, "refresh")}>
             <RefreshCw className="size-3" />
           </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            title={tr(lang, "commit")}
-            onClick={() => {
-              const message = window.prompt(tr(lang, "commitMessage"), "");
-              if (message === null) return;
-              commit(message)
-                .then((head) => toast(`${tr(lang, "committed")} ${head}`))
-                .catch(() => toast.error(tr(lang, "nothingToCommit")));
-            }}
-          >
-            <Check className="size-3" />
-            {tr(lang, "commit")}
-          </Button>
+          <CommitDialog files={changes.files.length} />
         </div>
       </div>
 

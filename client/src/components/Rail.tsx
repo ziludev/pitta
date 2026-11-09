@@ -2,11 +2,13 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type D
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Database, FileText, GripVertical, Languages, RotateCw } from "lucide-react";
+import { Database, FileText, GripVertical, Languages, Pin, PinOff, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { tr } from "@/i18n";
 import type { Surface, Task } from "@/lib/api";
 import { useStore } from "@/store";
@@ -18,13 +20,19 @@ function surfaceLabel(surfaceId: string, feishu: string): string {
 function SessionRow({
   surface,
   active,
+  pinned,
   label,
+  pinTitle,
   onSelect,
+  onTogglePin,
 }: {
   surface: Surface;
   active: boolean;
+  pinned: boolean;
   label: string;
+  pinTitle: string;
   onSelect: () => void;
+  onTogglePin: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: surface.conversationId,
@@ -49,16 +57,47 @@ function SessionRow({
         <span className="truncate">{label}</span>
         <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">#{surface.conversationId}</span>
       </button>
+      <button
+        onClick={onTogglePin}
+        title={pinTitle}
+        className={`shrink-0 transition ${
+          pinned ? "text-primary" : "text-muted-foreground/40 opacity-0 group-hover:opacity-100"
+        }`}
+      >
+        {pinned ? <Pin className="size-3" /> : <PinOff className="size-3" />}
+      </button>
     </div>
   );
 }
 
 export function Rail() {
-  const { lang, surfaces, tasks, current, order, connection, busy, home, select, setOrder, control, openLogs, setLang } =
-    useStore();
+  const {
+    lang,
+    surfaces,
+    tasks,
+    current,
+    order,
+    pinned,
+    connection,
+    busy,
+    home,
+    select,
+    setOrder,
+    togglePin,
+    control,
+    openLogs,
+    setLang,
+  } = useStore();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   const sorted = [...surfaces].sort((a, b) => {
+    const ap = pinned.indexOf(a.conversationId);
+    const bp = pinned.indexOf(b.conversationId);
+    if (ap !== -1 || bp !== -1) {
+      if (ap === -1) return 1;
+      if (bp === -1) return -1;
+      return ap - bp;
+    }
     const ai = order.indexOf(a.conversationId);
     const bi = order.indexOf(b.conversationId);
     if (ai !== -1 && bi !== -1) return ai - bi;
@@ -74,7 +113,15 @@ export function Rail() {
     const from = ids.indexOf(Number(active.id));
     const to = ids.indexOf(Number(over.id));
     if (from === -1 || to === -1) return;
-    setOrder(arrayMove(ids, from, to));
+    const moved = arrayMove(ids, from, to);
+    setOrder(moved);
+    // Dragging to the very top pins; dragging a pinned row down unpins it.
+    const dragged = Number(active.id);
+    if (to === 0) {
+      if (!pinned.includes(dragged)) togglePin(dragged);
+    } else if (pinned.includes(dragged)) {
+      togglePin(dragged);
+    }
   }
 
   const status =
@@ -95,15 +142,18 @@ export function Rail() {
           <div className="text-sm font-semibold tracking-tight">Agent</div>
           <div className={`text-[11px] ${busy ? "text-primary" : "text-muted-foreground"}`}>{status}</div>
         </div>
-        <Button
-          variant="ghost"
-          size="xs"
-          title={tr(lang, "language")}
-          onClick={() => setLang(lang === "zh" ? "en" : "zh")}
-        >
-          <Languages className="size-3" />
-          {lang === "zh" ? "EN" : "中"}
-        </Button>
+        <div className="flex items-center gap-0.5">
+          <ThemeToggle />
+          <Button
+            variant="ghost"
+            size="xs"
+            title={tr(lang, "language")}
+            onClick={() => setLang(lang === "zh" ? "en" : "zh")}
+          >
+            <Languages className="size-3" />
+            {lang === "zh" ? "EN" : "中"}
+          </Button>
+        </div>
       </div>
 
       <div className="px-2.5 pt-3 pb-1 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
@@ -123,8 +173,11 @@ export function Rail() {
                   key={surface.conversationId}
                   surface={surface}
                   active={surface.conversationId === current}
+                  pinned={pinned.includes(surface.conversationId)}
                   label={surfaceLabel(surface.surfaceId, tr(lang, "feishu"))}
+                  pinTitle={tr(lang, "pinned")}
                   onSelect={() => void select(surface.conversationId)}
+                  onTogglePin={() => togglePin(surface.conversationId)}
                 />
               ))}
             </div>
@@ -132,6 +185,7 @@ export function Rail() {
         </DndContext>
       </ScrollArea>
 
+      <Separator className="mx-2.5" />
       <div className="px-2.5 pt-2 pb-1 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
         {tr(lang, "running")}
       </div>

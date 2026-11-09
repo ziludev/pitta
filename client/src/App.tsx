@@ -9,6 +9,7 @@ import { Rail } from "@/components/Rail";
 import { SidePanel } from "@/components/SidePanel";
 import { Transcript } from "@/components/Transcript";
 import { tr } from "@/i18n";
+import { ThemeProvider } from "next-themes";
 import { useStore } from "@/store";
 
 function Handle() {
@@ -17,6 +18,9 @@ function Handle() {
 
 export function App() {
   const { lang, current, surfaces, init, busy, abort, reset } = useStore();
+  // ?theme=dark|light forces a theme (screenshots, demos); otherwise follow the system.
+  const forced = new URLSearchParams(location.search).get("theme");
+  const forcedTheme = forced === "dark" || forced === "light" ? forced : undefined;
 
   useEffect(() => {
     void init();
@@ -25,6 +29,13 @@ export function App() {
   const surface = surfaces.find((item) => item.conversationId === current);
 
   return (
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="system"
+      enableSystem
+      forcedTheme={forcedTheme}
+      disableTransitionOnChange
+    >
     <TooltipProvider delayDuration={300}>
       <div className="h-screen w-screen overflow-hidden bg-background text-foreground">
         <PanelGroup direction="horizontal" autoSaveId="agent-layout">
@@ -64,5 +75,6 @@ export function App() {
         <Toaster position="bottom-left" />
       </div>
     </TooltipProvider>
+    </ThemeProvider>
   );
 }
