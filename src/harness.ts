@@ -26,6 +26,7 @@ import { checkBudget, type BudgetCheck } from "./budget.ts";
 import { rememberSurface } from "./channel.ts";
 import { log } from "./log.ts";
 import { ensureRepo } from "./changes.ts";
+import { ensureWorktree, worktreePaths } from "./worktree.ts";
 import { setHarnessRef } from "./runtime-ref.ts";
 import { forkAt, lookupMessage, lookupThread, recordMessage, recordThread } from "./threads.ts";
 import { config } from "./config.ts";
@@ -130,6 +131,14 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
       { ownership: { kind: "ownerless" }, agent: agentChange },
       context,
     );
+
+    // Each conversation works in its own worktree so parallel sessions never fight
+    // over the same files. The id only exists after creation, so cwd follows in a
+    // second commit; without git this stays the shared workspace.
+    if (config.worktree !== "off") {
+      const worktree = await ensureWorktree(workspace, created.id as unknown as number);
+      if (worktree !== undefined) await created.configure({ cwd: worktree.dir }, context);
+    }
     await harness.commit(async (tx) => {
       const doc = await tx.doc(ChatsToken);
       doc.chats[surfaceId] = created.id as unknown as number;

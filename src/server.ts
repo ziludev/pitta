@@ -66,6 +66,13 @@ function entryText(model: unknown): string {
   return parts.join("\n");
 }
 
+async function execGit(dir: string, args: string[]): Promise<string> {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const { stdout } = await promisify(execFile)("git", ["-C", dir, ...args]);
+  return stdout;
+}
+
 async function readJson(req: IncomingMessage): Promise<Json> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(Buffer.from(chunk as Buffer));
@@ -96,6 +103,14 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
   const resolveConversation = async (id: number | undefined): Promise<Conversation | undefined> => {
     if (id === undefined) return undefined;
     return runtime.harness.conversation(id as never, context);
+  };
+
+  /** The directory a conversation works in: its worktree, or the shared workspace. */
+  const dirFor = async (conversationId: number | undefined): Promise<string> => {
+    const conversation = await resolveConversation(conversationId);
+    if (conversation === undefined) return config.workspace;
+    const agent = await conversation.agent(context).catch(() => undefined);
+    return agent?.cwd ?? config.workspace;
   };
 
   const server = createServer(async (req, res) => {
@@ -196,8 +211,11 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
       }
 
       if (req.method === "GET" && path === "/api/changes") {
-        const snapshot = await collectChanges(config.workspace);
-        return send(res, 200, { ...snapshot, workspace: config.workspace });
+        const conversationId = Number(url.searchParams.get("conversationId"));
+        const dir = await dirFor(Number.isFinite(conversationId) ? conversationId : undefined);
+        const snapshot = await collectChanges(dir);
+        const branch = await execGit(dir, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "");
+        return send(res, 200, { ...snapshot, workspace: dir, branch: branch.trim() });
       }
 
       if (req.method === "POST" && path === "/api/commit") {
@@ -205,16 +223,18 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         const message = typeof body["message"] === "string" && body["message"].trim().length > 0
           ? (body["message"] as string)
           : "workspace: checkpoint";
-        await ensureRepo(config.workspace);
-        const head = await commitChanges(config.workspace, message);
+        const dir = await dirFor(conversationIdOf(body));
+        await ensureRepo(dir);
+        const head = await commitChanges(dir, message);
         return send(res, 200, { head });
       }
 
 
       if (req.method === "GET" && path === "/api/file") {
+        const root = await dirFor(Number(url.searchParams.get("conversationId")));
         const requested = url.searchParams.get("path") ?? "";
-        const absolute = isAbsolute(requested) ? requested : resolve(config.workspace, requested);
-        const rel = relative(config.workspace, absolute);
+        const absolute = isAbsolute(requested) ? requested : resolve(root, requested);
+        const rel = relative(root, absolute);
         // The client may only read inside the workspace it belongs to.
         if (rel.startsWith("..") || isAbsolute(rel)) return send(res, 400, { error: "path outside workspace" });
         const info = await stat(absolute).catch(() => undefined);

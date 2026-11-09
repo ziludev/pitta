@@ -7,6 +7,7 @@ export type Note = { at: string; text: string };
 export type FileChange = { path: string; status: string; added: number; removed: number };
 export type Changes = {
   repo: boolean;
+  branch?: string;
   diff: string;
   files: FileChange[];
   truncated: boolean;

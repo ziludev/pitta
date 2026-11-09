@@ -26,6 +26,7 @@
 | 输出规整 | 工具输出按形状渲染：JSON 高亮、日志按 ERROR/WARN/INFO 着色、TSV/表格转表格、其余原样 |
 | 会话搜索 | 左栏搜索框：即时过滤会话名，回车跑跨会话全文搜索，点结果跳到那条消息 |
 | 评审意见 | 点 diff 行 → 写一句 → 收集成"评审意见" → 一次发给 agent（对齐 PR review 的回路） |
+| 思考折叠 | 一轮里的思考/工具调用收成一条「步骤轨」：`5 个步骤 · 思考 ×2 · recall, bash`，展开逐条看；轮末一条批次分隔线汇总 `3 次工具调用 🕐 5s` |
 | 执行详情 | 有工具调用的轮次，卡片带「查看详情」按钮，点开看每步工具、输出摘要、耗时与花费 |
 | 工具生态 | `mcp.json` 里声明的 MCP servers（stdio / streamable HTTP）在启动时连接，工具以 `mcp__<server>__<tool>` 注册成 durable tool task；默认 `replay: unsafe`，被中断就报告模型而不是重放 |
 | 进度反馈 | 流式文本 + 工具名；静默期间每 15s 心跳更新卡片（耗时 · 进行中）；结束给 `✅ 12.3s · 3 个工具 · $0.0021` |
@@ -105,6 +106,10 @@ POST /api/commit       把工作区提交成一个 checkpoint
 GET  /api/file?path=   读工作区文件（越界拒绝，512KB 上限）
 GET  /api/search?q=    跨会话搜transcript（返回可读片段）
 ```
+
+**每个会话一个 worktree**：新建会话时自动 `git worktree add` 到 `workspace/.worktrees/conv-<id>`、
+分支 `agent/conv-<id>`，该会话的工具 cwd 就是这个目录。并行会话不再互相踩文件，主分支保持干净，
+改动面板显示对应分支。`AGENT_WORKTREE=off` 可退回"所有会话共用一个 workspace"。
 
 **工作区是个 git 仓库**：启动时如果 `workspace/` 没有 `.git` 就 `git init` + 初始提交
 （`AGENT_WORKSPACE_GIT=off` 可关）。这样 agent 每次改文件都能在客户端里看到 diff、

@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { log, logError } from "./log.ts";
@@ -32,6 +33,8 @@ export async function ensureRepo(dir: string): Promise<boolean> {
   try {
     if (existsSync(join(dir, ".git"))) return true;
     await git(dir, ["init", "--quiet"]);
+    // Worktrees live inside the repo dir; they must never show up as changes.
+    await writeFile(join(dir, ".gitignore"), ".worktrees/\n.DS_Store\n", "utf8");
     await git(dir, ["config", "user.name", "pi-durable-agent"]);
     await git(dir, ["config", "user.email", "agent@localhost"]);
     await git(dir, ["add", "-A"]);

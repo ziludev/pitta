@@ -1,161 +1,145 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { cn } from "cn";
-import { ChevronRight } from "lucide-react";
-import { CollapsibleContent, CollapsibleTrigger, Collapsible as CollapsibleRoot } from "@/components/ui/collapsible";
 import { tr } from "@/i18n";
 import type { Entry } from "@/lib/api";
-import { DiffView, diffStats } from "@/lib/diff";
-import { ToolOutput } from "@/components/ToolOutput";
+import { diffStats } from "@/lib/diff";
 import { Markdown } from "@/lib/markdown";
+import { StepRail, TurnDivider, partsOf, textOf, type TurnStats } from "@/components/TurnRail";
 import { useStore } from "@/store";
 
-type Part = Record<string, unknown>;
+type Turn = {
+  id: number;
+  anchor: Entry;
+  user?: Entry;
+  finals: Entry[];
+  reports: Entry[];
+  internals: Entry[];
+  stats: TurnStats;
+};
 
-function partsOf(model: unknown): Part[] {
-  const list = Array.isArray(model) ? model : [];
-  const parts: Part[] = [];
-  for (const message of list as Part[]) {
-    const content = message["content"];
-    if (typeof content === "string") parts.push({ type: "text", text: content });
-    else if (Array.isArray(content)) {
-      for (const part of content as Part[]) {
-        parts.push({ ...part, role: message["role"], toolName: message["toolName"] });
-      }
-    }
-  }
-  return parts;
+const isThinkingOrTool = (entry: Entry): boolean => {
+  const parts = partsOf(entry.model);
+  const hasCall = parts.some((part) => part["type"] === "toolCall");
+  const hasText = textOf(parts).trim().length > 0;
+  if (entry.kind === "pi.tool-result") return true;
+  if (entry.kind !== "pi.assistant") return false;
+  // A tool-calling answer is machinery; a text answer is the answer.
+  return hasCall || !hasText;
+};
+
+function timestampOf(entry: Entry): number | undefined {
+  const messages = Array.isArray(entry.model) ? (entry.model as Array<Record<string, unknown>>) : [];
+  const stamped = messages.find((message) => typeof message["timestamp"] === "number");
+  return stamped === undefined ? undefined : (stamped["timestamp"] as number);
 }
 
-const textOf = (parts: Part[]): string =>
-  parts
-    .filter((part) => part["type"] === "text")
-    .map((part) => String(part["text"] ?? ""))
-    .join("");
+/** Groups the transcript into turns: user message → machinery → answer. */
+function groupTurns(entries: Entry[]): Turn[] {
+  const turns: Turn[] = [];
+  let current: Turn | undefined;
 
-function Collapsible({
-  title,
-  children,
-  defaultOpen = false,
-}: {
-  title: string;
-  children: React.ReactNode;
-  defaultOpen?: boolean;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
+  for (const entry of entries) {
+    if (entry.kind === "pi.system") continue;
+
+    if (entry.kind === "pi.user" || entry.kind === "app.feature-report" || current === undefined) {
+      current = {
+        id: entry.id,
+        anchor: entry,
+        user: entry.kind === "pi.user" ? entry : undefined,
+        finals: [],
+        reports: entry.kind === "app.feature-report" ? [entry] : [],
+        internals: [],
+        stats: { tools: 0, files: 0, added: 0, removed: 0 },
+      };
+      turns.push(current);
+      continue;
+    }
+
+    if (isThinkingOrTool(entry)) current.internals.push(entry);
+    else current.finals.push(entry);
+  }
+
+  for (const turn of turns) {
+    const timestamps = [turn.anchor, ...turn.internals, ...turn.finals]
+      .map(timestampOf)
+      .filter((value): value is number => value !== undefined);
+    const paths = new Set<string>();
+    let added = 0;
+    let removed = 0;
+    let tools = 0;
+
+    for (const entry of turn.internals) {
+      for (const part of partsOf(entry.model)) {
+        if (part["type"] === "toolCall") {
+          tools += 1;
+          const args = part["arguments"] as Record<string, unknown> | undefined;
+          const path = typeof args?.["path"] === "string" ? (args["path"] as string) : undefined;
+          if (path !== undefined) paths.add(path);
+        }
+        if (part["type"] === "text") {
+          const stats = diffStats(String(part["text"] ?? ""));
+          if (stats !== undefined) {
+            added += stats.added;
+            removed += stats.removed;
+          }
+        }
+      }
+    }
+
+    turn.stats = {
+      tools,
+      files: paths.size,
+      added,
+      removed,
+      ms: timestamps.length >= 2 ? timestamps[timestamps.length - 1]! - timestamps[0]! : undefined,
+    };
+  }
+  return turns;
+}
+
+function UserBubble({ entry }: { entry: Entry }) {
+  const { lang } = useStore();
+  const parts = partsOf(entry.model);
+  const images = parts.filter((part) => part["type"] === "image").length;
   return (
-    <CollapsibleRoot open={open} onOpenChange={setOpen} className="rounded-lg border border-border bg-card/50">
-      <CollapsibleTrigger className="group flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-[11px] text-muted-foreground hover:text-foreground">
-        <ChevronRight className={cn("size-3 transition-transform group-data-[state=open]:rotate-90")} />
-        {title}
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="border-t border-border px-2.5 py-2">{children}</div>
-      </CollapsibleContent>
-    </CollapsibleRoot>
+    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="flex justify-end">
+      <div className="max-w-[86%] rounded-xl rounded-br-sm border border-primary/25 bg-primary/12 px-3 py-2 text-[13px] leading-relaxed">
+        <Markdown text={textOf(parts)} />
+        {images > 0 ? (
+          <div className="mt-1 text-[10px] text-muted-foreground">
+            [{images} {tr(lang, "images")}]
+          </div>
+        ) : null}
+      </div>
+    </motion.div>
   );
 }
 
-function EntryView({ entry }: { entry: Entry }) {
-  const lang = useStore((state) => state.lang);
-  const parts = partsOf(entry.model);
-  const text = textOf(parts);
-  const thinking = parts
-    .filter((part) => part["type"] === "thinking")
-    .map((part) => String(part["thinking"] ?? ""))
-    .join("\n");
-
-  if (entry.kind === "pi.user") {
-    const images = parts.filter((part) => part["type"] === "image").length;
-    return (
-      <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="flex justify-end">
-        <div className="max-w-[86%] rounded-xl rounded-br-sm border border-primary/25 bg-primary/12 px-3 py-2 text-[13px] leading-relaxed">
-          <Markdown text={text} />
-          {images > 0 ? (
-            <div className="mt-1 text-[10px] text-muted-foreground">
-              [{images} {tr(lang, "images")}]
-            </div>
-          ) : null}
-        </div>
-      </motion.div>
-    );
-  }
-
-  if (entry.kind === "pi.assistant") {
-    const calls = parts.filter((part) => part["type"] === "toolCall");
-    return (
-      <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="flex max-w-[92%] flex-col gap-1.5">
-        {calls.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
-            {calls.map((call, index) => (
-              <span
-                key={index}
-                className="rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono text-[10px] text-muted-foreground"
-              >
-                {String(call["name"] ?? "")}
-              </span>
-            ))}
-          </div>
-        ) : null}
-        {text.length > 0 ? (
-          <div className="rounded-xl rounded-bl-sm border border-border bg-card/70 px-3 py-2 text-[13px] leading-relaxed">
-            <Markdown text={text} />
-          </div>
-        ) : null}
-        {thinking.length > 0 ? (
-          <Collapsible title={tr(lang, "thinking")}>
-            <pre className="max-h-64 overflow-auto font-mono text-[11px] whitespace-pre-wrap text-muted-foreground">
-              {thinking}
-            </pre>
-          </Collapsible>
-        ) : null}
-      </motion.div>
-    );
-  }
-
-  if (entry.kind === "pi.tool-result") {
-    const name = String(parts[0]?.["toolName"] ?? "tool");
-    const stats = diffStats(text);
-    if (stats !== undefined) {
-      return (
-        <div className="flex max-w-[92%] flex-col gap-1">
-          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-            <span className="font-mono">{name}</span>
-            <span className="rounded-full border border-border px-2 py-0.5 text-[10px]">
-              diff · {stats.files} {tr(lang, "diffSummary")} · +{stats.added} −{stats.removed}
-            </span>
-          </div>
-          <DiffView text={text} />
-        </div>
-      );
-    }
-    return (
-      <div className="max-w-[92%]">
-        <Collapsible title={`${name} · ${tr(lang, "output")}`} defaultOpen={text.length <= 400}>
-          <ToolOutput text={text} />
-        </Collapsible>
+function AnswerBubble({ entry }: { entry: Entry }) {
+  return (
+    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="max-w-[92%]">
+      <div className="rounded-xl rounded-bl-sm border border-border bg-card/70 px-3 py-2 text-[13px] leading-relaxed">
+        <Markdown text={textOf(partsOf(entry.model))} />
       </div>
-    );
-  }
+    </motion.div>
+  );
+}
 
-  if (entry.kind === "app.feature-report") {
-    const payload = (entry.data ?? {}) as { text?: string };
-    return (
-      <div className="max-w-[92%] rounded-lg border border-border bg-card/60 p-2.5">
-        <div className="mb-1 text-[11px] text-muted-foreground">🧩 {tr(lang, "featureReport")}</div>
-        <div className="text-[13px] leading-relaxed">
-          <Markdown text={payload.text ?? ""} />
-        </div>
+function FeatureReport({ entry }: { entry: Entry }) {
+  const { lang } = useStore();
+  const payload = (entry.data ?? {}) as { text?: string };
+  return (
+    <div className="max-w-[92%] rounded-lg border border-border bg-card/60 p-2.5">
+      <div className="mb-1 text-[11px] text-muted-foreground">🧩 {tr(lang, "featureReport")}</div>
+      <div className="text-[13px] leading-relaxed">
+        <Markdown text={payload.text ?? ""} />
       </div>
-    );
-  }
-
-  if (entry.kind === "pi.system") return null;
-  return <div className="text-[11px] text-muted-foreground">{entry.kind}</div>;
+    </div>
+  );
 }
 
 function LiveBlock() {
-  const { lang, live } = useStore();
+  const { live } = useStore();
   if (live === undefined) return null;
   const tools = Array.isArray(live.tools) ? live.tools : [];
   const running = tools.find((slot) => slot["status"] === "running");
@@ -168,7 +152,7 @@ function LiveBlock() {
     : "";
   if (running === undefined && partial.length === 0) return null;
   return (
-    <motion.div initial={{ opacity: 0.6 }} animate={{ opacity: 1 }} className="flex max-w-[92%] flex-col gap-1.5">
+    <motion.div initial={{ opacity: 0.7 }} animate={{ opacity: 1 }} className="flex max-w-[92%] flex-col gap-1.5">
       {running !== undefined ? (
         <span className="w-fit animate-pulse rounded-full border border-primary/50 px-2 py-0.5 font-mono text-[10px] text-primary">
           {String(running["name"] ?? "")}
@@ -179,9 +163,7 @@ function LiveBlock() {
           <Markdown text={partial} />
         </div>
       ) : null}
-      {tail.length > 0 ? (
-        <div className="truncate text-[10px] text-muted-foreground">{tail.slice(0, 160)}</div>
-      ) : null}
+      {tail.length > 0 ? <div className="truncate text-[10px] text-muted-foreground">{tail.slice(0, 160)}</div> : null}
     </motion.div>
   );
 }
@@ -191,13 +173,12 @@ export function Transcript() {
   const boxRef = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
   const focused = useRef(false);
-
-  const content = useMemo(() => entries, [entries]);
+  const turns = useMemo(() => groupTurns(entries), [entries]);
 
   useEffect(() => {
     const box = boxRef.current;
     if (box !== null && stick) box.scrollTop = box.scrollHeight;
-  }, [content, stick]);
+  }, [turns, stick]);
 
   // ?entry=<id> deep links: jump once and stop following the tail.
   useEffect(() => {
@@ -207,7 +188,7 @@ export function Transcript() {
     focused.current = true;
     setStick(false);
     node.scrollIntoView({ block: "start" });
-  }, [content, focusEntry]);
+  }, [turns, focusEntry]);
 
   return (
     <div
@@ -218,10 +199,20 @@ export function Transcript() {
       }}
       className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4"
     >
-      <div className="flex flex-col gap-3">
-        {content.map((entry) => (
-          <div key={entry.id} data-entry={entry.id}>
-            <EntryView entry={entry} />
+      <div className="flex flex-col gap-2">
+        {turns.map((turn) => (
+          <div key={turn.id} className="flex flex-col gap-1.5" data-entry={turn.anchor.id}>
+            {turn.user !== undefined ? <UserBubble entry={turn.user} /> : null}
+            {turn.reports.map((entry) => (
+              <FeatureReport key={entry.id} entry={entry} />
+            ))}
+            <StepRail turn={turn} />
+            {turn.finals.map((entry) => (
+              <div key={entry.id} data-entry={entry.id}>
+                <AnswerBubble entry={entry} />
+              </div>
+            ))}
+            <TurnDivider stats={turn.stats} />
           </div>
         ))}
         <LiveBlock />

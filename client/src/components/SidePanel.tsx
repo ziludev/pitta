@@ -45,9 +45,10 @@ function Changes() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between gap-2 px-3 py-2">
-        <span className="text-[11px] text-muted-foreground">
+        <span className="truncate text-[11px] text-muted-foreground">
           {changes.files.length} {tr(lang, "diffSummary")}
           {changes.truncated ? ` · ${tr(lang, "truncated")}` : ""}
+          {changes.branch !== undefined && changes.branch.length > 0 ? ` · ${changes.branch}` : ""}
         </span>
         <div className="flex gap-1">
           <Button variant="ghost" size="icon-xs" onClick={() => void loadChanges()} title={tr(lang, "refresh")}>

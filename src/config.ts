@@ -87,6 +87,8 @@ export const config = {
     host: process.env.AGENT_HTTP_HOST ?? "127.0.0.1",
     token: process.env.AGENT_HTTP_TOKEN ?? "",
   },
+  /** auto = one git worktree per conversation; off = everyone shares the workspace. */
+  worktree: (process.env.AGENT_WORKTREE ?? "auto") as "auto" | "off",
   asr: {
     mode: (process.env.AGENT_ASR ?? "auto") as "auto" | "off",
     whisper: process.env.AGENT_ASR_WHISPER ?? "whisper",

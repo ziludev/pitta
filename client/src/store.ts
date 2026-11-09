@@ -183,7 +183,8 @@ export const useStore = create<State>((set, get) => ({
   async loadChanges() {
     set({ changesLoading: true });
     try {
-      const changes = await api<Changes>("/api/changes");
+      const id = get().current;
+      const changes = await api<Changes>(`/api/changes${id === undefined ? "" : `?conversationId=${id}`}`);
       set({ changes });
     } finally {
       set({ changesLoading: false });
@@ -214,7 +215,7 @@ export const useStore = create<State>((set, get) => ({
   async commit(message) {
     const result = await api<{ head: string }>("/api/commit", {
       method: "POST",
-      body: JSON.stringify({ message: message.trim() || undefined }),
+      body: JSON.stringify({ message: message.trim() || undefined, conversationId: get().current }),
     });
     await get().loadChanges();
     return result.head;

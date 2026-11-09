@@ -13,6 +13,15 @@ const server = await startAgentServer(runtime);
 
 const bridge = await startFeishuBridge(runtime);
 
+// A storage error closes the harness for good; nothing works afterwards. Exit so
+// launchd restarts a clean process instead of leaving a zombie serving errors.
+void runtime.harness.closed.then((end) => {
+  console.error(`[agent] harness closed: ${end.kind}`);
+  bridge.stop();
+  void server.close().catch(() => {});
+  process.exit(end.kind === "failed" ? 1 : 0);
+});
+
 let closing = false;
 async function shutdown(signal: string): Promise<void> {
   if (closing) return;

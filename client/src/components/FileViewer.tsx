@@ -10,17 +10,19 @@ type FilePayload = { path: string; size: number; lines: number; truncated: boole
 
 /** Read-only view of a workspace file, opened from a diff or the changes list. */
 export function FileViewer({ path }: { path: string }) {
-  const { lang, closeFile } = useStore();
+  const { lang, current, closeFile } = useStore();
   const [file, setFile] = useState<FilePayload | undefined>();
   const [error, setError] = useState<string | undefined>();
 
   useEffect(() => {
     setFile(undefined);
     setError(undefined);
-    api<FilePayload>(`/api/file?path=${encodeURIComponent(path)}`)
+    api<FilePayload>(
+      `/api/file?path=${encodeURIComponent(path)}${current === undefined ? "" : `&conversationId=${current}`}`,
+    )
       .then(setFile)
       .catch((cause: Error) => setError(cause.message));
-  }, [path]);
+  }, [path, current]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
