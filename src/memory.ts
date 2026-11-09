@@ -27,6 +27,18 @@ export const GlobalMemory = defineDoc<{ notes: Note[] }>({
 });
 
 /** Injected every request, so keep it bounded: recent memory only, everything else via `recall`. */
+/**
+ * Project/environment notes: real knowledge, but noise in every prompt. Kept out of
+ * the injected sections and reachable through `recall` instead.
+ */
+export const WorkMemory = defineDoc<{ notes: Note[] }>({
+  kind: "app.work-memory",
+  version: 1,
+  scope: "session",
+  initial: () => ({ notes: [] }),
+  checkpointWhen: () => false,
+});
+
 const MAX_GLOBAL_NOTES = 60;
 const MAX_CHAT_NOTES = 20;
 
@@ -36,16 +48,25 @@ const remember = defineTool({
     "记住一条值得长期保留的事实（主人的偏好、习惯、重要的人/项目/日期）。一句话一条。不要记流水账、临时代号、验证码、一次性口令或本轮任务的中间结果。默认写进全局记忆，所有对话共享。",
   parameters: obj({
     text: str({ description: "要记住的内容，一句话" }),
-    scope: opt(str({ description: "global（默认，跨对话共享）或 chat（只属于当前对话）" })),
+    scope: opt(
+      str({
+        description:
+          "global（默认，跨对话共享，每次注入）/ chat（只属于当前对话，每次注入）/ work（项目与环境细节，不注入，靠 recall 搜）",
+      }),
+    ),
   }),
   execute: async (args, api, context) => {
     const at = new Date().toISOString();
-    const scope = args.scope === "chat" ? "chat" : "global";
+    const scope = args.scope === "chat" ? "chat" : args.scope === "work" ? "work" : "global";
     let total = 0;
     let duplicate = false;
     await api.commit(async (tx) => {
       const doc =
-        scope === "global" ? await tx.doc(GlobalMemory) : await tx.doc(ChatMemory, api.conversationId);
+        scope === "global"
+          ? await tx.doc(GlobalMemory)
+          : scope === "work"
+            ? await tx.doc(WorkMemory)
+            : await tx.doc(ChatMemory, api.conversationId);
       duplicate = doc.notes.some((note) => note.text.trim() === args.text.trim());
       if (!duplicate) doc.notes.push({ at, text: args.text.trim() });
       total = doc.notes.length;
@@ -72,7 +93,8 @@ const forget = defineTool({
     await api.commit(async (tx) => {
       const global = await tx.doc(GlobalMemory);
       const chat = await tx.doc(ChatMemory, api.conversationId);
-      for (const doc of [global, chat]) {
+      const work = await tx.doc(WorkMemory);
+      for (const doc of [global, chat, work]) {
         const kept = doc.notes.filter((note) => !note.text.includes(args.keyword));
         for (const note of doc.notes) {
           if (note.text.includes(args.keyword)) removed.push(note.text);
@@ -104,10 +126,12 @@ const recall = defineTool({
       .filter((term) => term.length > 0);
     const global = await api.snapshot(GlobalMemory, context);
     const chat = await api.snapshot(ChatMemory, api.conversationId, context);
+    const work = await api.snapshot(WorkMemory, context);
     const hits: string[] = [];
     for (const [label, notes] of [
       ["全局", global?.notes ?? []],
       ["本对话", chat?.notes ?? []],
+      ["工作", work?.notes ?? []],
     ] as const) {
       for (const note of notes) {
         if (terms.every((term) => note.text.includes(term))) {
@@ -141,6 +165,12 @@ export const memorySections = [
   section("global_memory", async (input, context) => {
     const doc = await input.read.snapshot(GlobalMemory, context);
     return renderNotes(doc?.notes, MAX_GLOBAL_NOTES);
+  }),
+  section("work_memory_index", async (input, context) => {
+    const doc = await input.read.snapshot(WorkMemory, context);
+    const count = doc?.notes.length ?? 0;
+    if (count === 0) return undefined;
+    return `另有 ${count} 条工作记忆（项目/环境细节），不在上下文里，需要时用 recall 关键词搜索。`;
   }),
   section("chat_memory", async (input, context) => {
     const doc = await input.read.snapshot(ChatMemory, input.conversationId, context);

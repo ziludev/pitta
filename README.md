@@ -14,7 +14,7 @@
 |---|---|
 | 对话 | 每个飞书 chat 一个独立 conversation，流式卡片输出（`pi.live` → 卡片 PATCH，1.5s 节流） |
 | 崩溃续跑 | 模型请求/工具调用/压缩都是 durable task；进程被 `kill -9`，重启后从断点继续 |
-| 长期记忆 | 两层：`global_memory`（跨 chat 共享）+ `chat_memory`（本对话）。`remember` / `forget` / `recall`（关键词搜索旧记忆），`/memory` 查看。注入只带最近 60/20 条，更早的用 `recall` 捞 |
+| 长期记忆 | 三层：`global_memory`（跨 chat，注入最近 60 条）+ `chat_memory`（本对话，注入最近 20 条）+ `work_memory`（项目/环境细节，**不注入**，prompt 里只留一行索引，靠 `recall` 搜索）。`remember(scope)` / `forget` / `recall`，`/memory` 查看 |
 | 主动性 | `remind` 工具创建 **durable 定时任务**：存 deadline 睡觉，进程重启后照样到点触发，主动发消息 |
 | 工具审批 | `guard` hook 拦危险调用（`rm -rf`、`git push --force`、`sudo`、写工作区外…），发带按钮的卡片等人点，decision 存 memo |
 | 成本闸门 | `pi.usage` 汇总 → 每日额度（`AGENT_DAILY_BUDGET_USD`），超了拒绝新请求，跨天自动重置 |
@@ -86,7 +86,7 @@ src/
   config.ts      .env 解析（优先级高于 shell，防止环境变量把 appId 顶掉）
   models.ts      provider 注册（magpie + 内置）
   personal.ts    人设 / 时间 / 工作区 section
-  memory.ts      global + chat 两层记忆 doc、remember/forget、prompt section
+  memory.ts      global / chat / work 三层记忆 doc、remember/forget/recall、prompt section
   reminders.ts   durable Reminder task（sleepUntil）+ remind 工具
   approval.ts    guard hook：危险调用识别 + 审批
   budget.ts      每日花费 doc + 闸门
@@ -106,6 +106,7 @@ src/
 launchd/         plist 模板（agent + 每日备份）
 scripts/agentctl 安装/启动/停止/备份/恢复
 scripts/backup-db sqlite 热备 + 完整性校验 + 轮转
+scripts/import-hermes-memory.ts  从 ~/.hermes/memories 迁移记忆（支持 dry-run）
 ```
 
 ## 实测过的行为
