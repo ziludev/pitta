@@ -10,6 +10,7 @@ import { log, logError } from "./log.ts";
 import { transcribeAudio } from "./asr.ts";
 import { attachSubmission, clearCardPending, leftoverCards, markCardPending } from "./cards.ts";
 import { readTurnDetails, saveTurnDetails, type TurnDetails } from "./details.ts";
+import { allowChat, extraChats } from "./allowed.ts";
 
 type IncomingMessage = {
   sender?: { sender_id?: { open_id?: string } };
@@ -181,11 +182,13 @@ export function parseContent(message: NonNullable<IncomingMessage["message"]>): 
 function rejectionReason(
   event: IncomingMessage,
   parsedContent: ParsedContent,
+  extraAllowed: readonly string[] = [],
 ): string | undefined {
   const message = event.message;
   const chatId = message?.chat_id ?? "";
   const senderId = event.sender?.sender_id?.open_id ?? "";
   const { allowedChatIds, allowedSenderIds, mentionsOnly } = config.feishu;
+  const allowedChats = [...allowedChatIds, ...extraAllowed];
   const content = parsedContent;
   const supported =
     message?.message_type === "text" ||
@@ -196,7 +199,7 @@ function rejectionReason(
   if (content.text.length === 0 && content.imageKeys.length === 0 && content.audioKey === undefined) {
     return "empty-content";
   }
-  if (allowedChatIds.length > 0 && !allowedChatIds.includes(chatId)) return "chat-not-allowed";
+  if (allowedChats.length > 0 && !allowedChats.includes(chatId)) return "chat-not-allowed";
   if (allowedSenderIds.length > 0 && !allowedSenderIds.includes(senderId)) return "sender-not-allowed";
   if (mentionsOnly && message?.chat_type === "group" && (message.mentions ?? []).length === 0) {
     return "group-message-without-mention";
@@ -391,7 +394,26 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     if (message?.message_id === undefined || message.chat_id === undefined) return;
     const parsed = parseContent(message);
     const text = parsed.text;
-    const reason = rejectionReason(event, parsed);
+    const owner = config.feishu.allowedSenderIds;
+    const senderId = event.sender?.sender_id?.open_id ?? "";
+    const isOwner = owner.length === 0 || owner.includes(senderId);
+    const extraAllowed = await extraChats(runtime.harness, context).catch(() => [] as string[]);
+    const reason = rejectionReason(event, parsed, extraAllowed);
+
+    // Self-service onboarding: the owner authorizes a new group from the group.
+    if (text.trim() === "/allow" && isOwner) {
+      await allowChat(runtime.harness, context, message.chat_id);
+      await sendText(message.chat_id, "已把本群加入白名单，之后 @我 就能用。");
+      return;
+    }
+    if (reason === "chat-not-allowed" && isOwner) {
+      console.log(`[feishu] unknown chat ${message.chat_id}, asking owner to authorize`);
+      await sendText(
+        message.chat_id,
+        `这个群还没授权（${message.chat_id}）。\n发 /allow 授权本群，或把它加进 .env 的 FEISHU_ALLOWED_CHAT_IDS。`,
+      ).catch(() => {});
+      return;
+    }
     const summary = `chat=${message.chat_id} chat_type=${message.chat_type ?? "?"} sender=${
       event.sender?.sender_id?.open_id ?? "?"
     }`;

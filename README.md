@@ -34,7 +34,7 @@
 | 图片 | `image` 与 `post`（图文混排）都解析 → 下载 → base64 → 多模态模型；带锚定提示，先描述图再答题 |
 | 卡片自愈 | 卡片 id 存进 durable `app.pending-cards`，进程重启后重新接管 submission 并把答案单独发出来；PATCH 失败自动降级为纯文本消息 |
 | 命令 | `/help` `/new` `/stop` `/cost` `/memory` `/id` |
-| 群聊 | 群里 @机器人 才响应；`FEISHU_ALLOWED_CHAT_IDS` 要包含群 id，`FEISHU_ALLOWED_SENDER_IDS` 决定谁能触发（群成员都能看到回复） |
+| 群聊 | 群里 @机器人 才响应；`FEISHU_ALLOWED_CHAT_IDS` 要包含群 id，`FEISHU_ALLOWED_SENDER_IDS` 决定谁能触发（群成员都能看到回复）。**新增群不用改配置**：拉进群后发 `/allow`（仅 `ALLOWED_SENDER_IDS` 里的人可以），群 id 会存进 durable doc `app.allowed-chats` 立即生效 |
 | 幂等 | `requestId = feishu:<message_id>`，飞书 at-least-once 重投不会问两遍 |
 
 ## 快速开始
