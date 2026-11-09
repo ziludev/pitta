@@ -32,7 +32,7 @@ import { config } from "./config.ts";
 export const context = BACKGROUND_CONTEXT;
 
 /** chat surface id (Feishu chat_id, "cli", ...) -> conversation id. Session-scoped, so it survives restarts. */
-const Chats = defineDoc<{ chats: Record<string, number> }>({
+export const ChatsToken = defineDoc<{ chats: Record<string, number> }>({
   kind: "app.chats",
   version: 1,
   scope: "session",
@@ -111,7 +111,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   } as const;
 
   async function conversationFor(surfaceId: string): Promise<Conversation> {
-    const mapping = await harness.snapshot(Chats, context);
+    const mapping = await harness.snapshot(ChatsToken, context);
     const known = mapping?.chats[surfaceId];
     if (known !== undefined) {
       const existing = await harness.conversation(
@@ -128,7 +128,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
       context,
     );
     await harness.commit(async (tx) => {
-      const doc = await tx.doc(Chats);
+      const doc = await tx.doc(ChatsToken);
       doc.chats[surfaceId] = created.id as unknown as number;
     }, context);
     rememberSurface(created.id as unknown as number, surfaceId);

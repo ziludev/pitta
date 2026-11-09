@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agent</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="rail">
+        <header class="rail-head">
+          <div class="brand">Agent</div>
+          <div id="status" class="status">连接中…</div>
+        </header>
+
+        <section class="rail-section">
+          <h2>会话</h2>
+          <ul id="surfaces" class="list"></ul>
+        </section>
+
+        <section class="rail-section">
+          <h2>运行中</h2>
+          <ul id="tasks" class="list small"></ul>
+        </section>
+
+        <footer class="rail-foot">
+          <div id="usage" class="muted"></div>
+          <div class="controls">
+            <button data-control="restart" title="重启 agent">重启</button>
+            <button data-control="backup" title="立刻备份一次">备份</button>
+            <button id="open-logs" title="打开日志目录">日志</button>
+          </div>
+          <div id="home" class="muted tiny"></div>
+        </footer>
+      </aside>
+
+      <main id="main">
+        <header id="conv-head">
+          <div>
+            <div id="conv-title" class="conv-title">未选择会话</div>
+            <div id="conv-sub" class="muted tiny"></div>
+          </div>
+          <div class="actions">
+            <button id="reset" title="清空上下文（历史保留）">/new</button>
+            <button id="abort" title="中断当前任务">/stop</button>
+          </div>
+        </header>
+
+        <section id="transcript" class="transcript"></section>
+
+        <form id="composer" class="composer">
+          <textarea id="input" rows="3" placeholder="说点什么…  ⌘↵ 发送"></textarea>
+          <div class="composer-actions">
+            <label class="mode"><input type="checkbox" id="steer" /> 插话（steer）</label>
+            <button type="submit" id="send">发送</button>
+          </div>
+        </form>
+      </main>
+
+      <aside id="side">
+        <section>
+          <h2>记忆 <span id="mem-count" class="muted tiny"></span></h2>
+          <div id="memory" class="memory"></div>
+        </section>
+      </aside>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

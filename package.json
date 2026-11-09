@@ -19,10 +19,13 @@
     "@earendil-works/pi-durable": "1.5.0",
     "@earendil-works/pi-mcp": "^1.5.0",
     "@earendil-works/pi-schema": "^1.5.0",
-    "@larksuiteoapi/node-sdk": "^1.76.0"
+    "@larksuiteoapi/node-sdk": "^1.76.0",
+    "@types/ws": "^8.18.2",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
+    "mygo-cli": "^0.6.4",
     "typescript": "^5.9.3"
   }
 }

@@ -52,6 +52,37 @@ npm run ask -- "用一句话介绍你自己"      # 本地冒烟（不碰飞书�
 3. 权限：`im:message`、`im:message:send_as_bot`、`im:message.p2p_msg:readonly`、`im:message.group_at_msg:readonly`
 4. 创建版本 → 发布（不发布等于没配）
 
+## 桌面客户端（MyGo）
+
+`client/` 是一个 MyGo 桌面 app（Go 窗口 + 原生 WebView + TypeScript 前端），
+和飞书是同一份 storage 上的**两个 watch 订阅者**：
+
+```bash
+cd client
+bun install
+bun run dev      # 开发：窗口 + 热更新（Vite 5173）
+bun run build    # 产出 build/darwin-arm64/Agent.app + .dmg
+```
+
+它做的事：
+
+- 左栏：会话列表（飞书 chat / cli / 内部测试）、运行中的后台任务、agent 状态与 重启/备份/日志 按钮、累计花费
+- 中间：transcript 流式渲染（用户/助手/工具输出折叠/思考折叠/需求报告），`/new` `/stop`，插话（steer）开关
+- 右栏：三层记忆（全局/工作/本对话）
+
+协议就是给客户端准备的：`src/server.ts` 暴露本机 `127.0.0.1:8787`
+
+```
+GET  /api/state                              会话/任务/花费
+GET  /api/conversation?id=&limit=            历史条目
+WS   /ws?conversationId=                     首帧 view + 之后每次提交的增量
+POST /api/submit | /api/abort | /api/reset
+GET  /api/memory?chat=  /api/tasks
+```
+
+桥接跑在 agent 进程里（**一份 storage 一个写者**），客户端从不直接打开 SQLite。
+`AGENT_HTTP_PORT=0` 可关掉桥接；`AGENT_HTTP_TOKEN` 非空时要求 `Authorization: Bearer`。
+
 ## 运维
 
 ```bash
@@ -100,6 +131,7 @@ src/
   threads.ts     消息 id → entry 索引 + thread → fork 出来的会话
   asr.ts         本地 whisper 转写（ffmpeg + whisper CLI）
   mcp.ts         MCP client：连 servers，把它们的工具注册成 durable 工具
+  server.ts      本机 HTTP+WS 桥：给桌面客户端订阅与提交
   lark-tools.ts  飞书原生工具（日历/待办/文档），走 lark-cli 的用户身份
   roles.ts       子 agent 角色：指令 + 工具白名单 + 轮次上限
   subagents.ts   delegate / delegate_parallel / build_feature（durable 子会话）

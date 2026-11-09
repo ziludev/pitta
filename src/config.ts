@@ -81,6 +81,12 @@ export const config = {
   dailyBudgetUsd: num("AGENT_DAILY_BUDGET_USD", 0),
   /** MCP servers: JSON file with { "servers": { name: {...} } }. Empty = none. */
   mcpConfig: process.env.AGENT_MCP_CONFIG ?? "./mcp.json",
+  /** Local client bridge (desktop app). Port 0 disables it. */
+  http: {
+    port: num("AGENT_HTTP_PORT", 8787),
+    host: process.env.AGENT_HTTP_HOST ?? "127.0.0.1",
+    token: process.env.AGENT_HTTP_TOKEN ?? "",
+  },
   asr: {
     mode: (process.env.AGENT_ASR ?? "auto") as "auto" | "off",
     whisper: process.env.AGENT_ASR_WHISPER ?? "whisper",
