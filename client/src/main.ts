@@ -15,8 +15,10 @@ type LiveValue = {
 
 const $ = <T extends HTMLElement>(selector: string): T => document.querySelector<T>(selector)!;
 
-const baseURL = (await Agent.baseURL()).replace(/\/$/, "");
-const token = await Agent.token();
+// Inside the MyGo window the Go side supplies these; in a plain browser (useful
+// for debugging) fall back to the default local bridge.
+const baseURL = (await Agent.baseURL().catch(() => "http://127.0.0.1:8787")).replace(/\/$/, "");
+const token = await Agent.token().catch(() => "");
 const authHeaders: Record<string, string> = token ? { authorization: `Bearer ${token}` } : {};
 
 let surfaces: Surface[] = [];
@@ -24,6 +26,8 @@ let current: number | undefined;
 let socket: WebSocket | undefined;
 let entries: Entry[] = [];
 let seen = new Set<string>();
+/** Follow the tail while streaming; stop as soon as the user scrolls up. */
+let stick = true;
 
 function api<T>(path: string, init?: RequestInit): Promise<T> {
   return fetch(`${baseURL}${path}`, {
@@ -125,7 +129,7 @@ function renderEntry(entry: Entry): string {
 function renderTranscript(live?: LiveValue): void {
   const list = live?.entries ?? entries;
   const box = $("#transcript");
-  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  const follow = stick;
   box.innerHTML = list.map(renderEntry).join("");
 
   const liveState = live?.docs?.["pi.live"];
@@ -154,7 +158,7 @@ function renderTranscript(live?: LiveValue): void {
       );
     }
   }
-  if (atBottom) box.scrollTop = box.scrollHeight;
+  if (follow) box.scrollTop = box.scrollHeight;
 }
 
 function setBusy(busy: boolean): void {
@@ -232,6 +236,7 @@ async function select(conversationId: number): Promise<void> {
   renderSurfaces();
   const data = await api<{ entries: Entry[] }>(`/api/conversation?id=${conversationId}&limit=200`);
   entries = data.entries;
+  stick = true;
   $("#conv-title").textContent = `#${conversationId}`;
   $("#conv-sub").textContent =
     surfaces.find((surface) => surface.conversationId === conversationId)?.surfaceId ?? "";
@@ -270,6 +275,12 @@ async function send(): Promise<void> {
   });
 }
 
+$("#transcript").addEventListener("scroll", () => {
+  const box = $("#transcript");
+  // 80px of slack: the tail counts as "at the bottom" while it wraps.
+  stick = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+});
+
 $("#surfaces").addEventListener("click", (event) => {
   const item = (event.target as HTMLElement).closest("li[data-id]");
   if (item === null) return;
@@ -303,7 +314,7 @@ document.querySelectorAll<HTMLButtonElement>("button[data-control]").forEach((bu
     const action = button.dataset["control"] ?? "";
     button.disabled = true;
     try {
-      const output = await Agent.control(action);
+      const output = await Agent.control(action).catch(() => "只在桌面客户端里可用");
       $("#status").textContent = output.split("\n")[0]?.slice(0, 40) || action;
     } finally {
       button.disabled = false;
@@ -315,7 +326,7 @@ $("#open-logs").addEventListener("click", () => void Agent.openLogs().catch(() =
 
 // ---- boot -----------------------------------------------------------------
 
-$("#home").textContent = await Agent.home();
+$("#home").textContent = await Agent.home().catch(() => "browser");
 await loadSurfaces();
 setBusy(false);
 if (surfaces.length > 0) void select(surfaces[surfaces.length - 1]!.conversationId);
