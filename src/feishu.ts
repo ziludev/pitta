@@ -117,7 +117,11 @@ function clip(text: string): string {
 function renderLive(live: LiveSnapshot): string {
   const body = live.text.trim();
   if (body.length > 0) return clip(body);
-  return live.tools.length > 0 ? `⚙️ ${live.tools.join(" · ")}` : "🤔 思考中…";
+  if (live.tools.length > 0) {
+    const head = `⚙️ ${live.tools.join(" · ")}`;
+    return live.activity === undefined ? head : `${head}\n\n_${live.activity}_`;
+  }
+  return "🤔 思考中…";
 }
 
 type PostElement = { tag?: string; text?: string; image_key?: string };

@@ -6,6 +6,8 @@ export type LiveSnapshot = {
   text: string;
   /** Human-readable label of the tool round currently running. */
   tools: string[];
+  /** Tail of the running tool's output: this is what makes progress visible. */
+  activity?: string;
   busy: boolean;
 };
 
@@ -37,16 +39,27 @@ export function readLive(view: unknown): LiveSnapshot {
   const text = textOfMessage(generation?.["message"]);
 
   const tools: string[] = [];
+  let activity: string | undefined;
   const slots = live["tools"];
   if (Array.isArray(slots)) {
     for (const slot of slots) {
       const record = asRecord(slot);
       const name = record?.["name"];
-      if (typeof name === "string") tools.push(name);
+      if (typeof name !== "string") continue;
+      tools.push(name);
+      if (record?.["status"] !== "running") continue;
+      const output = record?.["output"];
+      if (typeof output !== "string") continue;
+      const tail = output
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .pop();
+      if (tail !== undefined) activity = tail.slice(0, 120);
     }
   }
 
-  return { text, tools, busy: live["run"] !== undefined };
+  return { text, tools, activity, busy: live["run"] !== undefined };
 }
 
 export type LiveWatcher = { stop(): Promise<void> };

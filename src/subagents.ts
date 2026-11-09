@@ -3,7 +3,9 @@ import {
   configure,
   defineExtension,
   defineTool,
+  LiveDoc,
   type ConversationId,
+  type LiveState,
 } from "@earendil-works/pi-durable";
 import type { Context } from "@earendil-works/chord";
 import { obj, opt, str } from "@earendil-works/pi-schema";
@@ -67,6 +69,33 @@ async function readAnswer(api: ToolExecutionApi, context: Context, answerId: unk
   return parts.join("").trim();
 }
 
+/** One readable line about what a child is doing right now: a tool, or the tail of its answer. */
+function describeActivity(state: Readonly<LiveState> | undefined): string | undefined {
+  const running = (state?.tools ?? []).find((slot) => slot.status === "running");
+  if (running !== undefined) {
+    const tail = (running.output ?? "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .pop();
+    return tail === undefined ? running.name : `${running.name} ▸ ${tail.slice(0, 90)}`;
+  }
+  const content = state?.generation?.message?.content;
+  if (Array.isArray(content)) {
+    const text = content
+      .filter((part) => part.type === "text")
+      .map((part) => (part.type === "text" ? part.text : ""))
+      .join("");
+    const tail = text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .pop();
+    if (tail !== undefined) return tail.slice(0, 90);
+  }
+  return undefined;
+}
+
 async function runChild(
   api: ToolExecutionApi,
   context: Context,
@@ -78,6 +107,7 @@ async function runChild(
     const conversationId = await ensureChild(api, context, key, role);
     const child = await api.conversation(conversationId, context);
     if (child === undefined) return { ok: false, error: `子会话 ${conversationId} 丢失` };
+    api.output(`→ ${role}（${ROLES[role].title}）开始…\n`);
     const submission = await child.submit(
       { type: "input", content: task, requestId: `subagent:${api.taskId}:${key}` },
       context,
@@ -88,6 +118,7 @@ async function runChild(
     }
     const text = await readAnswer(api, context, settled.answer);
     log("subagent", `${role} answered`, { key, chars: text.length });
+    api.output(`✔ ${role} 完成（${text.length} 字）\n`);
     return { ok: true, text, conversationId: conversationId as unknown as number };
   } catch (error) {
     logError("subagent", `${role} failed`, error);
