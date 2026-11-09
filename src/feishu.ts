@@ -614,9 +614,13 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     }, 300_000);
 
     let streamErrors = 0;
+    // Once the turn settles, late watcher/heartbeat patches must never overwrite the
+    // answer: that race put "思考中…" back on a finished card.
+    let finished = false;
     let body = "🤔 思考中…";
     const toolsUsed = new Set<string>();
     const watcher = await watchLive(conversation, (live) => {
+      if (finished) return;
       body = renderLive(live);
       for (const tool of live.tools) toolsUsed.add(tool);
       void patchCard(cardId, body, `▶️ 处理中 · ${elapsed()}`).catch((error) => {
@@ -630,6 +634,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     // A silent model or a long tool round produces no commits, so tick the card
     // ourselves: the user should never have to ask "is it still working?".
     const heartbeat = setInterval(() => {
+      if (finished) return;
       void patchCard(cardId, body, `⏳ ${elapsed()} · 进行中`).catch(() => {});
     }, 15_000);
 
@@ -646,6 +651,12 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       const settled = await submission.wait(context);
       const seconds = Math.round((Date.now() - startedAt) / 100) / 10;
       log("feishu", "settled", { status: settled.status, reason: settled.reason ?? null, seconds });
+
+      // Freeze live output first, then write the answer.
+      finished = true;
+      clearInterval(heartbeat);
+      clearTimeout(watchdog);
+      await watcher.stop();
       if (settled.entry !== undefined) {
         // Remember where this message landed so a later reply can fork at it.
         await runtime
