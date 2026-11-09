@@ -17,6 +17,7 @@
 | 长期记忆 | 三层：`global_memory`（跨 chat，注入最近 60 条）+ `chat_memory`（本对话，注入最近 20 条）+ `work_memory`（项目/环境细节，**不注入**，prompt 里只留一行索引，靠 `recall` 搜索）。`remember(scope)` / `forget` / `recall`，`/memory` 查看 |
 | 主动性 | `remind` 工具创建 **durable 定时任务**：存 deadline 睡觉，进程重启后照样到点触发，主动发消息 |
 | 工具审批 | `guard` hook 拦危险调用（`rm -rf`、`git push --force`、`sudo`、写工作区外…），发带按钮的卡片等人点，decision 存 memo |
+| 用量统计 | 后台 durable 任务每 10 分钟采样一次累计 usage，按天存快照；请求日历接口时再即时采样一次，保证不用等 10 分钟。启动前的历史不计入（baseline） |
 | 成本闸门 | `pi.usage` 汇总 → 每日额度（`AGENT_DAILY_BUDGET_USD`），超了拒绝新请求，跨天自动重置 |
 | 多角色分工 | `delegate`（单个角色）/ `delegate_parallel`（并行）/ `build_feature`（设计→实现→测试流水线；`background="1"` 丢后台跑）。每个子 agent 都是 **task-owned conversation**：独立上下文、独立成本、崩了能续、abort 会级联，且只允许一层（子 agent 拿不到 delegate） |
 | 角色 | `planner` 拆解 / `designer` 写设计文档 / `implementer` 实现 / `tester` 写测试 / `reviewer` 只读评审，各带独立指令与工具白名单 |
@@ -93,6 +94,8 @@ bun run build    # 产出 build/darwin-arm64/Agent.app + .dmg
 - 左栏：会话列表（飞书 chat / cli / 内部测试）、运行中的后台任务、agent 状态与 重启/备份/日志 按钮、累计花费
 - 中间：transcript 流式渲染（用户/助手/工具输出折叠/思考折叠/需求报告），`/new` `/stop`，插话（steer）开关
 - 右栏：两个 tab —— **改动**（工作区 git diff，逐文件折叠、+/- 着色、一键提交、**合并回主线**）和 **记忆**（全局/工作/本对话）
+- **模型/思考级别逐会话切换**（标题栏右侧）：`configure({model})` 只影响该会话，忙群用便宜模型、私人对话用强模型
+- **token 方块图**（右栏「用量」tab）：GitHub 贡献图样式，17 周，按日总量着色；近 7/30 天与合计
 - 中英切换（默认跟随系统语言，`?lang=zh|en` 可强制；选择记在 localStorage）
 
 协议就是给客户端准备的：`src/server.ts` 暴露本机 `127.0.0.1:8787`
@@ -108,6 +111,9 @@ POST /api/commit       把工作区提交成一个 checkpoint
 GET  /api/file?path=   读工作区文件（越界拒绝，512KB 上限）
 GET  /api/search?q=    跨会话搜transcript（返回可读片段）
 POST /api/merge        把会话分支 --no-ff 合并回主线（冲突返回数据，不猜）
+GET  /api/models       可用模型（provider 分组）
+POST /api/model        切某个会话的模型/思考级别
+GET  /api/usage-calendar?days=  按日 token/花费方块图数据
 ```
 
 **合并闭环**：改动面板右上角「合并」把 `agent/conv-N` 用 `--no-ff` 合回主线；未提交/主线脏会拒绝，

@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Composer } from "@/components/Composer";
+import { ModelPicker } from "@/components/ModelPicker";
 import { Rail } from "@/components/Rail";
 import { SidePanel } from "@/components/SidePanel";
 import { Transcript } from "@/components/Transcript";
@@ -53,6 +54,10 @@ export function App() {
                     {current === undefined ? tr(lang, "noConversation") : `#${current}`}
                   </div>
                   <div className="truncate text-[10px] text-muted-foreground">{surface?.surfaceId ?? ""}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <ModelPicker />
+                  <span className="h-4 w-px bg-border" />
                 </div>
                 <div className="flex gap-1">
                   <Button variant="ghost" size="xs" onClick={() => void reset()} title="/new">

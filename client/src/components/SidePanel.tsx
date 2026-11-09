@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { MessageSquarePlus, Send, Trash2 } from "lucide-react";
 import { AnimateService, motion } from "motion/react";
-import { Brain, GitCompareArrows, RefreshCw } from "lucide-react";
+import { Brain, GitCompareArrows, RefreshCw, Signal } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fileStatusLabel, tr } from "@/i18n";
 import { CommitDialog } from "@/components/CommitDialog";
+import { UsageCalendar } from "@/components/UsageCalendar";
 import { MergeButton } from "@/components/MergeButton";
 import { DiffView } from "@/lib/diff";
 import { useStore } from "@/store";
@@ -191,7 +192,9 @@ function Memory() {
 
 export function SidePanel() {
   const { lang, tab, setTab, memory } = useStore();
-  const [value, setValue] = useState(tab);
+  const [value, setValue] = useState<"changes" | "usage" | "memory">(
+    tab === "memory" ? "memory" : (new URLSearchParams(location.search).get("tab") as "changes" | "usage" | null) ?? "changes",
+  );
   const memoryCount = memory.global.length + memory.work.length + memory.chat.length;
 
   return (
@@ -199,7 +202,7 @@ export function SidePanel() {
       <Tabs
         value={value}
         onValueChange={(next) => {
-          setValue(next as "changes" | "memory");
+          setValue(next as "changes" | "usage" | "memory");
           setTab(next as "changes" | "memory");
         }}
         className="min-h-0 flex-1 gap-0"
@@ -208,6 +211,10 @@ export function SidePanel() {
           <TabsTrigger value="changes" className="gap-1.5 text-[11px]">
             <GitCompareArrows className="size-3" />
             {tr(lang, "changes")}
+          </TabsTrigger>
+          <TabsTrigger value="usage" className="gap-1.5 text-[11px]">
+            <Signal className="size-3" />
+            {tr(lang, "usage")}
           </TabsTrigger>
           <TabsTrigger value="memory" className="gap-1.5 text-[11px]">
             <Brain className="size-3" />
@@ -226,6 +233,9 @@ export function SidePanel() {
           >
             <TabsContent value="changes" className="min-h-0 flex-1">
               <Changes />
+            </TabsContent>
+            <TabsContent value="usage" className="min-h-0 flex-1">
+              <UsageCalendar />
             </TabsContent>
             <TabsContent value="memory" className="min-h-0 flex-1">
               <Memory />

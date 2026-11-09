@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { defineExtension } from "@earendil-works/pi-durable";
 import { dirname } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
@@ -20,6 +21,7 @@ import { reminderExtension } from "./reminders.ts";
 import { guardExtension } from "./approval.ts";
 import { larkExtension } from "./lark-tools.ts";
 import { subagentExtension } from "./subagents.ts";
+import { UsageSampler, UsageDays, sampleUsage, usageCalendar } from "./usage-days.ts";
 import { connectMcp, type McpRuntime } from "./mcp.ts";
 import { personalExtension } from "./personal.ts";
 import { checkBudget, type BudgetCheck } from "./budget.ts";
@@ -56,6 +58,12 @@ export type AgentRuntime = {
   /** Tool calls of one run, in order, with short output previews. */
   turnSteps(conversation: Conversation, from: number, to: number): Promise<ToolStep[]>;
   budget(surfaceId: string): Promise<BudgetCheck>;
+  models: () => Array<{ provider: string; id: string; name: string; reasoning: boolean }>;
+  setModel(
+    conversation: Conversation,
+    model: { provider: string; modelId: string; thinkingLevel?: string },
+  ): Promise<void>;
+  usageCalendar(days: number): Promise<Array<{ date: string; cost: number; tokens: number }>>;
   mcp: McpRuntime;
   memories(conversation: Conversation): Promise<{ global: Note[]; chat: Note[] }>;
   close(): Promise<void>;
@@ -88,6 +96,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   registry.install(reminderExtension);
   registry.install(guardExtension);
   registry.install(subagentExtension);
+  registry.install(defineExtension({ name: "usage-sampler", tasks: [UsageSampler] }));
   if (mcp.extension !== undefined) registry.install(mcp.extension);
 
   const harness = await Harness.open(
@@ -110,6 +119,17 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   );
   harness.resume();
   setHarnessRef(harness);
+
+  // Keep one sampler alive: it turns cumulative usage into per-day history.
+  const root = await harness.root(context);
+  const inspection = await harness.inspect(context);
+  if (!inspection.tasks.some((task) => task.record.kind === "app.usage-sampler")) {
+    await root.commit(async (tx) => {
+      await tx.createTask(UsageSampler, null, { ownership: { kind: "conversation" }, background: true });
+      return undefined;
+    }, context);
+    log("usage", "sampler started");
+  }
 
   const agentChange = {
     model: { provider: config.model.provider, modelId: config.model.modelId },
@@ -268,6 +288,41 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
       global: (await harness.snapshot(GlobalMemory, context))?.notes ?? [],
       chat: (await harness.snapshot(ChatMemory, conversation.id, context))?.notes ?? [],
     }),
+    models: () =>
+      models.getProviders().flatMap((provider) =>
+        models
+          .getModels(provider.id)
+          .map((model) => ({
+            provider: provider.id,
+            id: model.id,
+            name: model.name ?? model.id,
+            reasoning: model.reasoning === true,
+          }))
+          .slice(0, 40),
+      ),
+    setModel: (conversation, model) =>
+      conversation.configure(
+        {
+          model: { provider: model.provider, modelId: model.modelId },
+          ...(model.thinkingLevel === undefined ? {} : { thinkingLevel: model.thinkingLevel as never }),
+        },
+        context,
+      ),
+    usageCalendar: async (days) => {
+      // Sample first: the background sampler only runs every 10 minutes.
+      await sampleUsage(harness, context).catch(() => {});
+      return usageCalendar(
+        (ctx) => harness.snapshot(UsageDays, ctx) as Promise<
+          | {
+              days: Record<string, never>;
+              baseline?: { cost: number; tokens: number; input: number; output: number };
+            }
+          | undefined
+        >,
+        context,
+        days,
+      );
+    },
     // Budget is session-wide: one owner, one daily allowance.
     budget: (_surfaceId: string) => checkBudget(harness, context, config.dailyBudgetUsd),
     close: async () => {

@@ -39,6 +39,10 @@ export type MergeResult =
   | { status: "conflict"; branch: string; base: string; conflicts: string[] }
   | { status: "error"; message: string };
 
+export type ModelRef = { provider: string; modelId: string };
+export type ModelEntry = { provider: string; id: string; name: string; reasoning: boolean };
+export type UsageDay = { date: string; cost: number; tokens: number };
+
 export const wsURL = (conversationId: number): string =>
   `${baseURL.replace(/^http/, "ws")}/ws?conversationId=${conversationId}${
     token ? `&token=${encodeURIComponent(token)}` : ""

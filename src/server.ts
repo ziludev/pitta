@@ -147,6 +147,29 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         });
       }
 
+      if (req.method === "GET" && path === "/api/models") {
+        return send(res, 200, { models: runtime.models() });
+      }
+
+      if (req.method === "POST" && path === "/api/model") {
+        const body = await readJson(req);
+        const conversation = await resolveConversation(conversationIdOf(body));
+        if (conversation === undefined) return send(res, 404, { error: "no such conversation" });
+        const provider = typeof body["provider"] === "string" ? body["provider"] : "";
+        const modelId = typeof body["modelId"] === "string" ? body["modelId"] : "";
+        if (provider.length === 0 || modelId.length === 0) return send(res, 400, { error: "provider and modelId required" });
+        const thinkingLevel = typeof body["thinkingLevel"] === "string" ? body["thinkingLevel"] : undefined;
+        await runtime.setModel(conversation, { provider, modelId, thinkingLevel });
+        log("http", "model switched", { conversationId: conversationIdOf(body), provider, modelId, thinkingLevel });
+        return send(res, 200, { ok: true });
+      }
+
+      if (req.method === "GET" && path === "/api/usage-calendar") {
+        const days = Math.min(Number(url.searchParams.get("days") ?? 120) || 120, 365);
+        const calendar = await runtime.usageCalendar(days);
+        return send(res, 200, { days: calendar });
+      }
+
       if (req.method === "GET" && path === "/api/conversation") {
         const id = Number(url.searchParams.get("id"));
         const conversation = await resolveConversation(Number.isFinite(id) ? id : undefined);
@@ -155,8 +178,11 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         const limit = Math.min(Number(url.searchParams.get("limit") ?? 100) || 100, 500);
         const page = await conversation.entries({ order: "descending" }, limit, undefined, context);
         const newestFirst = [...page.items].reverse();
+        const agent = await conversation.agent(context).catch(() => undefined);
         return send(res, 200, {
           conversationId: conversation.id as unknown as number,
+          model: agent?.model ?? null,
+          thinkingLevel: agent?.thinkingLevel ?? null,
           entries: newestFirst.map((entry) => ({
             id: entry.id,
             kind: entry.kind,

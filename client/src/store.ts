@@ -12,7 +12,7 @@ import {
   type Task,
 } from "@/lib/api";
 import { initialLang, type Lang } from "@/i18n";
-import type { MergeResult } from "@/lib/api";
+import type { MergeResult, ModelEntry, ModelRef, UsageDay } from "@/lib/api";
 
 export type LiveDoc = {
   run?: unknown;
@@ -43,6 +43,10 @@ type State = {
   view: { kind: "transcript" } | { kind: "file"; path: string };
   filter: string;
   review: Array<{ path: string; line: string; note: string }>;
+  model?: ModelRef;
+  thinkingLevel?: string;
+  models: ModelEntry[];
+  usageDays: UsageDay[];
 
   init(): Promise<void>;
   select(conversationId: number): Promise<void>;
@@ -69,6 +73,9 @@ type State = {
   removeReviewComment(index: number): void;
   clearReview(): void;
   sendReview(): Promise<void>;
+  loadModels(): Promise<void>;
+  setModel(input: { provider: string; modelId: string; thinkingLevel?: string }): Promise<void>;
+  loadUsage(): Promise<void>;
 };
 
 let socket: WebSocket | undefined;
@@ -104,13 +111,19 @@ export const useStore = create<State>((set, get) => ({
   changesLoading: false,
   order: savedOrder(),
   pinned: savedPinned(),
-  tab: "changes",
+  tab: (["changes", "usage", "memory"] as const).includes(
+    new URLSearchParams(location.search).get("tab") as never,
+  )
+    ? (new URLSearchParams(location.search).get("tab") as "changes" | "memory")
+    : "changes",
   focusEntry: Number(new URLSearchParams(location.search).get("entry") ?? "") || undefined,
   view: new URLSearchParams(location.search).get("file")
     ? { kind: "file", path: new URLSearchParams(location.search).get("file")! }
     : { kind: "transcript" },
   filter: "",
   review: [],
+  models: [],
+  usageDays: [],
 
   async init() {
     set({ home: homeDir });
@@ -152,8 +165,10 @@ export const useStore = create<State>((set, get) => ({
   async select(conversationId) {
     socket?.close();
     set({ current: conversationId, connection: "connecting", entries: [], live: undefined });
-    const data = await api<{ entries: Entry[] }>(`/api/conversation?id=${conversationId}&limit=200`);
-    set({ entries: data.entries });
+    const data = await api<{ entries: Entry[]; model?: ModelRef; thinkingLevel?: string }>(
+      `/api/conversation?id=${conversationId}&limit=200`,
+    );
+    set({ entries: data.entries, model: data.model, thinkingLevel: data.thinkingLevel ?? undefined });
 
     socket = new WebSocket(wsURL(conversationId));
     socket.onopen = () => set({ connection: "open" });
@@ -311,6 +326,27 @@ export const useStore = create<State>((set, get) => ({
 
   clearReview() {
     set({ review: [] });
+  },
+
+  async loadModels() {
+    if (get().models.length > 0) return;
+    const result = await api<{ models: ModelEntry[] }>("/api/models");
+    set({ models: result.models });
+  },
+
+  async setModel(input) {
+    const id = get().current;
+    if (id === undefined) return;
+    await api("/api/model", {
+      method: "POST",
+      body: JSON.stringify({ conversationId: id, ...input }),
+    });
+    set({ model: { provider: input.provider, modelId: input.modelId }, thinkingLevel: input.thinkingLevel });
+  },
+
+  async loadUsage() {
+    const result = await api<{ days: UsageDay[] }>("/api/usage-calendar?days=120");
+    set({ usageDays: result.days });
   },
 
   /** Anchored comments go to the agent as one review message, like a PR review. */
