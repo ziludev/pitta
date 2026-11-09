@@ -1,12 +1,22 @@
 // The page is the third surface on the durable agent: it reads the same
-// conversation the Feishu bot writes, streams commits over a WebSocket, and
-// posts input back through the same admission rules.
+// conversation the Feishu bot writes, streams commits over a WebSocket, posts
+// input back through the same admission rules, and shows workspace diffs.
 import { Agent } from "./mygo";
+import { applyI18n, currentLang, setLang, t, type Lang } from "./i18n";
 
 type Entry = { id: number; kind: string; model: unknown; data: unknown };
 type Surface = { surfaceId: string; conversationId: number };
 type Task = { id: number; kind: string; conversationId: number; background: boolean; state: string };
 type Note = { at: string; text: string };
+type FileChange = { path: string; status: string; added: number; removed: number };
+type Changes = {
+  repo: boolean;
+  diff: string;
+  files: FileChange[];
+  truncated: boolean;
+  workspace?: string;
+  error?: string;
+};
 
 type LiveValue = {
   entries?: Entry[];
@@ -15,8 +25,6 @@ type LiveValue = {
 
 const $ = <T extends HTMLElement>(selector: string): T => document.querySelector<T>(selector)!;
 
-// Inside the MyGo window the Go side supplies these; in a plain browser (useful
-// for debugging) fall back to the default local bridge.
 const baseURL = (await Agent.baseURL().catch(() => "http://127.0.0.1:8787")).replace(/\/$/, "");
 const token = await Agent.token().catch(() => "");
 const authHeaders: Record<string, string> = token ? { authorization: `Bearer ${token}` } : {};
@@ -28,6 +36,7 @@ let entries: Entry[] = [];
 let seen = new Set<string>();
 /** Follow the tail while streaming; stop as soon as the user scrolls up. */
 let stick = true;
+let busy = false;
 
 function api<T>(path: string, init?: RequestInit): Promise<T> {
   return fetch(`${baseURL}${path}`, {
@@ -93,7 +102,7 @@ function renderEntry(entry: Entry): string {
   if (entry.kind === "pi.user") {
     const images = parts.filter((part) => part["type"] === "image").length;
     return `<div class="msg user"><div class="bubble">${renderMarkdown(text)}${
-      images > 0 ? `<div class="tiny muted">[${images} 张图片]</div>` : ""
+      images > 0 ? `<div class="tiny muted">[${images} ${t("images")}]</div>` : ""
     }</div></div>`;
   }
 
@@ -104,20 +113,24 @@ function renderEntry(entry: Entry): string {
       .join("");
     return `<div class="msg assistant">${calls ? `<div class="chips">${calls}</div>` : ""}${
       text ? `<div class="bubble">${renderMarkdown(text)}</div>` : ""
-    }${thinking ? `<details class="thinking"><summary>思考</summary><pre>${escapeHtml(thinking)}</pre></details>` : ""}</div>`;
+    }${
+      thinking
+        ? `<details class="thinking"><summary>${t("thinking")}</summary><pre>${escapeHtml(thinking)}</pre></details>`
+        : ""
+    }</div>`;
   }
 
   if (entry.kind === "pi.tool-result") {
     const name = String(parts[0]?.["toolName"] ?? "tool");
     const body = text.length > 4000 ? `${text.slice(0, 4000)}\n…` : text;
-    return `<div class="msg tool"><details><summary>${escapeHtml(name)} · 输出</summary><pre>${escapeHtml(
+    return `<div class="msg tool"><details><summary>${escapeHtml(name)} · ${t("output")}</summary><pre>${escapeHtml(
       body,
     )}</pre></details></div>`;
   }
 
   if (entry.kind === "app.feature-report") {
     const payload = (entry.data ?? {}) as { text?: string };
-    return `<div class="msg note"><details open><summary>🧩 需求报告</summary><div class="bubble">${renderMarkdown(
+    return `<div class="msg note"><details open><summary>🧩 ${t("featureReport")}</summary><div class="bubble">${renderMarkdown(
       payload.text ?? "",
     )}</div></details></div>`;
   }
@@ -161,9 +174,11 @@ function renderTranscript(live?: LiveValue): void {
   if (follow) box.scrollTop = box.scrollHeight;
 }
 
-function setBusy(busy: boolean): void {
-  $("#status").dataset["busy"] = busy ? "1" : "0";
-  $("#status").textContent = busy ? "运行中" : "空闲";
+function setBusy(next: boolean): void {
+  busy = next;
+  const status = $("#status");
+  status.dataset["busy"] = next ? "1" : "0";
+  status.textContent = next ? t("busy") : t("idle");
 }
 
 function connect(conversationId: number): void {
@@ -179,8 +194,10 @@ function connect(conversationId: number): void {
     setBusy(live.docs?.["pi.live"]?.["run"] !== undefined);
     renderTranscript(live);
   };
-  socket.onerror = () => $("#status").textContent = "桥接失败";
-  socket.onclose = () => $("#status").textContent = "已断开";
+  socket.onerror = () => ($("#status").textContent = t("bridgeFailed"));
+  socket.onclose = () => {
+    if (!busy) $("#status").textContent = t("disconnected");
+  };
 }
 
 async function loadSurfaces(): Promise<void> {
@@ -188,8 +205,7 @@ async function loadSurfaces(): Promise<void> {
   surfaces = state.surfaces.sort((a, b) => a.conversationId - b.conversationId);
   renderSurfaces();
   renderTasks(state.tasks);
-  const cost = totalCost(state.usage);
-  $("#usage").textContent = `累计 $${cost.toFixed(4)}`;
+  $("#usage").textContent = `${t("cumulative")} $${totalCost(state.usage).toFixed(4)}`;
 }
 
 function totalCost(usage: unknown): number {
@@ -205,13 +221,17 @@ function totalCost(usage: unknown): number {
   return total;
 }
 
+function surfaceLabel(surfaceId: string): string {
+  return surfaceId.startsWith("oc_") ? `${t("feishu")} ${surfaceId.slice(3, 9)}` : surfaceId;
+}
+
 function renderSurfaces(): void {
   $("#surfaces").innerHTML = surfaces
     .map(
       (surface) => `<li data-id="${surface.conversationId}" class="${
         surface.conversationId === current ? "active" : ""
       }">
-        <span class="label">${escapeHtml(surface.surfaceId.startsWith("oc_") ? `飞书 ${surface.surfaceId.slice(3, 9)}` : surface.surfaceId)}</span>
+        <span class="label">${escapeHtml(surfaceLabel(surface.surfaceId))}</span>
         <span class="muted tiny">#${surface.conversationId}</span>
       </li>`,
     )
@@ -222,7 +242,7 @@ function renderTasks(tasks: Task[]): void {
   const live = tasks.filter((task) => !task.kind.startsWith("pi."));
   $("#tasks").innerHTML =
     live.length === 0
-      ? `<li class="muted tiny">没有后台任务</li>`
+      ? `<li class="muted tiny">${t("noTasks")}</li>`
       : live
           .map(
             (task) =>
@@ -233,23 +253,26 @@ function renderTasks(tasks: Task[]): void {
 
 async function select(conversationId: number): Promise<void> {
   current = conversationId;
+  stick = true;
   renderSurfaces();
   const data = await api<{ entries: Entry[] }>(`/api/conversation?id=${conversationId}&limit=200`);
   entries = data.entries;
-  stick = true;
   $("#conv-title").textContent = `#${conversationId}`;
   $("#conv-sub").textContent =
     surfaces.find((surface) => surface.conversationId === conversationId)?.surfaceId ?? "";
   renderTranscript();
   connect(conversationId);
   void loadMemory(conversationId);
+  void loadChanges();
 }
 
 async function loadMemory(conversationId?: number): Promise<void> {
   const memory = await api<{ global: Note[]; work: Note[]; chat: Note[] }>(
     `/api/memory${conversationId === undefined ? "" : `?chat=${conversationId}`}`,
   );
-  $("#mem-count").textContent = `${memory.global.length} 全局 · ${memory.work.length} 工作 · ${memory.chat.length} 对话`;
+  $("#mem-count").textContent = `${memory.global.length} ${t("globals")} · ${memory.work.length} ${t(
+    "work",
+  )} · ${memory.chat.length} ${t("chat")}`;
   const block = (title: string, notes: Note[]) =>
     notes.length === 0
       ? ""
@@ -258,8 +281,89 @@ async function loadMemory(conversationId?: number): Promise<void> {
           .map((note) => `<div class="mem-item">${escapeHtml(note.text.slice(0, 220))}</div>`)
           .join("")}</div>`;
   $("#memory").innerHTML =
-    block("全局", memory.global) + block("工作", memory.work) + block("本对话", memory.chat) ||
-    `<div class="muted tiny">没有记忆</div>`;
+    block(t("globals"), memory.global) + block(t("work"), memory.work) + block(t("chat"), memory.chat) ||
+    `<div class="muted tiny">${t("noMemory")}</div>`;
+}
+
+const STATUS_TEXT: Record<string, string> = {
+  modified: "modified",
+  added: "added",
+  deleted: "deleted",
+  renamed: "renamed",
+  conflicted: "conflicted",
+  untracked: "untracked",
+  clean: "clean",
+};
+
+function statusLabel(status: string): string {
+  const key = STATUS_TEXT[status];
+  if (key === undefined) return status;
+  return t(key as never);
+}
+
+/** Renders one unified diff: per-file collapsible blocks with +/− line classes. */
+function renderDiff(diff: string): string {
+  if (diff.trim().length === 0) return "";
+  const blocks = diff.split(/^(?=diff --git )/m).filter((block) => block.trim().length > 0);
+  return blocks
+    .map((block) => {
+      const lines = block.split("\n");
+      const header = lines.find((line) => line.startsWith("diff --git ")) ?? "";
+      const match = /b\/(.+)$/.exec(header);
+      const path = match?.[1] ?? header.replace("diff --git ", "");
+      const body = lines
+        .filter(
+          (line) =>
+            !line.startsWith("diff --git ") &&
+            !line.startsWith("index ") &&
+            !line.startsWith("--- ") &&
+            !line.startsWith("+++ "),
+        )
+        .slice(0, 600)
+        .map((line) => {
+          const cls = line.startsWith("@@")
+            ? "hunk"
+            : line.startsWith("+")
+              ? "add"
+              : line.startsWith("-")
+                ? "del"
+                : "ctx";
+          return `<span class="dl ${cls}">${escapeHtml(line)}</span>`;
+        })
+        .join("");
+      return `<details class="file" open><summary>${escapeHtml(path)}</summary><pre class="diff-body">${body}</pre></details>`;
+    })
+    .join("");
+}
+
+async function loadChanges(): Promise<void> {
+  const box = $("#changes");
+  try {
+    const changes = await api<Changes>("/api/changes");
+    if (!changes.repo) {
+      box.innerHTML = `<div class="muted tiny">${t("noChanges")}</div>`;
+      $("#changes-summary").textContent = "";
+      return;
+    }
+    const total = changes.files.length;
+    $("#changes-summary").textContent =
+      total === 0 ? t("noChanges") : `${total} file${total === 1 ? "" : "s"} · ${changes.truncated ? t("truncated") : ""}`;
+    box.innerHTML =
+      total === 0
+        ? `<div class="muted tiny">${t("noChanges")}</div>`
+        : changes.files
+            .map(
+              (file) =>
+                `<div class="file-row"><span class="fstat ${file.status}">${statusLabel(file.status)}</span>
+                 <span class="fpath">${escapeHtml(file.path)}</span>
+                 <span class="muted tiny">${file.added > 0 ? `+${file.added}` : ""}${
+                   file.removed > 0 ? ` −${file.removed}` : ""
+                 }</span></div>`,
+            )
+            .join("") + renderDiff(changes.diff);
+  } catch (error) {
+    box.innerHTML = `<div class="muted tiny">${escapeHtml((error as Error).message)}</div>`;
+  }
 }
 
 async function send(): Promise<void> {
@@ -274,6 +378,8 @@ async function send(): Promise<void> {
     body: JSON.stringify({ conversationId: current, text, mode }),
   });
 }
+
+// ---- wiring ---------------------------------------------------------------
 
 $("#transcript").addEventListener("scroll", () => {
   const box = $("#transcript");
@@ -314,7 +420,7 @@ document.querySelectorAll<HTMLButtonElement>("button[data-control]").forEach((bu
     const action = button.dataset["control"] ?? "";
     button.disabled = true;
     try {
-      const output = await Agent.control(action).catch(() => "只在桌面客户端里可用");
+      const output = await Agent.control(action).catch(() => t("onlyDesktop"));
       $("#status").textContent = output.split("\n")[0]?.slice(0, 40) || action;
     } finally {
       button.disabled = false;
@@ -324,9 +430,55 @@ document.querySelectorAll<HTMLButtonElement>("button[data-control]").forEach((bu
 
 $("#open-logs").addEventListener("click", () => void Agent.openLogs().catch(() => {}));
 
+$("#changes-refresh").addEventListener("click", () => void loadChanges());
+$("#changes-commit").addEventListener("click", async () => {
+  const message = window.prompt(t("commitPlaceholder"), "");
+  if (message === null) return;
+  try {
+    const result = await api<{ head: string }>("/api/commit", {
+      method: "POST",
+      body: JSON.stringify({ message: message.trim() || undefined }),
+    });
+    $("#changes-summary").textContent = `${t("committed")} ${result.head}`;
+    await loadChanges();
+  } catch {
+    $("#changes-summary").textContent = t("nothingToCommit");
+  }
+});
+
+document.querySelectorAll<HTMLButtonElement>(".tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    const name = tab.dataset["tab"];
+    document.querySelectorAll(".tab").forEach((other) => other.classList.toggle("active", other === tab));
+    $("#panel-changes").classList.toggle("hidden", name !== "changes");
+    $("#panel-memory").classList.toggle("hidden", name !== "memory");
+    if (name === "changes") void loadChanges();
+  });
+});
+
+$("#lang").addEventListener("click", () => {
+  const next: Lang = currentLang() === "zh" ? "en" : "zh";
+  setLang(next);
+  $("#lang").textContent = next === "zh" ? "EN" : "中";
+  void refreshText();
+});
+
+/** Language switched: re-render everything that carries a label. */
+async function refreshText(): Promise<void> {
+  setBusy(busy);
+  renderSurfaces();
+  renderTranscript();
+  await loadSurfaces().catch(() => {});
+  if (current !== undefined) await loadMemory(current).catch(() => {});
+  await loadChanges().catch(() => {});
+}
+
 // ---- boot -----------------------------------------------------------------
 
+applyI18n();
+$("#lang").textContent = currentLang() === "zh" ? "EN" : "中";
 $("#home").textContent = await Agent.home().catch(() => "browser");
+$("#status").textContent = t("connecting");
 await loadSurfaces();
 setBusy(false);
 if (surfaces.length > 0) void select(surfaces[surfaces.length - 1]!.conversationId);
@@ -334,9 +486,9 @@ if (surfaces.length > 0) void select(surfaces[surfaces.length - 1]!.conversation
 setInterval(() => {
   void loadSurfaces().catch(() => {});
   if (current !== undefined) void loadMemory(current).catch(() => {});
+  if (!$("#panel-changes").classList.contains("hidden")) void loadChanges().catch(() => {});
 }, 15_000);
 
-// Track document visibility to keep the transcript scrolled on return.
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && current !== undefined && socket?.readyState !== WebSocket.OPEN) connect(current);
 });

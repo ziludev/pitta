@@ -6,6 +6,7 @@ import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { ChatMemory, GlobalMemory, WorkMemory } from "./memory.ts";
 import { log, logError } from "./log.ts";
 import { config } from "./config.ts";
+import { collectChanges, commitChanges, ensureRepo } from "./changes.ts";
 
 /**
  * Local HTTP + WebSocket bridge so a desktop client is just another watcher.
@@ -173,6 +174,21 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
           work: work?.notes ?? [],
           chat: chat?.notes ?? [],
         });
+      }
+
+      if (req.method === "GET" && path === "/api/changes") {
+        const snapshot = await collectChanges(config.workspace);
+        return send(res, 200, { ...snapshot, workspace: config.workspace });
+      }
+
+      if (req.method === "POST" && path === "/api/commit") {
+        const body = await readJson(req);
+        const message = typeof body["message"] === "string" && body["message"].trim().length > 0
+          ? (body["message"] as string)
+          : "workspace: checkpoint";
+        await ensureRepo(config.workspace);
+        const head = await commitChanges(config.workspace, message);
+        return send(res, 200, { head });
       }
 
       if (req.method === "GET" && path === "/api/tasks") {

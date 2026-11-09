@@ -68,7 +68,8 @@ bun run build    # 产出 build/darwin-arm64/Agent.app + .dmg
 
 - 左栏：会话列表（飞书 chat / cli / 内部测试）、运行中的后台任务、agent 状态与 重启/备份/日志 按钮、累计花费
 - 中间：transcript 流式渲染（用户/助手/工具输出折叠/思考折叠/需求报告），`/new` `/stop`，插话（steer）开关
-- 右栏：三层记忆（全局/工作/本对话）
+- 右栏：两个 tab —— **改动**（工作区 git diff，逐文件折叠、+/- 着色、一键提交）和 **记忆**（全局/工作/本对话）
+- 中英切换（默认跟随系统语言，`?lang=zh|en` 可强制；选择记在 localStorage）
 
 协议就是给客户端准备的：`src/server.ts` 暴露本机 `127.0.0.1:8787`
 
@@ -78,7 +79,13 @@ GET  /api/conversation?id=&limit=            历史条目
 WS   /ws?conversationId=                     首帧 view + 之后每次提交的增量
 POST /api/submit | /api/abort | /api/reset
 GET  /api/memory?chat=  /api/tasks
+GET  /api/changes      工作区 git status + unified diff（含未跟踪文件）
+POST /api/commit       把工作区提交成一个 checkpoint
 ```
+
+**工作区是个 git 仓库**：启动时如果 `workspace/` 没有 `.git` 就 `git init` + 初始提交
+（`AGENT_WORKSPACE_GIT=off` 可关）。这样 agent 每次改文件都能在客户端里看到 diff、
+可以回滚；如果 `AGENT_WORKSPACE` 指向已有的项目仓库，则直接用它的历史，不会重新初始化。
 
 桥接跑在 agent 进程里（**一份 storage 一个写者**），客户端从不直接打开 SQLite。
 `AGENT_HTTP_PORT=0` 可关掉桥接；`AGENT_HTTP_TOKEN` 非空时要求 `Authorization: Bearer`。

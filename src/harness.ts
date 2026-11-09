@@ -25,6 +25,7 @@ import { personalExtension } from "./personal.ts";
 import { checkBudget, type BudgetCheck } from "./budget.ts";
 import { rememberSurface } from "./channel.ts";
 import { log } from "./log.ts";
+import { ensureRepo } from "./changes.ts";
 import { setHarnessRef } from "./runtime-ref.ts";
 import { forkAt, lookupMessage, lookupThread, recordMessage, recordThread } from "./threads.ts";
 import { config } from "./config.ts";
@@ -61,6 +62,8 @@ export type AgentRuntime = {
 export async function openRuntime(options: { workspace?: string } = {}): Promise<AgentRuntime> {
   const workspace = options.workspace ?? config.workspace;
   await mkdir(workspace, { recursive: true });
+  // A repo in the workspace makes every edit reviewable and revertible from the client.
+  if ((process.env.AGENT_WORKSPACE_GIT ?? "auto") !== "off") await ensureRepo(workspace);
   await mkdir(dirname(config.dbPath), { recursive: true });
 
   const models = createAgentModels();
