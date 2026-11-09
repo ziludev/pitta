@@ -1,90 +1,12 @@
 <!doctype html>
-<html lang="zh">
+<html lang="zh" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Agent</title>
-    <link rel="stylesheet" href="./src/style.css" />
   </head>
-  <body>
-    <div id="app">
-      <aside id="rail">
-        <header class="rail-head">
-          <div class="brand">Agent</div>
-          <div class="rail-head-row">
-            <span id="status" class="status">连接中…</span>
-            <button id="lang" class="ghost tiny-btn" title="Language">EN</button>
-          </div>
-        </header>
-
-        <section class="rail-section">
-          <h2 data-i18n="sessions">会话</h2>
-          <ul id="surfaces" class="list"></ul>
-        </section>
-
-        <section class="rail-section">
-          <h2 data-i18n="running">运行中</h2>
-          <ul id="tasks" class="list small"></ul>
-        </section>
-
-        <footer class="rail-foot">
-          <div id="usage" class="muted"></div>
-          <div class="controls">
-            <button data-control="restart" data-i18n="restart" title="agentctl restart">重启</button>
-            <button data-control="backup" data-i18n="backup" title="agentctl backup">备份</button>
-            <button id="open-logs" data-i18n="logs" title="open logs">日志</button>
-          </div>
-          <div id="home" class="muted tiny"></div>
-        </footer>
-      </aside>
-
-      <main id="main">
-        <header id="conv-head">
-          <div>
-            <div id="conv-title" class="conv-title" data-i18n="noConversation">未选择会话</div>
-            <div id="conv-sub" class="muted tiny"></div>
-          </div>
-          <div class="actions">
-            <button id="reset" title="reset context">/new</button>
-            <button id="abort" title="abort run">/stop</button>
-          </div>
-        </header>
-
-        <section id="transcript" class="transcript"></section>
-
-        <form id="composer" class="composer">
-          <textarea id="input" rows="3" data-i18n-placeholder="placeholder" placeholder="说点什么…  ⌘↵ 发送"></textarea>
-          <div class="composer-actions">
-            <label class="mode"><input type="checkbox" id="steer" /> <span data-i18n="steer">插话（steer）</span></label>
-            <button type="submit" id="send" data-i18n="send">发送</button>
-          </div>
-        </form>
-      </main>
-
-      <aside id="side">
-        <nav class="tabs">
-          <button class="tab active" data-tab="changes" data-i18n="changes">改动</button>
-          <button class="tab" data-tab="memory" data-i18n="memory">记忆</button>
-        </nav>
-
-        <section id="panel-changes" class="panel">
-          <div class="panel-head">
-            <span id="changes-summary" class="muted tiny"></span>
-            <span class="spacer"></span>
-            <button id="changes-refresh" class="ghost tiny-btn" data-i18n="refresh">刷新</button>
-            <button id="changes-commit" class="ghost tiny-btn" data-i18n="commit">提交</button>
-          </div>
-          <div id="changes" class="diff"></div>
-        </section>
-
-        <section id="panel-memory" class="panel hidden">
-          <div class="panel-head">
-            <span id="mem-count" class="muted tiny"></span>
-          </div>
-          <div id="memory" class="memory"></div>
-        </section>
-      </aside>
-    </div>
-    <script type="module" src="./src/main.ts"></script>
+  <body class="bg-background text-foreground antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

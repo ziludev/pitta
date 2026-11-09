@@ -54,8 +54,21 @@ npm run ask -- "用一句话介绍你自己"      # 本地冒烟（不碰飞书�
 
 ## 桌面客户端（MyGo）
 
-`client/` 是一个 MyGo 桌面 app（Go 窗口 + 原生 WebView + TypeScript 前端），
-和飞书是同一份 storage 上的**两个 watch 订阅者**：
+`client/` 是一个 MyGo 桌面 app（Go 窗口 + 原生 WebView + React 前端），
+和飞书是同一份 storage 上的**两个 watch 订阅者**。
+
+前端栈：
+
+| 用途 | 选型 |
+|---|---|
+| 组件 | shadcn/ui **Nova** 预设（`radix-nova`，Radix primitives + Tailwind v4 + CVA） |
+| 图标 | Lucide |
+| 动画 | Motion（`motion/react`） |
+| 布局 | react-resizable-panels（三栏可拖拽分栏，尺寸记忆） |
+| 拖拽 | dnd-kit（会话列表可拖拽排序，顺序持久化） |
+| 状态 | Zustand（单一 store：会话/条目/live/记忆/改动/语言/连接状态） |
+
+```
 
 ```bash
 cd client
