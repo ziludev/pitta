@@ -39,7 +39,7 @@ export function SearchBox() {
         }}
         className="relative"
       >
-        <Search className="pointer-events-none absolute top-1.5 left-2 size-3 text-muted-foreground" />
+        <Search className="pointer-events-none absolute top-1/2 left-2 size-3 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={query}
           onChange={(event) => {
@@ -49,7 +49,7 @@ export function SearchBox() {
           }}
           placeholder={tr(lang, "searchShort")}
           title={tr(lang, "search")}
-          className="h-7 pl-7 text-[11px]"
+          className="h-7 py-0 pl-7 text-[11px] leading-none"
         />
       </form>
       {pending ? <div className="pt-1 text-[10px] text-muted-foreground">…</div> : null}

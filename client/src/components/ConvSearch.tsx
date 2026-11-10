@@ -31,7 +31,7 @@ export function ConvSearch() {
   return (
     <div className="flex items-center gap-1">
       <div className="relative">
-        <Search className="pointer-events-none absolute top-1.5 left-1.5 size-3 text-muted-foreground" />
+        <Search className="pointer-events-none absolute top-1/2 left-2 size-3 -translate-y-1/2 text-muted-foreground" />
         <Input
           ref={inputRef}
           value={convQuery}
@@ -43,12 +43,12 @@ export function ConvSearch() {
           }}
           placeholder={tr(lang, "findShort")}
           title={tr(lang, "findInChat")}
-          className="h-6 w-56 pl-6 text-[11px]"
+          className="h-6 w-56 py-0 pl-7 text-[11px] leading-none"
         />
         {convQuery.length > 0 ? (
           <button
             onClick={() => setConvQuery("")}
-            className="absolute top-1 right-1 text-muted-foreground hover:text-foreground"
+            className="absolute top-1/2 right-1.5 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             title="clear"
           >
             <X className="size-3" />
