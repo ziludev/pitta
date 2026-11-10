@@ -47,9 +47,19 @@ function num(name: string, fallback: number): number {
 
 /** Absolute path helper: relative env values resolve against the process cwd. */
 function path(name: string, fallback: string): string {
-  const raw = process.env[name] || fallback;
+  return onePath(process.env[name] || fallback);
+}
+
+function onePath(raw: string): string {
   const expanded = raw.startsWith("~") ? `${homedir()}${raw.slice(1)}` : raw;
   return isAbsolute(expanded) ? expanded : resolve(process.cwd(), expanded);
+}
+
+/** Same expansion for a comma-separated list; order matters (first wins on name clashes). */
+function paths(name: string, fallback: string[]): string[] {
+  const raw = (process.env[name] ?? "").trim();
+  const values = raw.length > 0 ? raw.split(",") : fallback;
+  return values.map((value) => value.trim()).filter((value) => value.length > 0).map(onePath);
 }
 
 export const config = {
@@ -90,6 +100,10 @@ export const config = {
   dailyBudgetUsd: num("AGENT_DAILY_BUDGET_USD", 0),
   /** MCP servers: JSON file with { "servers": { name: {...} } }. Empty = none. */
   mcpConfig: process.env.AGENT_MCP_CONFIG ?? "./mcp.json",
+  /** Skill folders holding <name>/SKILL.md; project dirs first so they win name clashes. */
+  skills: {
+    dirs: paths("AGENT_SKILLS_DIRS", ["./.pi/skills", "~/.claude/skills", "./workspace/skills"]),
+  },
   /** Local client bridge (desktop app). Port 0 disables it. */
   http: {
     port: num("AGENT_HTTP_PORT", 8787),

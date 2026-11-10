@@ -29,6 +29,7 @@
 | 评审意见 | 点 diff 行 → 写一句 → 收集成"评审意见" → 一次发给 agent（对齐 PR review 的回路） |
 | 思考折叠 | 一轮里的思考/工具调用收成一条「步骤轨」：`5 个步骤 · 思考 ×2 · recall, bash`，展开逐条看；轮末一条批次分隔线汇总 `3 次工具调用 🕐 5s` |
 | 执行详情 | 有工具调用的轮次，卡片带「查看详情」按钮，点开看每步工具、输出摘要、耗时与花费 |
+| Skills | 扫 `AGENT_SKILLS_DIRS`（默认 `./.pi/skills` → `~/.claude/skills` → `./workspace/skills`，前面优先）里的 `<name>/SKILL.md`：prompt 只放**分组后的名字**（71 个约 1KB），`skill(name)` 取全文 + 目录，`skill(query)` 按名字/描述搜。Claude Code / `npx skills add` 装的直接可用 |
 | 工具生态 | `mcp.json` 里声明的 MCP servers（stdio / streamable HTTP）在启动时连接，工具以 `mcp__<server>__<tool>` 注册成 durable tool task；默认 `replay: unsafe`，被中断就报告模型而不是重放 |
 | 进度反馈 | 流式文本 + 工具名；静默期间每 15s 心跳更新卡片（耗时 · 进行中）；结束给 `✅ 12.3s · 3 个工具 · $0.0021` |
 | 语音 | `audio` 消息 → ffmpeg 转 16k wav → 本地 whisper 转写（中文），不需要 API key |
@@ -181,6 +182,7 @@ src/
   threads.ts     消息 id → entry 索引 + thread → fork 出来的会话
   asr.ts         本地 whisper 转写（ffmpeg + whisper CLI）
   mcp.ts         MCP client：连 servers，把它们的工具注册成 durable 工具
+  skills.ts      SKILL.md 发现（frontmatter 解析）+ skill 工具：按需取全文，不把描述全塞进 prompt
   server.ts      本机 HTTP+WS 桥：给桌面客户端订阅与提交
   lark-tools.ts  飞书原生工具（日历/待办/文档），走 lark-cli 的用户身份
   roles.ts       子 agent 角色：指令 + 工具白名单 + 轮次上限
@@ -298,6 +300,21 @@ grep '\[mcp\]' logs/agent.log
 
 支持 `command`（stdio，自动带 workspace 作为 cwd）和 `url`（streamable HTTP）。
 连接失败的 server 只记日志，不影响其它 server 和 agent 启动。
+
+## Skills（Claude Code 那套 SKILL.md）
+
+`skills.ts` 给 harness 补了 skill 概念，因为 pi-durable 本身没有。用的是渐进式披露：
+
+1. **prompt 里只有名字**：扫目录拿到 `name` + `description`（只解析 frontmatter 的前两个字段，自己写的迷你 YAML 解析器，支持 `>` / `|` 块标量），按 `family-*` 归组后列一行，71 个 skill 约 1KB。描述全塞进去要 5k+ token，每轮都付不划算。
+2. **`skill(name)`** 返回 SKILL.md 全文（超过 14k 字符截断并给出路径）+ 目录，`scripts/`、`references/` 就在旁边，用 `bash` / `read` 继续取。
+3. **`skill(query)`** 按名字（权重高）+ 描述（权重低）打分，返回前 10；不传参数列出全部。
+4. 扫描结果缓存 30 秒，所以 `npx skills add` 装完不用重启。
+
+```
+AGENT_SKILLS_DIRS=./.pi/skills,~/.claude/skills,./workspace/skills   # 顺序即优先级
+```
+
+`~/.claude/skills` 里有 51 个是 cc-switch 的失效软链（指向不存在的 profile），跳过并在日志里报一次计数；直接 `skill("autoplan")` 时会明确说「目录在但 SKILL.md 读不到」，不会假装没这个 skill。
 
 ## 语音识别
 

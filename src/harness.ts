@@ -21,6 +21,7 @@ import type { ToolStep } from "./details.ts";
 import { reminderExtension } from "./reminders.ts";
 import { guardExtension } from "./approval.ts";
 import { larkExtension } from "./lark-tools.ts";
+import { skillsExtension } from "./skills.ts";
 import { subagentExtension } from "./subagents.ts";
 import { UsageSampler, UsageDays, sampleUsage, usageCalendar } from "./usage-days.ts";
 import { applySuggestions, curateMemory } from "./curator.ts";
@@ -119,6 +120,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   registry.install(CodingTools);
   registry.install(personalExtension);
   registry.install(larkExtension);
+  registry.install(skillsExtension);
   registry.install(memoryExtension);
   registry.install(reminderExtension);
   registry.install(guardExtension);
