@@ -71,6 +71,7 @@ export const guardExtension = defineExtension({
         console.log(`[guard] asking approval for ${call.name}: ${reason}`);
         const approved = await requestApproval({
           callId: call.id,
+          conversationId: api.conversationId as unknown as number,
           tool: call.name,
           summary: summarize(call.name, args),
           reason,

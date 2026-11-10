@@ -412,6 +412,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       // The desktop client sees the same request and may answer it first.
       registerApproval({
         callId: request.callId,
+        conversationId: request.conversationId,
         tool: request.tool,
         summary: request.summary,
         reason: request.reason,

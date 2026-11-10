@@ -59,7 +59,7 @@ export type TurnStats = {
   cost?: number;
   tokens?: number;
   /** Time split for the phase bar. */
-  phases: { think: number; tool: number; error: number };
+  phases: { think: number; tool: number; error: number; wait: number };
   start?: number;
   end?: number;
 };
@@ -203,8 +203,10 @@ export function StepRail({ steps, stats }: { steps: Step[]; stats: TurnStats }) 
 
 /** Proportion of the turn spent thinking / running tools / failing. */
 function PhaseBar({ phases }: { phases: TurnStats["phases"] }) {
-  const total = Math.max(1, phases.think + phases.tool + phases.error);
+  const total = Math.max(1, phases.think + phases.tool + phases.error + phases.wait);
   const segments = [
+    // Amber first: waiting on a human is the part the owner caused.
+    { key: "wait", value: phases.wait, className: "bg-amber-500/70", label: "等你确认" },
     { key: "think", value: phases.think, className: "bg-sky-500/70", label: "思考" },
     { key: "tool", value: phases.tool, className: "bg-muted-foreground/50", label: "工具" },
     { key: "error", value: phases.error, className: "bg-rose-500/70", label: "失败" },

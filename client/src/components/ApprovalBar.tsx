@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { ShieldAlert } from "lucide-react";
 import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,15 @@ import { useStore } from "@/store";
  */
 export function ApprovalBar() {
   const { lang, approvals, decideApproval } = useStore();
+  const [now, setNow] = useState(Date.now());
+
+  // A blocked run is burning wall-clock time; show it.
+  useEffect(() => {
+    if (approvals.length === 0) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [approvals.length]);
+
   if (approvals.length === 0) return null;
 
   return (
@@ -27,6 +37,9 @@ export function ApprovalBar() {
           <div className="min-w-0 flex-1">
             <div className="text-[11.5px] text-amber-200/90">
               {tr(lang, "needsApproval")} · <span className="font-mono">{approval.tool}</span> — {approval.reason}
+              <span className="ml-1.5 text-[10px] text-muted-foreground">
+                {tr(lang, "waited")} {Math.max(0, Math.round((now - approval.createdAt) / 1000))}s
+              </span>
             </div>
             <pre className="mt-0.5 max-h-16 overflow-hidden font-mono text-[10.5px] whitespace-pre-wrap text-muted-foreground">
               {approval.summary.slice(0, 240)}

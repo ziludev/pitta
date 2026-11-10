@@ -305,8 +305,10 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         const page = await conversation.entries({ order: "descending" }, limit, undefined, context);
         const newestFirst = [...page.items].reverse();
         const agent = await conversation.agent(context).catch(() => undefined);
+        const waits = await runtime.approvalWaits(conversation.id as unknown as number).catch(() => []);
         return send(res, 200, {
           conversationId: conversation.id as unknown as number,
+          approvalWaits: waits,
           model: agent?.model ?? null,
           thinkingLevel: agent?.thinkingLevel ?? null,
           entries: newestFirst.map((entry) => ({

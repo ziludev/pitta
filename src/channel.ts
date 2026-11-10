@@ -22,6 +22,8 @@ export async function notify(surfaceId: string, text: string): Promise<void> {
 export type ApprovalRequest = {
   /** Tool call id; unique per call and used as the durable memo key. */
   callId: string;
+  /** Conversation the blocked call belongs to, so the wait can be charted on its turn. */
+  conversationId: number;
   tool: string;
   /** One-line summary of what the model is about to do. */
   summary: string;

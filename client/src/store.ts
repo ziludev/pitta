@@ -77,6 +77,8 @@ type State = {
   /** Recent client-side failures, newest last (the log file is not visible in-app). */
   errors: Array<{ at: string; message: string }>;
   git?: GitInfo;
+  /** Approval waits inside the open conversation, for the turn phase bar. */
+  approvalWaits: Array<{ start: number; end: number; tool: string }>;
   commitDiffs: Record<string, string>;
   /** Text pushed into the composer by "edit and resend". */
   composerDraft: string | null;
@@ -207,6 +209,7 @@ export const useStore = create<State>((set, get) => ({
   convMatches: [],
   errors: [],
   commitDiffs: {},
+  approvalWaits: [],
   composerDraft: null,
   favorites: JSON.parse(localStorage.getItem("agent.favoriteModels") ?? "[]") as string[],
   recents: JSON.parse(localStorage.getItem("agent.recentModels") ?? "[]") as string[],
@@ -287,10 +290,18 @@ export const useStore = create<State>((set, get) => ({
     set({ current: conversationId, connection: "connecting", entries: [], live: undefined });
     const projectId = get().surfaces.find((surface) => surface.conversationId === conversationId)?.projectId;
     if (projectId !== undefined && projectId !== get().currentProject) get().setProject(projectId);
-    const data = await api<{ entries: Entry[]; model?: ModelRef; thinkingLevel?: string }>(
-      `/api/conversation?id=${conversationId}&limit=200`,
-    );
-    set({ entries: data.entries, model: data.model, thinkingLevel: data.thinkingLevel ?? undefined });
+    const data = await api<{
+      entries: Entry[];
+      model?: ModelRef;
+      thinkingLevel?: string;
+      approvalWaits?: Array<{ start: number; end: number; tool: string }>;
+    }>(`/api/conversation?id=${conversationId}&limit=200`);
+    set({
+      entries: data.entries,
+      model: data.model,
+      thinkingLevel: data.thinkingLevel ?? undefined,
+      approvalWaits: data.approvalWaits ?? [],
+    });
 
     socket = new WebSocket(wsURL(conversationId));
     socket.onopen = () => set({ connection: "open" });

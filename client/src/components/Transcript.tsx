@@ -64,7 +64,10 @@ function timestampOf(entry: Entry): number | undefined {
 }
 
 /** Groups the transcript into turns: user message → machinery → answer. */
-function groupTurns(entries: Entry[]): Turn[] {
+function groupTurns(
+  entries: Entry[],
+  waits: Array<{ start: number; end: number }> = [],
+): Turn[] {
   const turns: Turn[] = [];
   let current: Turn | undefined;
 
@@ -80,7 +83,7 @@ function groupTurns(entries: Entry[]): Turn[] {
         reports: entry.kind === "app.feature-report" ? [entry] : [],
         internals: [],
         steps: [],
-        stats: { tools: 0, files: 0, added: 0, removed: 0, phases: { think: 0, tool: 0, error: 0 } },
+        stats: { tools: 0, files: 0, added: 0, removed: 0, phases: { think: 0, tool: 0, error: 0, wait: 0 } },
       };
       turns.push(current);
       continue;
@@ -107,7 +110,7 @@ function groupTurns(entries: Entry[]): Turn[] {
     }
 
     const steps: Step[] = [];
-    const phases = { think: 0, tool: 0, error: 0 };
+    const phases = { think: 0, tool: 0, error: 0, wait: 0 };
     for (const [index, entry] of timeline.entries()) {
       const parts = partsOf(entry.model);
       const call = parts.find((part) => part["type"] === "toolCall");
@@ -168,6 +171,16 @@ function groupTurns(entries: Entry[]): Turn[] {
             removed += stats.removed;
           }
         }
+      }
+    }
+
+    // Approval time inside this turn: a run that waited on a human should say so.
+    const turnStart = timestamps.at(0);
+    const turnEnd = timestamps.at(-1);
+    if (turnStart !== undefined && turnEnd !== undefined) {
+      for (const wait of waits) {
+        const overlap = Math.min(turnEnd, wait.end) - Math.max(turnStart, wait.start);
+        if (overlap > 0) phases.wait += overlap;
       }
     }
 
@@ -308,7 +321,7 @@ function LiveBlock() {
 }
 
 export function Transcript() {
-  const { entries, focusEntry, lang, convQuery, setConvMatches, submit } = useStore();
+  const { entries, focusEntry, lang, convQuery, setConvMatches, submit, approvalWaits } = useStore();
   const boxRef = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
   const [unseen, setUnseen] = useState(0);
@@ -316,7 +329,7 @@ export function Transcript() {
   /** Entry id of the newest answer we already notified about. */
   const notified = useRef<number | undefined>(undefined);
   const seenCount = useRef(0);
-  const turns = useMemo(() => groupTurns(entries), [entries]);
+  const turns = useMemo(() => groupTurns(entries, approvalWaits), [entries, approvalWaits]);
 
   // In-conversation search: matches are cheap here, the whole window is in memory.
   useEffect(() => {

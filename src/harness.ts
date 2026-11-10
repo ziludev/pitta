@@ -29,6 +29,7 @@ import { connectMcp, type McpRuntime } from "./mcp.ts";
 import { personalExtension } from "./personal.ts";
 import { checkBudget, type BudgetCheck } from "./budget.ts";
 import { rememberSurface } from "./channel.ts";
+import { setWaitRecorder } from "./approvals.ts";
 import { log } from "./log.ts";
 import { acquireStorageLock } from "./storage-lock.ts";
 import { ensureRepo } from "./changes.ts";
@@ -55,6 +56,17 @@ import { config } from "./config.ts";
 export const context = BACKGROUND_CONTEXT;
 
 /** chat surface id (Feishu chat_id, "cli", ...) -> conversation id. Session-scoped, so it survives restarts. */
+/** How long each approval made a run wait, so the turn timeline can show it. */
+export const ApprovalWaits = defineDoc<{
+  waits: Array<{ conversationId: number; tool: string; start: number; end: number }>;
+}>({
+  kind: "app.approval-waits",
+  version: 1,
+  scope: "session",
+  initial: () => ({ waits: [] }),
+  checkpointWhen: () => false,
+});
+
 /** Host default model, so "设为默认" survives restarts without editing .env. */
 export const DefaultModel = defineDoc<{ provider: string; modelId: string; thinkingLevel?: string }>({
   kind: "app.default-model",
@@ -118,6 +130,7 @@ export type AgentRuntime = {
     model: { provider: string; modelId: string; thinkingLevel?: string },
   ): Promise<void>;
   usageCalendar(days: number): Promise<Array<{ date: string; cost: number; tokens: number }>>;
+  approvalWaits(conversationId: number): Promise<Array<{ start: number; end: number; tool: string }>>;
   curateMemory(hours?: number): Promise<import("./curator.ts").CurateResult>;
   applyMemorySuggestions(
     accepted: import("./curator.ts").Suggestion[],
@@ -178,6 +191,18 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   );
   harness.resume();
   setHarnessRef(harness);
+
+  // An approval blocks a run; those seconds belong to the turn, not to nowhere.
+  setWaitRecorder((wait) => {
+    if (wait.conversationId === undefined) return;
+    void harness
+      .commit(async (tx) => {
+        const doc = await tx.doc(ApprovalWaits);
+        doc.waits.push({ conversationId: wait.conversationId!, tool: wait.tool, start: wait.start, end: wait.end });
+        if (doc.waits.length > 200) doc.waits.splice(0, doc.waits.length - 200);
+      }, context)
+      .catch(() => {});
+  });
 
   // Keep one sampler alive: it turns cumulative usage into per-day history.
   const root = await harness.root(context);
@@ -475,6 +500,13 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
       ),
     curateMemory: (hours) => curateMemory(harness, models, context, { hours }),
     applyMemorySuggestions: (accepted) => applySuggestions(harness, context, accepted),
+    approvalWaits: async (conversationId) => {
+      const doc = await harness.snapshot(ApprovalWaits, context);
+      return (doc?.waits ?? [])
+        .filter((wait) => wait.conversationId === conversationId)
+        .slice(-50)
+        .map((wait) => ({ start: wait.start, end: wait.end, tool: wait.tool }));
+    },
     usageCalendar: async (days) => {
       // Sample first: the background sampler only runs every 10 minutes.
       await sampleUsage(harness, context).catch(() => {});
