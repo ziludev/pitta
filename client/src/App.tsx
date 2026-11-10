@@ -4,6 +4,7 @@ import { SquarePen, Square } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
+import { ApprovalBar } from "@/components/ApprovalBar";
 import { Composer } from "@/components/Composer";
 import { ModelPicker } from "@/components/ModelPicker";
 import { Rail } from "@/components/Rail";
@@ -11,6 +12,7 @@ import { SidePanel } from "@/components/SidePanel";
 import { Transcript } from "@/components/Transcript";
 import { FileViewer } from "@/components/FileViewer";
 import { tr } from "@/i18n";
+import { MotionConfig } from "motion/react";
 import { ThemeProvider } from "next-themes";
 import { useStore } from "@/store";
 
@@ -31,7 +33,8 @@ export function App() {
   const surface = surfaces.find((item) => item.conversationId === current);
 
   return (
-    <ThemeProvider
+    <MotionConfig reducedMotion="user">
+      <ThemeProvider
       attribute="class"
       defaultTheme="system"
       enableSystem
@@ -73,6 +76,7 @@ export function App() {
               ) : (
                 <>
                   <Transcript />
+                  <ApprovalBar />
                   <Composer />
                 </>
               )}
@@ -87,7 +91,8 @@ export function App() {
         {/* #056: the toast lives 3.2s; its time bar drains over the spec's 1.8s. */}
         <Toaster position="bottom-left" duration={3200} visibleToasts={3} gap={8} />
       </div>
-    </TooltipProvider>
-    </ThemeProvider>
+      </TooltipProvider>
+      </ThemeProvider>
+    </MotionConfig>
   );
 }

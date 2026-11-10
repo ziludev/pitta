@@ -95,6 +95,8 @@ export function Rail() {
     busy,
     home,
     filter,
+    onlyFeishu,
+    toggleOnlyFeishu,
     select,
     setOrder,
     togglePin,
@@ -104,16 +106,12 @@ export function Rail() {
   } = useStore();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
-  const visible = filter.trim().length === 0
-    ? surfaces
-    : surfaces.filter((surface) => {
-        const needle = filter.trim().toLowerCase();
-        return (
-          surface.surfaceId.toLowerCase().includes(needle) ||
-          String(surface.conversationId).includes(needle)
-        );
-      });
-
+  // Test conversations (cli, remtest, …) have no chat id; they clutter the rail.
+  const visible = (onlyFeishu ? surfaces.filter((surface) => surface.surfaceId.startsWith("oc_")) : surfaces).filter((surface) => {
+    if (filter.trim().length === 0) return true;
+    const needle = filter.trim().toLowerCase();
+    return surface.surfaceId.toLowerCase().includes(needle) || String(surface.conversationId).includes(needle);
+  });
   const sorted = [...visible].sort((a, b) => {
     const ap = pinned.indexOf(a.conversationId);
     const bp = pinned.indexOf(b.conversationId);
@@ -180,8 +178,16 @@ export function Rail() {
         </div>
       </div>
 
-      <div className="px-2.5 pt-3 pb-1 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
-        {tr(lang, "sessions")}
+      <div className="flex items-center justify-between px-2.5 pt-3 pb-1">
+        <span className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+          {tr(lang, "sessions")}
+        </span>
+        <button
+          onClick={toggleOnlyFeishu}
+          className={`text-[10px] ${onlyFeishu ? "text-primary" : "text-muted-foreground/60 hover:text-foreground"}`}
+        >
+          {tr(lang, "hideTests")}
+        </button>
       </div>
       <SearchBox />
       <ScrollArea className="min-h-0 flex-1 px-1.5">

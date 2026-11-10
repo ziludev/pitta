@@ -7,6 +7,7 @@ import { log, logError } from "./log.ts";
 import { config } from "./config.ts";
 import { collectChanges, commitChanges, ensureRepo } from "./changes.ts";
 import { mergeWorktree } from "./worktree.ts";
+import { listApprovals, resolveApproval } from "./approvals.ts";
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import { ChatMemory, GlobalMemory, WorkMemory } from "./memory.ts";
@@ -103,7 +104,11 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
 
   const resolveConversation = async (id: number | undefined): Promise<Conversation | undefined> => {
     if (id === undefined) return undefined;
-    return runtime.harness.conversation(id as never, context);
+    const conversation = await runtime.harness.conversation(id as never, context);
+    // A client submission must still resolve its surface, or an approval raised by
+    // that run would have nowhere to go.
+    if (conversation !== undefined) await runtime.attachSurface(id).catch(() => {});
+    return conversation;
   };
 
   /** The directory a conversation works in: its worktree, or the shared workspace. */
@@ -354,6 +359,19 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
           : [];
         const result = await runtime.applyMemorySuggestions(accepted);
         return send(res, 200, result);
+      }
+
+      if (req.method === "GET" && path === "/api/approvals") {
+        return send(res, 200, { approvals: listApprovals() });
+      }
+
+      if (req.method === "POST" && path === "/api/approvals") {
+        const body = await readJson(req);
+        const callId = typeof body["callId"] === "string" ? body["callId"] : "";
+        const approved = body["approved"] === true;
+        if (callId.length === 0) return send(res, 400, { error: "callId required" });
+        const handled = resolveApproval(callId, approved, "client");
+        return send(res, handled ? 200 : 404, { ok: handled });
       }
 
       if (req.method === "GET" && path === "/api/tasks") {

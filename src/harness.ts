@@ -60,6 +60,8 @@ export const ChatsToken = defineDoc<{ chats: Record<string, number> }>({
 export type AgentRuntime = {
   harness: Harness;
   conversationFor(surfaceId: string): Promise<Conversation>;
+  /** Maps a conversation back to its surface, so approvals and reminders can route. */
+  attachSurface(conversationId: number): Promise<void>;
   /** Reply/thread conversation: forked at the answered message, or the chat itself. */
   conversationForThread(
     surfaceId: string,
@@ -205,6 +207,13 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     return created;
   }
 
+  async function attachSurface(conversationId: number): Promise<void> {
+    const mapping = await harness.snapshot(ChatsToken, context).catch(() => undefined);
+    for (const [surfaceId, id] of Object.entries(mapping?.chats ?? {})) {
+      if ((id as unknown as number) === conversationId) rememberSurface(conversationId, surfaceId);
+    }
+  }
+
   async function conversationForThread(
     surfaceId: string,
     options: { threadKey?: string; parentMessageId?: string },
@@ -313,6 +322,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   return {
     harness,
     conversationFor,
+    attachSurface,
     conversationForThread,
     recordMessage: recordMessageFor,
     turnSteps,

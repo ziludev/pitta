@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "motion/react";
-import { Brain, Check, ChevronRight, Clock, FileDiff, Layers, Wrench } from "lucide-react";
+import { Brain, Check, ChevronRight, Clock, Coins, FileDiff, Layers, Wrench } from "lucide-react";
 import { cn } from "cn";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { accordion, easeInOutCubic } from "@/lib/motion";
@@ -145,7 +145,15 @@ export function StepRail({ turn }: { turn: Turn }) {
   );
 }
 
-export type TurnStats = { tools: number; files: number; added: number; removed: number; ms?: number };
+export type TurnStats = {
+  tools: number;
+  files: number;
+  added: number;
+  removed: number;
+  ms?: number;
+  /** Spend of this turn, summed from the assistant messages' usage. */
+  cost?: number;
+};
 
 /** The batch divider: what a finished turn amounted to. */
 export function TurnDivider({ stats }: { stats: TurnStats }) {
@@ -156,6 +164,9 @@ export function TurnDivider({ stats }: { stats: TurnStats }) {
       ? { icon: FileDiff, text: `${stats.files} ${tr(lang, "filesChanged")} · +${stats.added} −${stats.removed}` }
       : undefined,
     stats.ms !== undefined && stats.ms > 1000 ? { icon: Clock, text: formatMs(stats.ms) } : undefined,
+    stats.cost !== undefined && stats.cost > 0.00005
+      ? { icon: Coins, text: `$${stats.cost.toFixed(4)}` }
+      : undefined,
   ].filter((piece) => piece !== undefined);
 
   if (pieces.length === 0) return null;

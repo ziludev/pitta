@@ -12,7 +12,14 @@ import {
   type Task,
 } from "@/lib/api";
 import { initialLang, type Lang } from "@/i18n";
-import type { MemorySuggestion, MergeResult, ModelEntry, ModelRef, UsageDay } from "@/lib/api";
+import type {
+  MemorySuggestion,
+  MergeResult,
+  ModelEntry,
+  ModelRef,
+  PendingApproval,
+  UsageDay,
+} from "@/lib/api";
 
 export type LiveDoc = {
   run?: unknown;
@@ -51,8 +58,10 @@ type State = {
   recents: string[];
   usageDays: UsageDay[];
   memoryQuery: string;
+  onlyFeishu: boolean;
   memorySuggestions: MemorySuggestion[];
   curating: boolean;
+  approvals: PendingApproval[];
 
   init(): Promise<void>;
   select(conversationId: number): Promise<void>;
@@ -86,9 +95,12 @@ type State = {
   setModel(input: { provider: string; modelId: string; thinkingLevel?: string }): Promise<void>;
   loadUsage(): Promise<void>;
   setMemoryQuery(query: string): void;
+  toggleOnlyFeishu(): void;
   curateMemory(hours?: number): Promise<{ scanned: number; suggested: number }>;
   applySuggestions(accepted: MemorySuggestion[]): Promise<{ added: number; skipped: number }>;
   clearSuggestions(): void;
+  loadApprovals(): Promise<void>;
+  decideApproval(callId: string, approved: boolean): Promise<void>;
 };
 
 let socket: WebSocket | undefined;
@@ -138,8 +150,10 @@ export const useStore = create<State>((set, get) => ({
   models: [],
   usageDays: [],
   memoryQuery: "",
+  onlyFeishu: localStorage.getItem("agent.onlyFeishu") === "1",
   memorySuggestions: [],
   curating: false,
+  approvals: [],
   favorites: JSON.parse(localStorage.getItem("agent.favoriteModels") ?? "[]") as string[],
   recents: JSON.parse(localStorage.getItem("agent.recentModels") ?? "[]") as string[],
 
@@ -172,7 +186,18 @@ export const useStore = create<State>((set, get) => ({
           .loadChanges()
           .catch(() => {});
       }
+      // Approvals block a run until someone answers, so poll faster than the rest.
+      void get()
+        .loadApprovals()
+        .catch(() => {});
     }, 15_000);
+
+    void get().loadApprovals().catch(() => {});
+    setInterval(() => {
+      void get()
+        .loadApprovals()
+        .catch(() => {});
+    }, 5_000);
   },
 
   async refreshSurfaces() {
@@ -390,6 +415,12 @@ export const useStore = create<State>((set, get) => ({
     set({ memoryQuery: query });
   },
 
+  toggleOnlyFeishu() {
+    const next = !get().onlyFeishu;
+    localStorage.setItem("agent.onlyFeishu", next ? "1" : "0");
+    set({ onlyFeishu: next });
+  },
+
   async curateMemory(hours = 24) {
     set({ curating: true });
     try {
@@ -416,6 +447,20 @@ export const useStore = create<State>((set, get) => ({
 
   clearSuggestions() {
     set({ memorySuggestions: [] });
+  },
+
+  async loadApprovals() {
+    const result = await api<{ approvals: PendingApproval[] }>("/api/approvals");
+    const known = new Set(get().approvals.map((entry) => entry.callId));
+    const fresh = result.approvals.some((entry) => !known.has(entry.callId));
+    set({ approvals: result.approvals });
+    // A new approval should surface even if the user is reading history.
+    if (fresh) set({ focusApprovalAt: Date.now() } as never);
+  },
+
+  async decideApproval(callId, approved) {
+    await api("/api/approvals", { method: "POST", body: JSON.stringify({ callId, approved }) });
+    set({ approvals: get().approvals.filter((entry) => entry.callId !== callId) });
   },
 
   /** Anchored comments go to the agent as one review message, like a PR review. */

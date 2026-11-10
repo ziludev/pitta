@@ -68,6 +68,16 @@ function groupTurns(entries: Entry[]): Turn[] {
     let added = 0;
     let removed = 0;
     let tools = 0;
+    let cost = 0;
+
+    // pi records usage on every assistant message; the turn's spend is their sum.
+    for (const entry of [...turn.internals, ...turn.finals]) {
+      const messages = Array.isArray(entry.model) ? (entry.model as unknown as Array<Record<string, unknown>>) : [];
+      for (const message of messages) {
+        const usage = message["usage"] as { cost?: { total?: number } } | undefined;
+        cost += usage?.cost?.total ?? 0;
+      }
+    }
 
     for (const entry of turn.internals) {
       for (const part of partsOf(entry.model)) {
@@ -92,6 +102,7 @@ function groupTurns(entries: Entry[]): Turn[] {
       files: paths.size,
       added,
       removed,
+      cost,
       ms: timestamps.length >= 2 ? timestamps[timestamps.length - 1]! - timestamps[0]! : undefined,
     };
   }
@@ -171,33 +182,59 @@ function LiveBlock() {
 }
 
 export function Transcript() {
-  const { entries, focusEntry } = useStore();
+  const { entries, focusEntry, lang } = useStore();
   const boxRef = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
-  const focused = useRef(false);
+  const [unseen, setUnseen] = useState(0);
+  const lastFocus = useRef<number | undefined>(undefined);
+  const seenCount = useRef(0);
   const turns = useMemo(() => groupTurns(entries), [entries]);
 
   useEffect(() => {
     const box = boxRef.current;
-    if (box !== null && stick) box.scrollTop = box.scrollHeight;
-  }, [turns, stick]);
+    const grew = entries.length - seenCount.current;
+    seenCount.current = entries.length;
+    if (grew <= 0) return;
+    if (stick) box !== null && (box.scrollTop = box.scrollHeight);
+    else setUnseen((count) => count + grew);
+  }, [entries, stick]);
 
-  // ?entry=<id> deep links: jump once and stop following the tail.
+  // ?entry=<id> and search hits: jump every time the target changes, not only once.
   useEffect(() => {
-    if (focused.current || focusEntry === undefined) return;
+    if (focusEntry === undefined || lastFocus.current === focusEntry) return;
     const node = boxRef.current?.querySelector<HTMLElement>(`[data-entry="${focusEntry}"]`);
     if (node === undefined || node === null) return;
-    focused.current = true;
+    lastFocus.current = focusEntry;
     setStick(false);
+    setUnseen(0);
     node.scrollIntoView({ block: "start" });
+    node.classList.add("ring-1", "ring-primary/40", "rounded-lg");
+    const timer = setTimeout(() => node.classList.remove("ring-1", "ring-primary/40", "rounded-lg"), 1500);
+    return () => clearTimeout(timer);
   }, [turns, focusEntry]);
 
   return (
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      {unseen > 0 ? (
+        <button
+          onClick={() => {
+            const box = boxRef.current;
+            if (box !== null) box.scrollTop = box.scrollHeight;
+            setStick(true);
+            setUnseen(0);
+          }}
+          className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full border border-primary/40 bg-background/95 px-3 py-1 text-[11px] text-primary shadow-lg backdrop-blur"
+        >
+          ↓ {unseen} {tr(lang, "newMessages")}
+        </button>
+      ) : null}
     <div
       ref={boxRef}
       onScroll={(event) => {
         const box = event.currentTarget;
-        setStick(box.scrollHeight - box.scrollTop - box.clientHeight < 80);
+        const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+        setStick(atBottom);
+        if (atBottom) setUnseen(0);
       }}
       className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4"
     >
@@ -219,6 +256,7 @@ export function Transcript() {
         ))}
         <LiveBlock />
       </div>
+    </div>
     </div>
   );
 }

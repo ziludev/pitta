@@ -11,6 +11,7 @@ import { transcribeAudio } from "./asr.ts";
 import { attachSubmission, clearCardPending, leftoverCards, markCardPending } from "./cards.ts";
 import { readTurnDetails, saveTurnDetails, type TurnDetails } from "./details.ts";
 import { allowChat, extraChats } from "./allowed.ts";
+import { dropApproval, registerApproval, resolveApproval } from "./approvals.ts";
 import { guestChatIds, markGuestChat, setGuestPolicy } from "./guest.ts";
 
 type IncomingMessage = {
@@ -226,6 +227,10 @@ function rejectionReason(
   return undefined;
 }
 
+function dropApprovalIfPresent(map: Map<string, unknown>, key: string): boolean {
+  return map.delete(key);
+}
+
 type PendingApproval = {
   resolve: (approved: boolean) => void;
   timer: NodeJS.Timeout;
@@ -375,26 +380,58 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     await sendText(surfaceId, text);
   });
   setApprovalDecider(async (request) => {
-    if (request.surfaceId.length === 0) return false;
-    const sent = await client.im.message.create({
-      params: { receive_id_type: "chat_id" },
-      data: {
-        receive_id: request.surfaceId,
-        msg_type: "interactive",
-        content: JSON.stringify(approvalCard(request)),
-      },
-    });
+    const sent = request.surfaceId.startsWith("oc_")
+      ? await client.im.message
+          .create({
+            params: { receive_id_type: "chat_id" },
+            data: {
+              receive_id: request.surfaceId,
+              msg_type: "interactive",
+              content: JSON.stringify(approvalCard(request)),
+            },
+          })
+          // A surface that is not a Feishu chat (cli, client) gets no card: the
+          // approval still shows up in the registry for the client to answer.
+          .catch((error) => {
+            logError("feishu", "could not send approval card", error);
+            return undefined;
+          })
+      : undefined;
     const cardId = sent?.data?.message_id;
     log("feishu", "approval card sent", { cardId, callId: request.callId.slice(-12), tool: request.tool });
     return new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => {
-        pendingApprovals.delete(request.callId);
-        if (cardId !== undefined) {
-          void patchCard(cardId, `⏹️ 超时未确认，已拒绝：${request.tool}`).catch(() => {});
+        if (dropApprovalIfPresent(pendingApprovals, request.callId)) {
+          if (cardId !== undefined) {
+            void patchCard(cardId, `⏹️ 超时未确认，已拒绝：${request.tool}`).catch(() => {});
+          }
+          resolve(false);
         }
-        resolve(false);
       }, request.timeoutMs);
       pendingApprovals.set(request.callId, { resolve, timer, chatId: request.surfaceId });
+      // The desktop client sees the same request and may answer it first.
+      registerApproval({
+        callId: request.callId,
+        tool: request.tool,
+        summary: request.summary,
+        reason: request.reason,
+        surfaceId: request.surfaceId,
+        resolve: (approved) => {
+          const entry = pendingApprovals.get(request.callId);
+          if (entry !== undefined) {
+            pendingApprovals.delete(request.callId);
+            clearTimeout(entry.timer);
+          }
+          if (cardId !== undefined) {
+            void patchCard(
+              cardId,
+              approved ? "✅ 已允许（客户端确认），继续执行" : "🛑 已拒绝（客户端）",
+              "桌面客户端",
+            ).catch(() => {});
+          }
+          resolve(approved);
+        },
+      });
     });
   });
 
@@ -444,7 +481,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     pendingApprovals.delete(callId);
     clearTimeout(entry.timer);
     const approved = value["ok"] === true;
-    entry.resolve(approved);
+    // Route through the registry so the client's pending list clears too.
+    const handled = resolveApproval(callId, approved, `feishu:${operator.slice(-6)}`);
+    if (!handled) entry.resolve(approved);
     const text = approved ? "✅ 已允许，继续执行" : "🛑 已拒绝";
     const meta = `由 ${operator.slice(-6)} 确认`;
     const messageId = payload.context?.open_message_id;
