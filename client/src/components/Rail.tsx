@@ -55,6 +55,19 @@ const TASK_DOT: Record<string, string> = {
   faulted: "bg-rose-500",
 };
 
+/** "13:20" today, "明天 09:00" tomorrow, "12-01 09:00" further out. */
+function formatWhen(lang: "zh" | "en", until: number): string {
+  const at = new Date(until);
+  const now = new Date();
+  const time = at.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  if (until - now.getTime() < 60_000) return lang === "zh" ? "即将" : "soon";
+  const sameDay = at.toDateString() === now.toDateString();
+  if (sameDay) return time;
+  const tomorrow = new Date(now.getTime() + 86_400_000);
+  if (at.toDateString() === tomorrow.toDateString()) return lang === "zh" ? `明天 ${time}` : `tomorrow ${time}`;
+  return `${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")} ${time}`;
+}
+
 function taskLabel(lang: "zh" | "en", kind: string): string {
   return TASK_LABELS[kind]?.[lang] ?? kind;
 }
@@ -337,8 +350,14 @@ export function Rail() {
                 }`}
                 title={taskState(lang, task.state)}
               />
-              <span className="min-w-0 flex-1 truncate">{taskLabel(lang, task.kind)}</span>
-              <span className="shrink-0 text-[10px] text-muted-foreground/70">{taskState(lang, task.state)}</span>
+              <span className="min-w-0 flex-1 truncate" title={taskLabel(lang, task.kind)}>
+                {task.title ?? taskLabel(lang, task.kind)}
+              </span>
+              <span className="shrink-0 text-[10px] text-muted-foreground/70">
+                {task.until !== undefined && task.state === "sleeping"
+                  ? formatWhen(lang, task.until)
+                  : taskState(lang, task.state)}
+              </span>
             </div>
           ))
         )}

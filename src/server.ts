@@ -51,6 +51,14 @@ function send(res: ServerResponse, status: number, body: unknown): void {
   res.end(payload);
 }
 
+/** A line of text that says what a background task is about, when it has one. */
+function taskTitle(kind: string, input: unknown): string | undefined {
+  const value = input as { text?: string; spec?: string } | undefined;
+  if (kind === "app.reminder" && typeof value?.text === "string") return value.text;
+  if (kind === "app.feature" && typeof value?.spec === "string") return value.spec.replace(/\s+/g, " ").slice(0, 60);
+  return undefined;
+}
+
 /** Plain text of one entry's messages, for search snippets. */
 function entryText(model: unknown): string {
   const messages = Array.isArray(model) ? (model as Array<Record<string, unknown>>) : [];
@@ -182,6 +190,9 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
             conversationId: task.record.conversationId,
             background: task.record.background === true,
             state: (task.state as unknown as { kind?: string }).kind ?? "?",
+            // Sleeping tasks know when they wake; reminders carry their own text.
+            until: (task.state as unknown as { until?: number }).until,
+            title: taskTitle(task.record.kind, task.record.input),
           })),
           usage,
         });
@@ -472,6 +483,8 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
             conversationId: task.record.conversationId,
             owner: task.record.owner ?? null,
             state: (task.state as unknown as { kind?: string }).kind ?? "?",
+            until: (task.state as unknown as { until?: number }).until,
+            title: taskTitle(task.record.kind, task.record.input),
           })),
         });
       }

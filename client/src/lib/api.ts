@@ -11,7 +11,17 @@ export type Surface = {
   archived?: boolean;
   projectId?: string;
 };
-export type Task = { id: number; kind: string; conversationId: number; background: boolean; state: string };
+export type Task = {
+  id: number;
+  kind: string;
+  conversationId: number;
+  background: boolean;
+  state: string;
+  /** Epoch ms the task wakes up, for sleeping tasks. */
+  until?: number;
+  /** One line saying what the task is about (reminder text, feature spec). */
+  title?: string;
+};
 export type Entry = { id: number; kind: string; model: unknown; data: unknown };
 export type Note = { at: string; text: string };
 export type FileChange = { path: string; status: string; added: number; removed: number };
