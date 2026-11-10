@@ -677,7 +677,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       console.log(`[feishu] guest chat rejected sender ${senderId}`);
     }
     if (reason === "chat-not-allowed" && isOwner) {
-      console.log(`[feishu] unknown chat ${message.chat_id}, asking owner to authorize`);
+      // Log the text: if /allow did not match, seeing what arrived is the whole diagnosis.
+      console.log(
+        `[feishu] unknown chat ${message.chat_id}, asking owner to authorize text=${JSON.stringify(text.slice(0, 40))} type=${message.message_type}`,
+      );
       await sendText(
         message.chat_id,
         `这个群还没授权（${message.chat_id}）。\n发 /allow 授权本群，或把它加进 .env 的 FEISHU_ALLOWED_CHAT_IDS。`,
@@ -694,7 +697,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     console.log(
       `[feishu] accepted ${summary} msg=${message.message_id} type=${message.message_type} images=${
         parsed.imageKeys.length
-      } text=${JSON.stringify(text.slice(0, 60))}`,
+      } thread=${message.thread_id ?? "-"} root=${message.root_id ?? "-"} parent=${message.parent_id ?? "-"} text=${JSON.stringify(
+        text.slice(0, 60),
+      )}`,
     );
     if (handled.has(message.message_id)) {
       console.log(`[feishu] duplicate delivery msg=${message.message_id}, ignored`);
@@ -888,10 +893,16 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       clearTimeout(watchdog);
       await watcher.stop();
       if (settled.entry !== undefined) {
-        // Remember where this message landed so a later reply can fork at it.
+        // Remember where this message landed so a later reply can fork at it. The card is
+        // indexed too: people reply to the answer, not to their own question, and a thread
+        // rooted at the answer is what has to become its own conversation.
+        const entryId = settled.entry as unknown as number;
         await runtime
-          .recordMessage(message.message_id, conversation, settled.entry as unknown as number)
+          .recordMessage(message.message_id, conversation, entryId)
           .catch((error) => logError("feishu", "could not index message", error));
+        await runtime
+          .recordMessage(cardId, conversation, entryId)
+          .catch((error) => logError("feishu", "could not index answer card", error));
       }
 
       if (settled.status === "done" && settled.answer !== undefined) {

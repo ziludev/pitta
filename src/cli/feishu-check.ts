@@ -96,6 +96,20 @@ export async function checkFeishu(appId: string, appSecret: string): Promise<Che
       : { ok: false, level: "bad", label: `缺权限：${missingScopes.join(", ")}`, hint: "权限管理 → 开通后重新发布" },
   );
 
+  // Without this one the app only ever sees group messages that @ it, so a topic reply
+  // typed without a mention never reaches us — indistinguishable from a broken bot.
+  const seesAllGroupMessages = scopes.includes("im:message.group_msg");
+  checks.push(
+    seesAllGroupMessages
+      ? { ok: true, level: "ok", label: "能收到群里所有消息（不 @ 也算）" }
+      : {
+          ok: false,
+          level: "warn",
+          label: "只收群里 @ 我的消息，话题里不 @ 的话不会回复",
+          hint: `开通 im:message.group_msg 后重新发布：https://open.feishu.cn/app/${appId}/auth?q=im:message.group_msg`,
+        },
+  );
+
   const chats = await client.im.chat.list({ params: { page_size: 5 } }).catch(() => undefined);
   const items = ((chats?.data as { items?: unknown[] } | undefined)?.items ?? []).length;
   checks.push(
