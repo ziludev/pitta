@@ -17,6 +17,30 @@ export const AllowedChats = defineDoc<{ extra: string[] }>({
 });
 
 /**
+ * Senders the owner let in from Feishu (`app.allowed-senders`). A colleague's open_id is
+ * only learnable when they write, so the allowlist cannot be a .env edit alone.
+ */
+export const AllowedSenders = defineDoc<{ ids: string[] }>({
+  kind: "app.allowed-senders",
+  version: 1,
+  scope: "session",
+  initial: () => ({ ids: [] }),
+  checkpointWhen: () => false,
+});
+
+export async function extraSenders(harness: Harness, context: Context): Promise<string[]> {
+  return (await harness.snapshot(AllowedSenders, context))?.ids ?? [];
+}
+
+export async function allowSender(harness: Harness, context: Context, openId: string): Promise<void> {
+  await harness.commit(async (tx) => {
+    const doc = await tx.doc(AllowedSenders);
+    if (!doc.ids.includes(openId)) doc.ids.push(openId);
+  }, context);
+  log("feishu", "sender authorized from Feishu", { openId });
+}
+
+/**
  * The owner's own p2p chat, learned from the first message they send. Needed to report
  * strangers: their chat id is new to us, so it cannot be the address we send to.
  */
