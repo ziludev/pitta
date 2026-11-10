@@ -15,6 +15,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Spinner } from "@/components/ui/spinner";
 import { CommitDialog } from "@/components/CommitDialog";
 import { Commits } from "@/components/Commits";
+import { TurnDurations } from "@/components/TurnDurations";
 import { UsageCalendar } from "@/components/UsageCalendar";
 import { MergeButton } from "@/components/MergeButton";
 import { DiffView } from "@/lib/diff";
@@ -387,6 +388,7 @@ export function SidePanel() {
               <Commits />
             </TabsContent>
             <TabsContent value="usage" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <TurnDurations />
               <UsageCalendar />
             </TabsContent>
             <TabsContent value="memory" className="flex min-h-0 flex-1 flex-col overflow-hidden">
