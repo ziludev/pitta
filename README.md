@@ -112,6 +112,7 @@ CLI      ─┘
 cp .env.example .env          # 至少填 FEISHU_APP_ID / FEISHU_APP_SECRET
 npm install
 npm run typecheck
+npm test                      # 纯逻辑单测（node --test）
 
 durable doctor                # 本地 + 飞书双侧体检（推荐先跑）
 durable setup                 # 或者交互式写 .env 并立刻体检
@@ -240,6 +241,7 @@ client/            MyGo 桌面 app
 
 ## 已知限制
 
+- 测试覆盖的是纯逻辑（记忆去重、审批注册表、diff 采集、远端链接），不是端到端；`npm test` 秒级
 - Pi Durable 是 **experimental**，1.x 之间 API 会变；升级前先 `npm run typecheck`
 - SQLite 用 `synchronous=NORMAL`：进程崩不丢，掉电可能丢最后一个 commit
 - `bash` 理论上能 `cd` 出工作区；靠 guard hook 兜危险性，不是沙箱
