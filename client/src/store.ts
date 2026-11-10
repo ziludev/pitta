@@ -97,7 +97,12 @@ type State = {
   loadUsage(): Promise<void>;
   setMemoryQuery(query: string): void;
   setSurfaceFilter(filter: "all" | "client" | "feishu"): void;
+  showArchived: boolean;
+  toggleShowArchived(): void;
   newChat(): Promise<number>;
+  renameChat(conversationId: number, title: string): Promise<void>;
+  archiveChat(conversationId: number, archived: boolean): Promise<void>;
+  cleanupWorktree(conversationId: number): Promise<{ status: string; commits?: number }>;
   curateMemory(hours?: number): Promise<{ scanned: number; suggested: number }>;
   applySuggestions(accepted: MemorySuggestion[]): Promise<{ added: number; skipped: number }>;
   clearSuggestions(): void;
@@ -153,6 +158,7 @@ export const useStore = create<State>((set, get) => ({
   usageDays: [],
   memoryQuery: "",
   surfaceFilter: (localStorage.getItem("agent.surfaceFilter") as "all" | "client" | "feishu" | null) ?? "all",
+  showArchived: false,
   memorySuggestions: [],
   curating: false,
   approvals: [],
@@ -420,6 +426,35 @@ export const useStore = create<State>((set, get) => ({
   setSurfaceFilter(filter) {
     localStorage.setItem("agent.surfaceFilter", filter);
     set({ surfaceFilter: filter });
+  },
+
+  toggleShowArchived() {
+    set({ showArchived: !get().showArchived });
+  },
+
+  async renameChat(conversationId, title) {
+    await api("/api/surface-meta", {
+      method: "POST",
+      body: JSON.stringify({ conversationId, title: title.trim().length === 0 ? null : title }),
+    });
+    await get().refreshSurfaces();
+  },
+
+  async archiveChat(conversationId, archived) {
+    await api("/api/surface-meta", {
+      method: "POST",
+      body: JSON.stringify({ conversationId, archived }),
+    });
+    await get().refreshSurfaces();
+  },
+
+  async cleanupWorktree(conversationId) {
+    const result = await api<{ status: string; commits?: number }>("/api/worktree/remove", {
+      method: "POST",
+      body: JSON.stringify({ conversationId }),
+    });
+    await get().loadChanges();
+    return result;
   },
 
   async newChat() {

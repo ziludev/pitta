@@ -92,7 +92,7 @@ bun run build    # 产出 build/darwin-arm64/Agent.app + .dmg
 
 它做的事：
 
-- 左栏：会话列表（**客户端自建会话 / 飞书会话 / cli 测试**，按标题显示并按来源过滤，`+` 新建对话）、运行中的后台任务、agent 状态与 重启/备份/日志 按钮、累计花费
+- 左栏：会话列表（**客户端自建会话 / 飞书会话 / cli 测试**，按标题显示并按来源过滤，`+` 新建对话；每行 `⋯` 可**重命名 / 归档 / 清理工作区**，归档项默认隐藏）、运行中的后台任务、agent 状态与 重启/备份/日志 按钮、累计花费
 - 中间：transcript 流式渲染（用户/助手/工具输出折叠/思考折叠/需求报告），`/new` `/stop`，插话（steer）开关
 - 右栏：两个 tab —— **改动**（工作区 git diff，逐文件折叠、+/- 着色、一键提交、**合并回主线**）和 **记忆**（全局/工作/本对话）
 - **模型选择器（命令面板式，参考 ThinkRail）**：搜索框（名称/provider/id）+ 最近使用 + 收藏（★）+ 按 provider 折叠分组（当前 provider 默认展开）+ 每个模型显示 `provider · 每百万 $in/$out · 上下文`；底部「力度」滑杆调 thinking level，还有「设为默认」（写 durable `app.default-model`，新会话生效）和「刷新」。切换只影响该会话（`configure({model})`）
@@ -104,6 +104,8 @@ bun run build    # 产出 build/darwin-arm64/Agent.app + .dmg
 ```
 GET  /api/state                              会话（含来源 kind 与标题）/任务/花费
 POST /api/conversations                      新建一个客户端会话（分配 worktree，surfaceId = client:xxx）
+POST /api/surface-meta                       重命名 / 归档某个会话（按 conversationId 反查 surface）
+POST /api/worktree/remove                    删除会话的 worktree（有未合并提交会拒绝，force 可强制；之后 cwd 回落到共享 workspace）
 GET  /api/conversation?id=&limit=            历史条目
 WS   /ws?conversationId=                     首帧 view + 之后每次提交的增量
 POST /api/submit | /api/abort | /api/reset

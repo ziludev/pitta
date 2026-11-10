@@ -50,16 +50,38 @@ export async function ensureWorktree(repoRoot: string, conversationId: number): 
   }
 }
 
-/** Removes a worktree directory and its branch (the branch is deleted only when merged). */
-export async function removeWorktree(repoRoot: string, conversationId: number): Promise<void> {
+export type RemoveResult =
+  | { status: "removed"; branch: string }
+  | { status: "unmerged"; branch: string; commits: number }
+  | { status: "absent"; branch: string }
+  | { status: "error"; message: string };
+
+/**
+ * Drops a conversation's checkout. Refuses while the branch still has commits that
+ * are not on the main branch: that work only exists in this worktree.
+ */
+export async function removeWorktree(
+  repoRoot: string,
+  conversationId: number,
+  options: { force?: boolean } = {},
+): Promise<RemoveResult> {
   const target = worktreePaths(repoRoot, conversationId);
   try {
+    if (!existsSync(target.dir)) return { status: "absent", branch: target.branch };
+    const base = (await git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
+    const ahead = Number((await git(repoRoot, ["rev-list", "--count", `${base}..${target.branch}`])).trim()) || 0;
+    if (ahead > 0 && options.force !== true) {
+      log("worktree", "refusing to remove unmerged worktree", { conversationId, branch: target.branch, ahead });
+      return { status: "unmerged", branch: target.branch, commits: ahead };
+    }
     await git(repoRoot, ["worktree", "remove", "--force", target.dir]);
     await git(repoRoot, ["worktree", "prune"]);
-    await git(repoRoot, ["branch", "-D", target.branch]);
-    log("worktree", "removed", { conversationId, branch: target.branch });
+    await git(repoRoot, ["branch", "-D", target.branch]).catch(() => "");
+    log("worktree", "removed", { conversationId, branch: target.branch, discardedCommits: ahead });
+    return { status: "removed", branch: target.branch };
   } catch (error) {
     logError("worktree", `could not remove worktree ${conversationId}`, error);
+    return { status: "error", message: (error as Error).message };
   }
 }
 

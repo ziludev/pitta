@@ -64,6 +64,8 @@ export type AgentRuntime = {
   attachSurface(conversationId: number): Promise<void>;
   /** Creates a fresh conversation for a surface (client "new chat"). */
   newConversation(surfaceId: string): Promise<Conversation>;
+  /** The surface a conversation belongs to, for rename/archive/cleanup by chat id. */
+  surfaceOf(conversationId: number): Promise<string | undefined>;
   /** Reply/thread conversation: forked at the answered message, or the chat itself. */
   conversationForThread(
     surfaceId: string,
@@ -227,6 +229,14 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     return created;
   }
 
+  async function surfaceOf(conversationId: number): Promise<string | undefined> {
+    const mapping = await harness.snapshot(ChatsToken, context).catch(() => undefined);
+    for (const [surfaceId, id] of Object.entries(mapping?.chats ?? {})) {
+      if ((id as unknown as number) === conversationId) return surfaceId;
+    }
+    return undefined;
+  }
+
   async function attachSurface(conversationId: number): Promise<void> {
     const mapping = await harness.snapshot(ChatsToken, context).catch(() => undefined);
     for (const [surfaceId, id] of Object.entries(mapping?.chats ?? {})) {
@@ -344,6 +354,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     conversationFor,
     attachSurface,
     newConversation,
+    surfaceOf,
     conversationForThread,
     recordMessage: recordMessageFor,
     turnSteps,

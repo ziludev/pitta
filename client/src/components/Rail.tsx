@@ -21,6 +21,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SearchBox } from "@/components/SearchBox";
+import { ChatMenu } from "@/components/ChatMenu";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cssEase, easeOutCubic, hoverLift } from "@/lib/motion";
 import { tr } from "@/i18n";
@@ -37,6 +38,7 @@ function SessionRow({
   pinned,
   kind,
   label,
+  archived,
   pinTitle,
   onSelect,
   onTogglePin,
@@ -46,6 +48,7 @@ function SessionRow({
   pinned: boolean;
   kind: string;
   label: string;
+  archived: boolean;
   pinTitle: string;
   onSelect: () => void;
   onTogglePin: () => void;
@@ -85,9 +88,12 @@ function SessionRow({
         ) : kind === "feishu" ? (
           <MessagesSquare className="size-2.5 shrink-0 text-muted-foreground/60" />
         ) : null}
-        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span className={`min-w-0 flex-1 truncate ${archived ? "text-muted-foreground/60 line-through" : ""}`}>
+          {label}
+        </span>
         <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">#{surface.conversationId}</span>
       </button>
+      <ChatMenu conversationId={surface.conversationId} title={label} archived={archived} />
       <button
         onClick={onTogglePin}
         title={pinTitle}
@@ -116,6 +122,8 @@ export function Rail() {
     surfaceFilter,
     setSurfaceFilter,
     newChat,
+    showArchived,
+    toggleShowArchived,
     select,
     setOrder,
     togglePin,
@@ -127,7 +135,8 @@ export function Rail() {
 
   const kindOf = (surface: Surface): string =>
     surface.kind ?? (surface.surfaceId.startsWith("oc_") ? "feishu" : surface.surfaceId.startsWith("client:") ? "client" : "other");
-  const visible = (surfaceFilter === "all" ? surfaces : surfaces.filter((surface) => kindOf(surface) === surfaceFilter)).filter((surface) => {
+  const scoped = surfaceFilter === "all" ? surfaces : surfaces.filter((surface) => kindOf(surface) === surfaceFilter);
+  const visible = (showArchived ? scoped : scoped.filter((surface) => surface.archived !== true)).filter((surface) => {
     if (filter.trim().length === 0) return true;
     const needle = filter.trim().toLowerCase();
     return surface.surfaceId.toLowerCase().includes(needle) || String(surface.conversationId).includes(needle);
@@ -220,6 +229,15 @@ export function Rail() {
             {tr(lang, filter === "all" ? "allChats" : filter === "client" ? "clientChats" : "feishuChats")}
           </button>
         ))}
+        <button
+          onClick={toggleShowArchived}
+          className={`ml-auto rounded-full px-1.5 py-0.5 text-[10px] ${
+            showArchived ? "bg-primary/15 text-primary" : "text-muted-foreground/60 hover:text-foreground"
+          }`}
+          title={tr(lang, "archived")}
+        >
+          {tr(lang, "archived")}
+        </button>
       </div>
       <SearchBox />
       <ScrollArea className="min-h-0 flex-1 px-1.5">
@@ -238,6 +256,7 @@ export function Rail() {
                   active={surface.conversationId === current}
                   pinned={pinned.includes(surface.conversationId)}
                   kind={kindOf(surface)}
+                  archived={surface.archived === true}
                   label={
                     surface.title !== undefined && surface.title.length > 0
                       ? surface.title

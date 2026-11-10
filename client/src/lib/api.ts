@@ -7,6 +7,7 @@ export type Surface = {
   conversationId: number;
   kind?: SurfaceKind;
   title?: string;
+  archived?: boolean;
 };
 export type Task = { id: number; kind: string; conversationId: number; background: boolean; state: string };
 export type Entry = { id: number; kind: string; model: unknown; data: unknown };

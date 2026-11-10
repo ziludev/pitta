@@ -8,6 +8,8 @@ import { config } from "./config.ts";
 import { collectChanges, commitChanges, ensureRepo } from "./changes.ts";
 import { mergeWorktree } from "./worktree.ts";
 import { listApprovals, resolveApproval } from "./approvals.ts";
+import { surfaceMeta, updateSurfaceMeta } from "./surface-meta.ts";
+import { removeWorktree } from "./worktree.ts";
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import { ChatMemory, GlobalMemory, WorkMemory } from "./memory.ts";
@@ -135,6 +137,10 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         const chats = (await runtime.harness.snapshot(ChatsToken, context).catch(() => undefined)) as
           | { chats: Record<string, number> }
           | undefined;
+        const meta: Record<string, { title?: string; archived?: boolean }> = await surfaceMeta(
+          runtime.harness,
+          context,
+        ).catch(() => ({}));
         const entries = Object.entries(chats?.chats ?? {});
         const surfaces = await Promise.all(
           entries.map(async ([surfaceId, conversationId]) => {
@@ -155,7 +161,14 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
                       return text.replace(/\s+/g, " ").replace(/^@\s*/, "").trim().slice(0, 32);
                     })
                     .catch(() => "");
-            return { surfaceId, conversationId, kind, title };
+            const own = meta[surfaceId];
+            return {
+              surfaceId,
+              conversationId,
+              kind,
+              title: own?.title ?? title,
+              archived: own?.archived === true,
+            };
           }),
         );
         return send(res, 200, {
@@ -169,6 +182,38 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
           })),
           usage,
         });
+      }
+
+      if (req.method === "POST" && path === "/api/surface-meta") {
+        const body = await readJson(req);
+        const conversationId = conversationIdOf(body);
+        const surfaceId =
+          typeof body["surfaceId"] === "string" && body["surfaceId"].length > 0
+            ? (body["surfaceId"] as string)
+            : conversationId === undefined
+              ? undefined
+              : await runtime.surfaceOf(conversationId);
+        if (surfaceId === undefined) return send(res, 400, { error: "surfaceId or conversationId required" });
+        const title = "title" in body ? (body["title"] === null ? null : String(body["title"])) : undefined;
+        const archived = typeof body["archived"] === "boolean" ? (body["archived"] as boolean) : undefined;
+        await updateSurfaceMeta(runtime.harness, context, surfaceId, { title, archived });
+        return send(res, 200, { ok: true, surfaceId });
+      }
+
+      if (req.method === "POST" && path === "/api/worktree/remove") {
+        const body = await readJson(req);
+        const conversationId = conversationIdOf(body);
+        if (conversationId === undefined) return send(res, 400, { error: "conversationId required" });
+        const force = body["force"] === true;
+        const result = await removeWorktree(config.workspace, conversationId, { force });
+        // The conversation and its transcript stay: only the checkout is gone. Point it
+        // back at the shared workspace so the chat keeps working instead of failing
+        // every tool call on a missing cwd.
+        if (result.status === "removed" || result.status === "absent") {
+          const conversation = await resolveConversation(conversationId);
+          await conversation?.configure({ cwd: config.workspace }, context).catch(() => {});
+        }
+        return send(res, 200, { ...result, conversationId });
       }
 
       if (req.method === "POST" && path === "/api/conversations") {
