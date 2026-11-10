@@ -102,7 +102,16 @@ export const config = {
   mcpConfig: process.env.AGENT_MCP_CONFIG ?? "./mcp.json",
   /** Skill folders holding <name>/SKILL.md; project dirs first so they win name clashes. */
   skills: {
-    dirs: paths("AGENT_SKILLS_DIRS", ["./.pi/skills", "~/.claude/skills", "./workspace/skills"]),
+    // Same places pi itself reads, plus Claude Code's directory: a skill installed
+    // for one surface should be visible to the other. Project dirs come first.
+    dirs: paths("AGENT_SKILLS_DIRS", [
+      "./.pi/skills",
+      "./.agents/skills",
+      "~/.pi/agent/skills",
+      "~/.agents/skills",
+      "~/.claude/skills",
+      "./workspace/skills",
+    ]),
   },
   /** Local client bridge (desktop app). Port 0 disables it. */
   http: {
