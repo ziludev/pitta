@@ -54,7 +54,7 @@ export function ChatMenu({
             <MoreHorizontal className="size-3" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-40" onClick={(event) => event.stopPropagation()}>
+        <DropdownMenuContent align="end" className="glass w-40" onClick={(event) => event.stopPropagation()}>
           <DropdownMenuItem
             onSelect={() => {
               setDraft(title);

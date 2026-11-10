@@ -188,6 +188,10 @@
 
 /* Motion Prompt #056 — toast slides 240 px in over 350 ms; the bar drains 1.8 s. */
 [data-sonner-toast] {
+  background: var(--glass-bg) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  backdrop-filter: blur(22px) saturate(180%);
+  border-color: var(--glass-border) !important;
   position: relative;
   overflow: hidden;
   animation: mp-toast-in 0.35s cubic-bezier(0.33, 1, 0.68, 1) !important;
@@ -224,5 +228,63 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * Liquid glass, scoped to floating layers.
+ *
+ * WebKit supports backdrop-filter blur+saturate (measured in this app's own WKWebView:
+ * the grid behind a panel dissolves) but not `backdrop-filter: url(#svg)`, so real
+ * refraction is out of reach — this is frosted glass, not Apple's lens. It is kept to
+ * popovers and bars: applied to the panes it tints dense text and diff colours with
+ * whatever is behind them.
+ */
+.glass {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  backdrop-filter: blur(22px) saturate(180%);
+  border-color: var(--glass-border);
+  box-shadow:
+    0 18px 44px -16px oklch(0 0 0 / 0.55),
+    inset 0 1px 0 var(--glass-sheen),
+    inset 0 -1px 0 oklch(1 0 0 / 0.04);
+}
+
+/* The highlight along the top edge is what reads as glass rather than grey. */
+.glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(155deg, var(--glass-sheen) 0%, transparent 42%);
+  opacity: 0.5;
+  mix-blend-mode: screen;
+}
+
+:root {
+  --glass-bg: oklch(1 0 0 / 0.70);
+  --glass-border: oklch(0 0 0 / 0.08);
+  --glass-sheen: oklch(1 0 0 / 0.75);
+}
+
+.dark {
+  /* 0.70 rather than 0.62: without backdrop-filter the panel would be a see-through
+     mess, so the tint has to carry legibility on its own. */
+  --glass-bg: oklch(0.22 0.008 285 / 0.70);
+  --glass-border: oklch(1 0 0 / 0.14);
+  --glass-sheen: oklch(1 0 0 / 0.16);
+}
+
+/* Accessibility: when the system asks for less transparency, become opaque. */
+@media (prefers-reduced-transparency: reduce) {
+  .glass {
+    background: var(--popover);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .glass::after {
+    display: none;
   }
 }

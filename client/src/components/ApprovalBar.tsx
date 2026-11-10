@@ -23,6 +23,9 @@ export function ApprovalBar() {
 
   if (approvals.length === 0) return null;
 
+  // Not glass: this bar sits in the layout flow, so there is nothing behind it to blur —
+  // measured, it looked identical to a flat band. It would have to float over the
+  // transcript first, which is a layout decision, not a paint one.
   return (
     <div className="flex flex-col gap-1.5 border-t border-amber-500/30 bg-amber-500/5 px-4 py-2">
       {approvals.map((approval) => (

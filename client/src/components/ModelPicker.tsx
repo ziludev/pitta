@@ -199,7 +199,9 @@ export function ModelPicker() {
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="start" className="w-[520px] overflow-hidden p-0">
+      {/* Glass: the picker floats over the transcript, which is the only way it reads as
+          material rather than a flat panel. */}
+      <PopoverContent align="start" className="glass w-[520px] overflow-hidden p-0">
         {/* Height lives on this inner column: the popover itself must not grow past it. */}
         <div className="flex max-h-[68vh] flex-col">
         <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
