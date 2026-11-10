@@ -22,6 +22,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SearchBox } from "@/components/SearchBox";
+import { ProjectBar } from "@/components/ProjectBar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChatMenu } from "@/components/ChatMenu";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -125,6 +126,7 @@ export function Rail() {
     filter,
     surfaceFilter,
     setSurfaceFilter,
+    currentProject,
     newChat,
     showArchived,
     toggleShowArchived,
@@ -139,7 +141,9 @@ export function Rail() {
 
   const kindOf = (surface: Surface): string =>
     surface.kind ?? (surface.surfaceId.startsWith("oc_") ? "feishu" : surface.surfaceId.startsWith("client:") ? "client" : "other");
-  const scoped = surfaceFilter === "all" ? surfaces : surfaces.filter((surface) => kindOf(surface) === surfaceFilter);
+  // Rail is scoped to one project: the builtin sandbox unless the owner opened a repo.
+  const inProject = surfaces.filter((surface) => (surface.projectId ?? "workspace") === currentProject);
+  const scoped = surfaceFilter === "all" ? inProject : inProject.filter((surface) => kindOf(surface) === surfaceFilter);
   const visible = (showArchived ? scoped : scoped.filter((surface) => surface.archived !== true)).filter((surface) => {
     if (filter.trim().length === 0) return true;
     const needle = filter.trim().toLowerCase();
@@ -211,7 +215,8 @@ export function Rail() {
         </div>
       </div>
 
-      <div className="flex items-center justify-between px-2.5 pt-3 pb-1">
+      <ProjectBar />
+      <div className="flex items-center justify-between px-2.5 pt-1 pb-1">
         <span className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
           {tr(lang, "sessions")}
         </span>
@@ -226,13 +231,13 @@ export function Rail() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all" className="text-[11px]">
-              {tr(lang, "allChats")} · {surfaces.length}
+              {tr(lang, "allChats")} · {inProject.length}
             </SelectItem>
             <SelectItem value="client" className="text-[11px]">
-              {tr(lang, "clientChats")} · {surfaces.filter((surface) => kindOf(surface) === "client").length}
+              {tr(lang, "clientChats")} · {inProject.filter((surface) => kindOf(surface) === "client").length}
             </SelectItem>
             <SelectItem value="feishu" className="text-[11px]">
-              {tr(lang, "feishuChats")} · {surfaces.filter((surface) => kindOf(surface) === "feishu").length}
+              {tr(lang, "feishuChats")} · {inProject.filter((surface) => kindOf(surface) === "feishu").length}
             </SelectItem>
           </SelectContent>
         </Select>

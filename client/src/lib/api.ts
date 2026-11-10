@@ -2,12 +2,14 @@ import { Agent } from "@/mygo";
 
 /** feishu = a group/p2p chat, client = a chat started in this app, other = cli/tests. */
 export type SurfaceKind = "feishu" | "client" | "other";
+export type Project = { id: string; name: string; path: string; builtin?: boolean; createdAt: number };
 export type Surface = {
   surfaceId: string;
   conversationId: number;
   kind?: SurfaceKind;
   title?: string;
   archived?: boolean;
+  projectId?: string;
 };
 export type Task = { id: number; kind: string; conversationId: number; background: boolean; state: string };
 export type Entry = { id: number; kind: string; model: unknown; data: unknown };

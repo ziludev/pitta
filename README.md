@@ -277,6 +277,23 @@ ThinkRail 的定位和我们几乎一样（"a thin host that runs `pi` and bridg
 - **Specs as ground truth**：意图沉淀成 spec 图供 agent 检索维护。我们现在靠 `global_memory` + `docs/`，够用但不结构化。
 - **Open PR / 终端面板**：属于 IDE 化，收益不如上面几条直接。
 
+## 项目（project）
+
+ThinkRail 的三层是 project → workspace → chats，我们补上了 project 这一层：
+
+- **project** = 本机的一个 git 仓库（内置的 `workspace/` 是默认项目，删不掉）
+- **chat** = 项目里的一个会话，自动 `git worktree add` 到 `<project>/.worktrees/conv-<id>`，分支 `agent/conv-<id>`
+- 每个 chat 记住自己属于哪个项目（`app/conversation-project`），左栏按当前项目收窄，
+  切换会话会自动跟着切项目
+- 打开项目只接受**已存在的 git 仓库**，绝不替用户 `git init`；`.worktrees/` 写进仓库自己的
+  `.git/info/exclude`，不污染 `git status`（不动用户的 `.gitignore`）
+
+```
+GET  /api/projects            已打开的项目
+POST /api/projects            { path } 打开一个仓库（~ 可用）
+POST /api/conversations       { projectId } 在该项目里新建会话
+```
+
 ## 飞书原生工具
 
 这些工具走本机已登录的 `lark-cli`（你的用户身份），不是在 bot 权限范围内扩权：

@@ -14,6 +14,7 @@ import {
 import { initialLang, type Lang } from "@/i18n";
 import { setErrorSink } from "@/lib/api";
 import type {
+  Project,
   MemorySuggestion,
   MergeResult,
   ModelEntry,
@@ -36,6 +37,9 @@ type State = {
   connection: Connection;
   busy: boolean;
   surfaces: Surface[];
+  projects: Project[];
+  /** Which project the rail is scoped to. */
+  currentProject: string;
   tasks: Task[];
   current?: number;
   entries: Entry[];
@@ -107,6 +111,8 @@ type State = {
   showArchived: boolean;
   toggleShowArchived(): void;
   newChat(): Promise<number>;
+  setProject(projectId: string): void;
+  openProject(path: string): Promise<{ status: string; project?: Project; path?: string }>;
   renameChat(conversationId: number, title: string): Promise<void>;
   archiveChat(conversationId: number, archived: boolean): Promise<void>;
   cleanupWorktree(conversationId: number): Promise<{ status: string; commits?: number }>;
@@ -154,6 +160,8 @@ export const useStore = create<State>((set, get) => ({
   connection: "connecting",
   busy: false,
   surfaces: [],
+  projects: [],
+  currentProject: localStorage.getItem("agent.project") ?? "workspace",
   tasks: [],
   entries: [],
   memory: { global: [], work: [], chat: [] },
@@ -233,13 +241,35 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async refreshSurfaces() {
-    const state = await api<{ surfaces: Surface[]; tasks: Task[] }>("/api/state");
-    set({ surfaces: state.surfaces, tasks: state.tasks });
+    const state = await api<{ surfaces: Surface[]; tasks: Task[]; projects?: Project[] }>("/api/state");
+    set({
+      surfaces: state.surfaces,
+      tasks: state.tasks,
+      projects: state.projects ?? get().projects,
+    });
+  },
+
+  setProject(projectId) {
+    localStorage.setItem("agent.project", projectId);
+    set({ currentProject: projectId });
+  },
+
+  async openProject(path) {
+    const result = await api<{ status: string; project?: Project; path?: string }>("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({ path }),
+    });
+    await get().refreshSurfaces();
+    const project = result.project ?? get().projects.find((entry) => entry.path === path);
+    if (project !== undefined) get().setProject(project.id);
+    return result;
   },
 
   async select(conversationId) {
     socket?.close();
     set({ current: conversationId, connection: "connecting", entries: [], live: undefined });
+    const projectId = get().surfaces.find((surface) => surface.conversationId === conversationId)?.projectId;
+    if (projectId !== undefined && projectId !== get().currentProject) get().setProject(projectId);
     const data = await api<{ entries: Entry[]; model?: ModelRef; thinkingLevel?: string }>(
       `/api/conversation?id=${conversationId}&limit=200`,
     );
@@ -484,7 +514,7 @@ export const useStore = create<State>((set, get) => ({
   async newChat() {
     const result = await api<{ conversationId: number; surfaceId: string }>("/api/conversations", {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify({ projectId: get().currentProject }),
     });
     await get().refreshSurfaces();
     await get().select(result.conversationId);

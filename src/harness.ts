@@ -33,6 +33,16 @@ import { log } from "./log.ts";
 import { acquireStorageLock } from "./storage-lock.ts";
 import { ensureRepo } from "./changes.ts";
 import { ensureWorktree, worktreePaths } from "./worktree.ts";
+import {
+  addProject,
+  bindProject,
+  ensureBuiltinProject,
+  listProjects,
+  prepareProject,
+  projectOf,
+  type AddProjectResult,
+  type Project,
+} from "./projects.ts";
 import { setHarnessRef } from "./runtime-ref.ts";
 import { forkAt, lookupMessage, lookupThread, recordMessage, recordThread } from "./threads.ts";
 import { config } from "./config.ts";
@@ -63,7 +73,12 @@ export type AgentRuntime = {
   /** Maps a conversation back to its surface, so approvals and reminders can route. */
   attachSurface(conversationId: number): Promise<void>;
   /** Creates a fresh conversation for a surface (client "new chat"). */
-  newConversation(surfaceId: string): Promise<Conversation>;
+  newConversation(surfaceId: string, projectId?: string): Promise<Conversation>;
+  projects(): Promise<Project[]>;
+  addProject(path: string): Promise<AddProjectResult>;
+  /** The repository root a conversation works in, for merge and project-scoped diffs. */
+  projectPathOf(conversationId: number): Promise<string>;
+  projectOfConversation(conversationId: number): Promise<string | undefined>;
   /** The surface a conversation belongs to, for rename/archive/cleanup by chat id. */
   surfaceOf(conversationId: number): Promise<string | undefined>;
   /** Reply/thread conversation: forked at the answered message, or the chat itself. */
@@ -167,6 +182,10 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   }
 
   const storedDefault = await harness.snapshot(DefaultModel, context).catch(() => undefined);
+  const builtin = await ensureBuiltinProject(harness, context, workspace);
+  // Keep .worktrees out of every project's git status (idempotent).
+  for (const project of await listProjects(harness, context)) await prepareProject(project.path);
+
   const agentChange = {
     model: {
       provider: storedDefault?.provider ?? config.model.provider,
@@ -195,11 +214,12 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
       context,
     );
 
+    await bindProject(harness, context, created.id as unknown as number, builtin.id);
     // Each conversation works in its own worktree so parallel sessions never fight
     // over the same files. The id only exists after creation, so cwd follows in a
     // second commit; without git this stays the shared workspace.
     if (config.worktree !== "off") {
-      const worktree = await ensureWorktree(workspace, created.id as unknown as number);
+      const worktree = await ensureWorktree(builtin.path, created.id as unknown as number);
       if (worktree !== undefined) await created.configure({ cwd: worktree.dir }, context);
     }
     await harness.commit(async (tx) => {
@@ -211,13 +231,20 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     return created;
   }
 
-  async function newConversation(surfaceId: string): Promise<Conversation> {
+  async function newConversation(surfaceId: string, projectId?: string): Promise<Conversation> {
+    const projects = await listProjects(harness, context);
+    const project = projects.find((entry) => entry.id === projectId) ?? builtin;
+    await prepareProject(project.path);
     const created = await harness.createConversation(
-      { ownership: { kind: "ownerless" }, agent: agentChange },
+      {
+        ownership: { kind: "ownerless" },
+        agent: { ...agentChange, cwd: project.path },
+      },
       context,
     );
+    await bindProject(harness, context, created.id as unknown as number, project.id);
     if (config.worktree !== "off") {
-      const worktree = await ensureWorktree(workspace, created.id as unknown as number);
+      const worktree = await ensureWorktree(project.path, created.id as unknown as number);
       if (worktree !== undefined) await created.configure({ cwd: worktree.dir }, context);
     }
     await harness.commit(async (tx) => {
@@ -227,6 +254,12 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     rememberSurface(created.id as unknown as number, surfaceId);
     log("agent", "new conversation", { surfaceId, conversationId: created.id as unknown as number });
     return created;
+  }
+
+  async function projectPathOf(conversationId: number): Promise<string> {
+    const projectId = await projectOf(harness, context, conversationId);
+    const projects = await listProjects(harness, context);
+    return projects.find((project) => project.id === projectId)?.path ?? builtin.path;
   }
 
   async function surfaceOf(conversationId: number): Promise<string | undefined> {
@@ -354,6 +387,10 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     conversationFor,
     attachSurface,
     newConversation,
+    projects: () => listProjects(harness, context),
+    addProject: (path: string) => addProject(harness, context, path),
+    projectPathOf,
+    projectOfConversation: (conversationId: number) => projectOf(harness, context, conversationId),
     surfaceOf,
     conversationForThread,
     recordMessage: recordMessageFor,

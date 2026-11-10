@@ -130,9 +130,10 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
       if (!tokenMatches(bearer(req))) return send(res, 401, { error: "unauthorized" });
 
       if (req.method === "GET" && path === "/api/state") {
-        const [inspection, usage] = await Promise.all([
+        const [inspection, usage, projects] = await Promise.all([
           runtime.harness.inspect(context),
           runtime.harness.usage(context),
+          runtime.projects(),
         ]);
         const chats = (await runtime.harness.snapshot(ChatsToken, context).catch(() => undefined)) as
           | { chats: Record<string, number> }
@@ -168,10 +169,12 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
               kind,
               title: own?.title ?? title,
               archived: own?.archived === true,
+              projectId: await runtime.projectOfConversation(conversationId as unknown as number).catch(() => undefined),
             };
           }),
         );
         return send(res, 200, {
+          projects,
           surfaces,
           tasks: inspection.tasks.map((task) => ({
             id: task.record.id,
@@ -182,6 +185,18 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
           })),
           usage,
         });
+      }
+
+      if (req.method === "GET" && path === "/api/projects") {
+        return send(res, 200, { projects: await runtime.projects() });
+      }
+
+      if (req.method === "POST" && path === "/api/projects") {
+        const body = await readJson(req);
+        const raw = typeof body["path"] === "string" ? (body["path"] as string).trim() : "";
+        if (raw.length === 0) return send(res, 400, { error: "path required" });
+        const result = await runtime.addProject(raw);
+        return send(res, result.status === "added" || result.status === "exists" ? 200 : 400, result);
       }
 
       if (req.method === "POST" && path === "/api/surface-meta") {
@@ -205,7 +220,7 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         const conversationId = conversationIdOf(body);
         if (conversationId === undefined) return send(res, 400, { error: "conversationId required" });
         const force = body["force"] === true;
-        const result = await removeWorktree(config.workspace, conversationId, { force });
+        const result = await removeWorktree(await runtime.projectPathOf(conversationId), conversationId, { force });
         // The conversation and its transcript stay: only the checkout is gone. Point it
         // back at the shared workspace so the chat keeps working instead of failing
         // every tool call on a missing cwd.
@@ -221,7 +236,8 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         const requested = typeof body["surfaceId"] === "string" ? (body["surfaceId"] as string) : "";
         // Client chats get their own namespace so they never collide with Feishu ids.
         const surfaceId = requested.startsWith("client:") ? requested : `client:${Date.now().toString(36)}`;
-        const conversation = await runtime.newConversation(surfaceId);
+        const projectId = typeof body["projectId"] === "string" ? (body["projectId"] as string) : undefined;
+        const conversation = await runtime.newConversation(surfaceId, projectId);
         return send(res, 200, { conversationId: conversation.id as unknown as number, surfaceId });
       }
 
@@ -413,7 +429,7 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         const body = await readJson(req);
         const conversationId = conversationIdOf(body);
         if (conversationId === undefined) return send(res, 400, { error: "conversationId required" });
-        const result = await mergeWorktree(config.workspace, conversationId);
+        const result = await mergeWorktree(await runtime.projectPathOf(conversationId), conversationId);
         log("http", "merge requested", { conversationId, status: result.status });
         return send(res, 200, result);
       }
