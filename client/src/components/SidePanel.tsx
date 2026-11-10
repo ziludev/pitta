@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MessageSquarePlus, Send, Trash2 } from "lucide-react";
 import { AnimateService, motion } from "motion/react";
 import { Brain, Check, GitCompareArrows, RefreshCw, Signal, Wand2 } from "lucide-react";
@@ -10,6 +10,9 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fileStatusLabel, tr } from "@/i18n";
+import { cssEase, easeInOutCubic, easeOutCubic, hoverLift, tabs } from "@/lib/motion";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Spinner } from "@/components/ui/spinner";
 import { CommitDialog } from "@/components/CommitDialog";
 import { UsageCalendar } from "@/components/UsageCalendar";
 import { MergeButton } from "@/components/MergeButton";
@@ -65,9 +68,9 @@ function Changes() {
         </div>
       </div>
 
-      <ScrollArea className="min-h-0 flex-1 px-3 pb-2">
+      <ScrollArea className="min-h-0 flex-1 px-3 pb-2 w-full [&_[data-radix-scroll-area-viewport]>div]:!block">
         {empty ? (
-          <div className="pt-1 text-[11px] text-muted-foreground">{tr(lang, "noChanges")}</div>
+          <EmptyState title={tr(lang, "noChanges")} hint={tr(lang, "noChangesHint")} />
         ) : (
         <div className="flex flex-col gap-1.5">
           {changes.files.map((file) => (
@@ -210,13 +213,16 @@ function Memory() {
             toast(`${tr(lang, "curated")} · ${result.suggested}/${result.scanned}`);
           }}
         >
-          <Wand2 className={cn("size-3", curating && "animate-pulse")} />
+          {curating ? <Spinner size={12} /> : <Wand2 className="size-3" />}
           {curating ? tr(lang, "curating") : tr(lang, "curate")}
         </Button>
       </div>
 
       {memorySuggestions.length > 0 ? (
-        <div className="mx-3 mb-2 shrink-0 rounded-lg border border-primary/30 bg-primary/5 p-2">
+        <div
+          className="mx-3 mb-2 shrink-0 rounded-lg border border-primary/30 bg-primary/5 p-2 transition-[transform,box-shadow] hover:-translate-y-1 hover:shadow-[0_12px_22px_-8px_rgba(0,0,0,0.5)]"
+          style={{ transitionDuration: `${hoverLift.duration}s`, transitionTimingFunction: cssEase(easeOutCubic) }}
+        >
           <div className="mb-1 flex items-center justify-between text-[10px] text-muted-foreground">
             <span>
               {tr(lang, "suggestions")} · {memorySuggestions.length}
@@ -271,9 +277,9 @@ function Memory() {
       ) : null}
 
       {total === 0 ? (
-        <div className="p-3 text-[11px] text-muted-foreground">{tr(lang, "noMemory")}</div>
+        <EmptyState title={tr(lang, "noMemory")} hint={tr(lang, "noMemoryHint")} />
       ) : (
-        <ScrollArea className="h-full min-h-0 w-full">
+        <ScrollArea className="h-full min-h-0 w-full [&_[data-radix-scroll-area-viewport]>div]:!block">
           <div className="flex flex-col gap-3 px-3 pb-3">
             {groups.map(([title, notes]) =>
               notes.length === 0 ? null : (
@@ -282,7 +288,7 @@ function Memory() {
                     {title} · {notes.length}
                   </div>
                   {notes.slice(-40).map((note, index) => (
-                    <div key={index} className="rounded-md bg-muted/40 px-2 py-1.5 text-[11px] leading-relaxed">
+                    <div key={index} className="rounded-md bg-muted/40 px-2 py-1.5 text-[11px] leading-relaxed break-words">
                       {note.text.slice(0, 220)}
                     </div>
                   ))}
@@ -301,6 +307,25 @@ export function SidePanel() {
   const [value, setValue] = useState<"changes" | "usage" | "memory">(
     tab === "memory" ? "memory" : (new URLSearchParams(location.search).get("tab") as "changes" | "usage" | null) ?? "changes",
   );
+  const listRef = useRef<HTMLDivElement>(null);
+  const [underline, setUnderline] = useState({ left: 0, width: 0 });
+
+  // #057: the underline travels 250ms easeInOutCubic to the newly selected tab.
+  useEffect(() => {
+    const list = listRef.current;
+    if (list === null) return;
+    const measure = (): void => {
+      const active = list.querySelector<HTMLElement>('[data-state="active"]');
+      if (active === null) return;
+      const box = active.getBoundingClientRect();
+      const frame = list.getBoundingClientRect();
+      setUnderline({ left: box.left - frame.left, width: box.width });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [value, lang]);
   const memoryCount = memory.global.length + memory.work.length + memory.chat.length;
 
   return (
@@ -313,7 +338,20 @@ export function SidePanel() {
         }}
         className="min-h-0 flex-1 gap-0"
       >
-        <TabsList variant="line" className="w-full justify-start border-b border-border px-2">
+        <TabsList
+          ref={listRef}
+          variant="line"
+          className="relative w-full justify-start overflow-hidden border-b border-border px-2 [&_[data-state=active]]:border-b-0"
+        >
+          <span
+            aria-hidden
+            className="pointer-events-none absolute bottom-0 h-[2px] rounded-full bg-primary"
+            style={{
+              width: underline.width,
+              transform: `translateX(${underline.left}px)`,
+              transition: `transform ${tabs.underline}s cubic-bezier(0.65, 0, 0.35, 1), width ${tabs.underline}s cubic-bezier(0.65, 0, 0.35, 1)`,
+            }}
+          />
           <TabsTrigger value="changes" className="gap-1.5 text-[11px]">
             <GitCompareArrows className="size-3" />
             {tr(lang, "changes")}
@@ -331,10 +369,10 @@ export function SidePanel() {
         <AnimateService mode="wait" initial={false}>
           <motion.div
             key={value}
-            initial={{ opacity: 0, y: 4 }}
+            initial={{ opacity: 0, y: tabs.rise }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.12 }}
+            transition={{ duration: tabs.content, ease: easeOutCubic, delay: tabs.handover }}
+            exit={{ opacity: 0, y: -tabs.rise, transition: { duration: tabs.content, delay: 0, ease: easeInOutCubic } }}
             className="flex min-h-0 flex-1 flex-col"
           >
             <TabsContent value="changes" className="flex min-h-0 flex-1 flex-col overflow-hidden">

@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { Brain, Check, ChevronRight, Clock, FileDiff, Layers, Wrench } from "lucide-react";
 import { cn } from "cn";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { accordion, easeInOutCubic } from "@/lib/motion";
 import { ToolOutput } from "@/components/ToolOutput";
 import { DiffView, diffStats } from "@/lib/diff";
 import { tr } from "@/i18n";
@@ -63,7 +64,10 @@ function StepRow({ entry, defaultOpen }: { entry: Entry; defaultOpen: boolean })
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger className="group flex w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-[11px] text-muted-foreground hover:bg-accent/10 hover:text-foreground">
-        <ChevronRight className="size-3 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
+        <ChevronRight
+          className="size-3 shrink-0 transition-transform group-data-[state=open]:rotate-180"
+          style={{ transitionDuration: `${accordion.duration}s`, transitionTimingFunction: "cubic-bezier(0.65, 0, 0.35, 1)" }}
+        />
         {label.icon === "brain" ? <Brain className="size-3 shrink-0" /> : <Wrench className="size-3 shrink-0" />}
         <span className="truncate">
           {label.icon === "brain" ? `${tr(lang, "thinking")} · ` : ""}
@@ -115,7 +119,10 @@ export function StepRail({ turn }: { turn: Turn }) {
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="max-w-[92%]">
       <CollapsibleTrigger className="group flex w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-[11px] text-muted-foreground hover:text-foreground">
-        <ChevronRight className="size-3 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
+        <ChevronRight
+          className="size-3 shrink-0 transition-transform group-data-[state=open]:rotate-180"
+          style={{ transitionDuration: `${accordion.duration}s`, transitionTimingFunction: "cubic-bezier(0.65, 0, 0.35, 1)" }}
+        />
         <Layers className="size-3 shrink-0" />
         <span className="truncate">
           {turn.internals.length} {tr(lang, "steps")}
@@ -126,7 +133,8 @@ export function StepRail({ turn }: { turn: Turn }) {
         <motion.div
           initial={{ opacity: 0, height: 0 }}
           animate={{ opacity: 1, height: "auto" }}
-          className="ml-2 flex flex-col gap-0.5 border-l border-border pl-2"
+          transition={{ duration: accordion.duration, ease: easeInOutCubic }}
+          className="ml-2 flex flex-col gap-0.5 overflow-hidden border-l border-border pl-2"
         >
           {turn.internals.map((entry) => (
             <StepRow key={entry.id} entry={entry} defaultOpen={false} />

@@ -84,7 +84,8 @@ export function App() {
             <SidePanel />
           </Panel>
         </PanelGroup>
-        <Toaster position="bottom-left" />
+        {/* #056: the toast lives 3.2s; its time bar drains over the spec's 1.8s. */}
+        <Toaster position="bottom-left" duration={3200} visibleToasts={3} gap={8} />
       </div>
     </TooltipProvider>
     </ThemeProvider>

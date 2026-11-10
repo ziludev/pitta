@@ -128,3 +128,89 @@
     @apply font-sans;
     }
 }
+/* Motion Prompt #070 — the spinner arc turns 1.3 times a second. */
+@keyframes mp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Motion Prompt #055 — popover: 280 ms, 6 px in from the anchor side, easeOutCubic. */
+@keyframes mp-popover-in {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes mp-popover-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Motion Prompt #056 — toast slides 240 px in over 350 ms; the bar below drains. */
+@keyframes mp-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(240px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes mp-toast-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(240px);
+  }
+}
+
+/* Motion Prompt #055 — popover: 280 ms easeOutCubic, 6 px in from the anchor.
+   `!important` because the component ships tailwindcss-animate utilities. */
+[data-slot="popover-content"][data-state="open"] {
+  animation: mp-popover-in 0.28s cubic-bezier(0.33, 1, 0.68, 1) !important;
+}
+[data-slot="popover-content"][data-state="closed"] {
+  animation: mp-popover-out 0.15s linear !important;
+}
+
+/* Motion Prompt #056 — toast slides 240 px in over 350 ms; the bar drains 1.8 s. */
+[data-sonner-toast] {
+  position: relative;
+  overflow: hidden;
+  animation: mp-toast-in 0.35s cubic-bezier(0.33, 1, 0.68, 1) !important;
+}
+[data-sonner-toast][data-removed="true"] {
+  animation: mp-toast-out 0.35s cubic-bezier(0.65, 0, 0.35, 1) !important;
+}
+[data-sonner-toast]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 100%;
+  background: currentColor;
+  opacity: 0.35;
+  animation: mp-toast-bar 1.8s linear 0.35s forwards;
+}
+@keyframes mp-toast-bar {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0;
+  }
+}

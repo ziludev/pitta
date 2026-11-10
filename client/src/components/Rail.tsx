@@ -10,6 +10,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SearchBox } from "@/components/SearchBox";
+import { EmptyState } from "@/components/ui/empty-state";
+import { cssEase, easeOutCubic, hoverLift } from "@/lib/motion";
 import { tr } from "@/i18n";
 import type { Surface, Task } from "@/lib/api";
 import { useStore } from "@/store";
@@ -38,13 +40,23 @@ function SessionRow({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: surface.conversationId,
   });
+  // #081 hover lift: the spec's 10px would occlude the neighbouring row in a 22px
+  // list, so the row rises 2px and keeps the shadow character.
   return (
     <div
       ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={`group flex items-center gap-1 rounded-md px-1.5 py-1 text-xs ${
-        active ? "bg-accent/15 text-foreground" : "hover:bg-accent/10"
+      className={`group flex items-center gap-1 rounded-md px-1.5 py-1 text-xs transition-[transform,box-shadow,background-color] ${
+        active
+          ? "bg-accent/15 text-foreground"
+          : "hover:-translate-y-[2px] hover:bg-accent/10 hover:shadow-[0_6px_14px_-6px_rgba(0,0,0,0.45)]"
       } ${isDragging ? "opacity-60" : ""}`}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        // #081 timing applies to the hover lift; dnd-kit overrides it while dragging.
+        transitionDuration: `${hoverLift.duration}s`,
+        transitionTimingFunction: cssEase(easeOutCubic),
+      }}
     >
       <button
         {...attributes}
@@ -204,7 +216,7 @@ export function Rail() {
       </div>
       <div className="min-h-0 max-h-40 overflow-y-auto px-2.5 pb-2">
         {liveTasks.length === 0 ? (
-          <div className="text-[11px] text-muted-foreground">{tr(lang, "noTasks")}</div>
+          <div className="py-2 text-[11px] text-muted-foreground">{tr(lang, "noTasks")}</div>
         ) : (
           liveTasks.map((task: Task) => (
             <div key={task.id} className="flex items-baseline justify-between gap-2 py-0.5 text-[11px]">

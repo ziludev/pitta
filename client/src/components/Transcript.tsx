@@ -5,6 +5,7 @@ import type { Entry } from "@/lib/api";
 import { diffStats } from "@/lib/diff";
 import { Markdown } from "@/lib/markdown";
 import { StepRail, TurnDivider, partsOf, textOf, type TurnStats } from "@/components/TurnRail";
+import { Spinner } from "@/components/ui/spinner";
 import { useStore } from "@/store";
 
 type Turn = {
@@ -154,7 +155,8 @@ function LiveBlock() {
   return (
     <motion.div initial={{ opacity: 0.7 }} animate={{ opacity: 1 }} className="flex max-w-[92%] flex-col gap-1.5">
       {running !== undefined ? (
-        <span className="w-fit animate-pulse rounded-full border border-primary/50 px-2 py-0.5 font-mono text-[10px] text-primary">
+        <span className="flex w-fit items-center gap-1.5 rounded-full border border-primary/40 px-2 py-0.5 font-mono text-[10px] text-primary">
+          <Spinner size={10} />
           {String(running["name"] ?? "")}
         </span>
       ) : null}
