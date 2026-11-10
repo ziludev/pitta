@@ -30,12 +30,22 @@ export const homeDir = await Agent.home().catch(() => "browser");
 
 const auth: Record<string, string> = token ? { authorization: `Bearer ${token}` } : {};
 
+/** Set by the store: a failed request must not disappear silently. */
+let errorSink: ((message: string) => void) | undefined;
+export function setErrorSink(sink: (message: string) => void): void {
+  errorSink = sink;
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${baseURL}${path}`, {
     ...init,
     headers: { "content-type": "application/json", ...auth, ...(init?.headers ?? {}) },
   });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+  if (!response.ok) {
+    const detail = `${init?.method ?? "GET"} ${path} → ${response.status} ${response.statusText}`;
+    errorSink?.(detail);
+    throw new Error(detail);
+  }
   return (await response.json()) as T;
 }
 

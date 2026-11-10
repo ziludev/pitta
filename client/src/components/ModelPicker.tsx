@@ -186,12 +186,12 @@ export function ModelPicker() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm" className="max-w-[360px] gap-1.5 px-1.5 text-[11px]">
-          <span className="flex size-4 shrink-0 items-center justify-center rounded bg-muted text-[9px] text-muted-foreground">
+        <Button variant="ghost" size="xs" className="max-w-[300px] gap-1.5 px-1 text-[11px] text-muted-foreground hover:text-foreground">
+          <span className="flex size-3.5 shrink-0 items-center justify-center rounded bg-muted text-[9px] text-muted-foreground">
             M
           </span>
           <span className="truncate">{current?.name ?? model.modelId}</span>
-          <span className="shrink-0 text-muted-foreground">· {model.provider}</span>
+
           <LevelBars levels={levels} value={thinkingLevel} />
           <span className="shrink-0 text-muted-foreground">{levelText(lang, thinkingLevel)}</span>
           <KeyRound className="size-3 shrink-0 text-muted-foreground" />

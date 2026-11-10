@@ -8,6 +8,7 @@
 #   ./scripts/agentctl logs [n]          # agent log tail
 #   ./scripts/agentctl backup            # run a backup now
 #   ./scripts/agentctl backups           # list snapshots
+#   ./scripts/agentctl doctor            # diagnose why it will not start
 #   ./scripts/agentctl restore <file>    # restore a snapshot (stops the agent first)
 #
 # NODE_BIN overrides the node binary baked into the plist (default: `command -v node`).
@@ -93,6 +94,9 @@ case "${1:-status}" in
     ;;
   backup)
     "$PROJECT/scripts/backup-db"
+    ;;
+  doctor)
+    "${PROJECT}/scripts/doctor"
     ;;
   backups)
     ls -lht "${BACKUP_DIR:-$PROJECT/backups}" 2>/dev/null | head -n "${2:-10}" || echo "no backups yet"

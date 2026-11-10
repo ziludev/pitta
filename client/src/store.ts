@@ -12,6 +12,7 @@ import {
   type Task,
 } from "@/lib/api";
 import { initialLang, type Lang } from "@/i18n";
+import { setErrorSink } from "@/lib/api";
 import type {
   MemorySuggestion,
   MergeResult,
@@ -67,6 +68,8 @@ type State = {
   convQuery: string;
   convMatchIndex: number;
   convMatches: number[];
+  /** Recent client-side failures, newest last (the log file is not visible in-app). */
+  errors: Array<{ at: string; message: string }>;
 
   init(): Promise<void>;
   select(conversationId: number): Promise<void>;
@@ -112,6 +115,8 @@ type State = {
   clearSuggestions(): void;
   loadApprovals(): Promise<void>;
   setConvQuery(query: string): void;
+  pushError(message: string): void;
+  clearErrors(): void;
   setConvMatches(ids: number[]): void;
   stepMatch(direction: 1 | -1): void;
   decideApproval(callId: string, approved: boolean): Promise<void>;
@@ -139,6 +144,11 @@ function savedOrder(): number[] {
 }
 
 export const useStore = create<State>((set, get) => ({
+  // Wired once: any failed API call lands in the panel.
+  ...(() => {
+    setErrorSink((message) => get().pushError(message));
+    return {};
+  })(),
   lang: initialLang(),
   home: "",
   connection: "connecting",
@@ -172,6 +182,7 @@ export const useStore = create<State>((set, get) => ({
   convQuery: "",
   convMatchIndex: 0,
   convMatches: [],
+  errors: [],
   favorites: JSON.parse(localStorage.getItem("agent.favoriteModels") ?? "[]") as string[],
   recents: JSON.parse(localStorage.getItem("agent.recentModels") ?? "[]") as string[],
 
@@ -506,6 +517,16 @@ export const useStore = create<State>((set, get) => ({
 
   clearSuggestions() {
     set({ memorySuggestions: [] });
+  },
+
+  pushError(message) {
+    const at = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+    const errors = [...get().errors, { at, message }].slice(-30);
+    set({ errors });
+  },
+
+  clearErrors() {
+    set({ errors: [] });
   },
 
   setConvQuery(query) {

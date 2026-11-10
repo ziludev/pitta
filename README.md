@@ -96,7 +96,7 @@ bun run build    # 产出 build/darwin-arm64/Agent.app + .dmg
 - 左栏：会话列表（**客户端自建会话 / 飞书会话 / cli 测试**，按标题显示并按来源过滤，`+` 新建对话；每行 `⋯` 可**重命名 / 归档 / 清理工作区**，归档项默认隐藏）、运行中的后台任务、agent 状态与 重启/备份/日志 按钮、累计花费
 - 中间：transcript 流式渲染（用户/助手/工具输出折叠/思考折叠/需求报告），`/new` `/stop`，插话（steer）开关
 - 右栏：两个 tab —— **改动**（工作区 git diff，逐文件折叠、+/- 着色、一键提交、**合并回主线**）和 **记忆**（全局/工作/本对话）
-- **模型选择器（命令面板式，参考 ThinkRail）**：搜索框（名称/provider/id）+ 最近使用 + 收藏（★）+ 按 provider 折叠分组（当前 provider 默认展开）+ 每个模型显示 `provider · 每百万 $in/$out · 上下文`；底部「力度」滑杆调 thinking level，还有「设为默认」（写 durable `app.default-model`，新会话生效）和「刷新」。切换只影响该会话（`configure({model})`）
+- **模型选择器**在输入框那一行（标题栏只留会话信息与查找），命令面板式（参考 ThinkRail）：搜索框（名称/provider/id）+ 最近使用 + 收藏（★）+ 按 provider 折叠分组（当前 provider 默认展开）+ 每个模型显示 `provider · 每百万 $in/$out · 上下文`；底部「力度」滑杆调 thinking level，还有「设为默认」（写 durable `app.default-model`，新会话生效）和「刷新」。切换只影响该会话（`configure({model})`）
 - **token 方块图**（右栏「用量」tab）：GitHub 贡献图样式，17 周，按日总量着色；近 7/30 天与合计
 - 中英切换（默认跟随系统语言，`?lang=zh|en` 可强制；选择记在 localStorage）
 
@@ -145,6 +145,8 @@ GET  /api/usage-calendar?days=  按日 token/花费方块图数据
 ./scripts/agentctl start|stop|restart|status
 ./scripts/agentctl logs [n]         # agent 日志
 ./scripts/agentctl backup           # 立刻备份一次
+./scripts/agentctl doctor           # 自检：node/git、.env、模型是否钉死、DB 完整性、写者锁、
+                                    #       进程数、桥接端口、launchd 重启次数、workspace/worktree、最近错误
 ./scripts/agentctl backups          # 看快照
 ./scripts/agentctl restore <file>   # 用快照恢复（会先停 agent，等进程真正退出）
 ./scripts/agentctl uninstall        # 卸载两个 launchd job

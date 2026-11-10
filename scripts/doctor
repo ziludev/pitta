@@ -1,0 +1,81 @@
+#!/bin/bash
+# Diagnose the usual reasons the agent will not start or keeps restarting.
+#   ./scripts/doctor            (also: ./scripts/agentctl doctor)
+set -uo pipefail
+
+PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
+DB="${AGENT_DB:-$PROJECT/.data/agent.sqlite}"
+LABEL="com.alex.pi-durable-agent"
+ok() { printf '  \033[32m✓\033[0m %s\n' "$1"; }
+bad() { printf '  \033[31m✗\033[0m %s\n' "$1"; }
+warn() { printf '  \033[33m!\033[0m %s\n' "$1"; }
+
+echo "node"
+if command -v node >/dev/null 2>&1; then ok "$(node -v) at $(command -v node)"; else bad "node not found in PATH"; fi
+if command -v git >/dev/null 2>&1; then ok "$(git --version)"; else bad "git not found (worktrees and diffs need it)"; fi
+
+echo "config"
+if [ -f "$PROJECT/.env" ]; then ok ".env present"; else warn ".env missing (copy .env.example)"; fi
+for key in FEISHU_APP_ID FEISHU_APP_SECRET; do
+  value="$(grep -E "^$key=" "$PROJECT/.env" 2>/dev/null | head -1 | cut -d= -f2-)"
+  if [ -n "$value" ]; then ok "$key set (${value:0:8}…)"; else bad "$key missing in .env"; fi
+done
+model="$(grep -E '^AGENT_MODEL=' "$PROJECT/.env" 2>/dev/null | cut -d= -f2-)"
+case "$model" in
+  auto/* | group/*) warn "AGENT_MODEL=$model is a routing group (results vary run to run)"; ;;
+  "") warn "AGENT_MODEL unset"; ;;
+  *) ok "AGENT_MODEL=$model (pinned)"; ;;
+esac
+
+echo "storage"
+if [ -f "$DB" ]; then
+  size="$(du -h "$DB" | cut -f1)"
+  if [ "$(sqlite3 "$DB" 'PRAGMA quick_check;' 2>/dev/null)" = "ok" ]; then ok "$DB ($size) quick_check ok"; else bad "$DB failed quick_check"; fi
+else
+  warn "$DB does not exist yet (created on first start)"
+fi
+if [ -f "$(dirname "$DB")/agent.owner" ]; then
+  holder="$(cat "$(dirname "$DB")/agent.owner")"
+  if kill -0 "$holder" 2>/dev/null; then warn "storage held by pid $holder (an agent is running)"; else bad "stale lock: .data/agent.owner names dead pid $holder"; fi
+else
+  ok "no storage lock"
+fi
+
+echo "process"
+pids="$(pgrep -f "$PROJECT/src/main.ts" | tr '\n' ' ')"
+if [ -z "$pids" ]; then
+  warn "no agent process running"
+elif [ "$(echo $pids | wc -w | tr -d ' ')" -gt 1 ]; then
+  bad "multiple agent processes ($pids) — one storage, one writer"
+else
+  ok "agent pid $pids"
+fi
+port="$(grep -E '^AGENT_HTTP_PORT=' "$PROJECT/.env" 2>/dev/null | cut -d= -f2-)"
+port="${port:-8787}"
+if curl -s -m 2 -o /dev/null "http://127.0.0.1:$port/api/state"; then ok "client bridge answers on :$port"; else bad "client bridge not answering on :$port"; fi
+
+echo "launchd"
+if launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null | grep -q "state = running"; then
+  ok "$LABEL running"
+else
+  warn "$LABEL not running (./scripts/agentctl install)"
+fi
+runs="$(launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null | awk '/runs = /{print $3}')"
+if [ -n "${runs:-}" ] && [ "${runs:-0}" -gt 20 ]; then warn "restarted $runs times: check logs/agent.err.log"; fi
+
+echo "workspace"
+if [ -d "$PROJECT/workspace/.git" ]; then
+  ok "workspace is a git repo ($(git -C "$PROJECT/workspace" rev-parse --abbrev-ref HEAD))"
+  count="$(git -C "$PROJECT/workspace" worktree list | wc -l | tr -d ' ')"
+  ok "$count worktrees (one per conversation)"
+else
+  warn "workspace is not a git repo yet (created at first start)"
+fi
+df -h "$PROJECT" | awk 'NR==2 {print "  · disk free: " $4}'
+
+echo "recent errors"
+if [ -f "$PROJECT/logs/agent.err.log" ]; then
+  tail -n 200 "$PROJECT/logs/agent.err.log" | grep -E "^\[report\]|storage_failed|ERROR" | tail -5 | sed 's/^/  · /' || ok "none in the last 200 lines"
+else
+  warn "no logs/agent.err.log yet"
+fi

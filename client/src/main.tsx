@@ -7,9 +7,17 @@ import "@/index.css";
 document.documentElement.lang = initialLang() === "zh" ? "zh-CN" : "en";
 document.title = "Agent";
 
+// Anything that escapes React still has to be visible: the log file is not in-app.
+window.addEventListener("error", (event) => {
+  useStore.getState().pushError(event.message || "window error");
+});
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason;
+  useStore.getState().pushError(reason instanceof Error ? reason.message : String(reason));
+});
+
 const root = document.getElementById("root");
 if (root === null) throw new Error("missing #root");
 createRoot(root).render(<App />);
 
 void tr;
-void useStore;

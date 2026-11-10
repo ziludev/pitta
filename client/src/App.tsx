@@ -6,8 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { ApprovalBar } from "@/components/ApprovalBar";
 import { ConvSearch } from "@/components/ConvSearch";
+import { ErrorPanel } from "@/components/ErrorPanel";
 import { Composer } from "@/components/Composer";
-import { ModelPicker } from "@/components/ModelPicker";
 import { Rail } from "@/components/Rail";
 import { SidePanel } from "@/components/SidePanel";
 import { Transcript } from "@/components/Transcript";
@@ -61,8 +61,6 @@ export function App() {
                 </div>
                 <div className="flex items-center gap-2">
                   <ConvSearch />
-                  <ModelPicker />
-                  <span className="h-4 w-px bg-border" />
                 </div>
                 <div className="flex gap-1">
                   <Button variant="ghost" size="xs" onClick={() => void reset()} title="/new">
@@ -91,6 +89,7 @@ export function App() {
           </Panel>
         </PanelGroup>
         {/* #056: the toast lives 3.2s; its time bar drains over the spec's 1.8s. */}
+        <ErrorPanel />
         <Toaster position="bottom-left" duration={3200} visibleToasts={3} gap={8} />
       </div>
       </TooltipProvider>

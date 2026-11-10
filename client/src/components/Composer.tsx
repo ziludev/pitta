@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Send, Square, SquarePen } from "lucide-react";
+import { ModelPicker } from "@/components/ModelPicker";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { tr } from "@/i18n";
@@ -35,8 +36,10 @@ export function Composer() {
         className="resize-none text-[13px]"
       />
       <div className="mt-2 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <div className="flex min-w-0 items-center gap-2">
+          <ModelPicker />
+          <span className="h-3.5 w-px shrink-0 bg-border" />
+          <label className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
             <input
               type="checkbox"
               checked={steer}
