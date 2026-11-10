@@ -341,6 +341,21 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
             ? text
             : [{ type: "text" as const, text: text.length > 0 ? text : "看看这几张图。" }, ...images];
         const submission = await conversation.submit({ type: "input", content, whenBusy }, context);
+        // The CLI has no reliable way to know when a run ended otherwise; let it wait
+        // here rather than poll the view for a busy/idle transition it can miss.
+        if (body["wait"] === true) {
+          const settled = await submission.wait(context);
+          const answer =
+            settled.status === "done" && settled.answer !== undefined
+              ? await runtime.answerText(conversation, settled.answer)
+              : "";
+          return send(res, 200, {
+            submissionId: submission.id as unknown as number,
+            status: settled.status,
+            reason: settled.reason ?? null,
+            answer,
+          });
+        }
         return send(res, 200, { submissionId: submission.id as unknown as number });
       }
 

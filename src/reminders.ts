@@ -1,6 +1,7 @@
 import { defineExtension, defineTask, defineTool } from "@earendil-works/pi-durable";
 import { num, obj, opt, str } from "@earendil-works/pi-schema";
 import { notify, surfaceForConversation } from "./channel.ts";
+import { logError } from "./log.ts";
 
 export type ReminderInput = {
   /** What to say when it fires. */
@@ -24,7 +25,11 @@ export const Reminder = defineTask<ReminderInput, { phase: "sleep" } | { phase: 
       runtime.sleepUntil(task.input.at, { phase: "deliver" }, context),
     deliver: async (task, runtime, context) => {
       const surfaceId = surfaceForConversation(task.conversationId) ?? task.input.surfaceId;
-      await notify(surfaceId, `⏰ 提醒：${task.input.text}`);
+      // A surface that is not a chat (cli, a closed client chat) cannot receive the
+      // message; that is not a reason to fault the task and lose the reminder.
+      await notify(surfaceId, `⏰ 提醒：${task.input.text}`).catch((error) =>
+        logError("reminders", `could not deliver reminder to ${surfaceId}`, error),
+      );
       await runtime.commit(
         () => ({ status: "terminal", outcome: { status: "completed", result: "delivered" } }),
         context,

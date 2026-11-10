@@ -277,6 +277,32 @@ ThinkRail 的定位和我们几乎一样（"a thin host that runs `pi` and bridg
 - **Specs as ground truth**：意图沉淀成 spec 图供 agent 检索维护。我们现在靠 `global_memory` + `docs/`，够用但不结构化。
 - **Open PR / 终端面板**：属于 IDE 化，收益不如上面几条直接。
 
+## CLI
+
+```bash
+ln -sf "$PWD/bin/agent" ~/.local/bin/agent   # 放到 PATH
+agent                 # 命令总览
+agent setup           # 写 .env（App ID/Secret/白名单）并立刻体检
+agent doctor          # 本地 + 飞书双侧体检
+agent ask "…"         # 一次性提问（流式）
+agent chat            # 交互式多轮（/new /stop /exit）
+agent sessions        # 列出会话
+agent approvals       # 待审批；agent approve <id> / deny <id>
+```
+
+对话类命令走**本机 HTTP/WS 桥**，所以 agent 正跑着（launchd 托管）时也能用，不需要停进程。
+
+`agent doctor` 的飞书部分是把控制台最容易配错的地方读回来校验：凭证、机器人能力、
+事件订阅方式是否长连接、在线版本是否含 `im.message.receive_v1`、卡片回调、消息 scope、
+机器人是否已在群里。每一项失败都给一句「去哪儿点」。
+
+### 关于「一键授权飞书」
+
+飞书**自建应用**是租户级的：App ID/Secret 只能你自己在开发者后台创建，别人无法代劳
+（跨租户要发布成 ISV 商店应用并过审）。所以 CLI 能自动化的是创建之后的一切——校验配置、
+补齐缺失项、启动、诊断，而不是替你建应用。同租户的同事共用一个应用、各自跑实例是可行的；
+跨租户只能各自建一个。
+
 ## 项目（project）
 
 ThinkRail 的三层是 project → workspace → chats，我们补上了 project 这一层：
