@@ -70,10 +70,11 @@ export const config = {
     allowedSenderIds: list("FEISHU_ALLOWED_SENDER_IDS"),
     mentionsOnly: bool("FEISHU_MENTIONS_ONLY", true),
     /**
-     * Threading: "auto" only threads when the message already sits in a thread (topic
-     * groups and replies), "always" forces it, "never" keeps everything in the
-     * timeline. Thread replies are collapsed in a normal group, which looks like the
-     * bot never answered — hence auto.
+     * Threading: "auto" answers in a topic when the asker @s the bot or the message
+     * already sits in one, so a group timeline is not pushed aside by an answer nobody
+     * else asked for; "always" forces it, "never" keeps everything in the timeline.
+     * Feishu collapses a topic behind "N 条回复" in a normal group, so "never" is the
+     * choice when answers should be visible without a click.
      */
     replyInThread: (process.env.FEISHU_REPLY_IN_THREAD ?? "auto") as "auto" | "always" | "never",
     /** Mention the asker in the reply, so it is clear who is being answered. */

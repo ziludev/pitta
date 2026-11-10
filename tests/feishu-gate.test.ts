@@ -69,3 +69,23 @@ test("empty content and unsupported types are named separately", () => {
   (voice as { message: { message_type: string } }).message.message_type = "sticker";
   assert.match(rejectionReason(voice, parsed, [], [], [], policy) ?? "", /unsupported-message-type/);
 });
+
+// Threading rule, which has flip-flopped: an @ in a group is one person's question, so
+// the answer goes into a topic instead of pushing the timeline aside for everyone.
+test("an @ in a group answers in a topic, a plain message answers inline", async () => {
+  const { wantsThread } = await import("../src/feishu.ts");
+  const messageOf = (value: unknown) => (value as { message: never }).message;
+
+  const mentioned = event("oc_owner", "ou_owner", { chatType: "group", mentions: [{ key: "@_user_1" }] });
+  assert.equal(wantsThread(messageOf(mentioned)), true, "mention should thread");
+
+  const plain = event("oc_owner", "ou_owner", { chatType: "group" });
+  assert.equal(wantsThread(messageOf(plain)), false, "no mention, no thread");
+
+  const inThread = event("oc_owner", "ou_owner", { chatType: "group" });
+  (inThread as { message: { thread_id: string } }).message.thread_id = "omt_1";
+  assert.equal(wantsThread(messageOf(inThread)), true, "already in a topic");
+
+  const direct = event("oc_owner", "ou_owner", { chatType: "p2p", mentions: [{ key: "@_user_1" }] });
+  assert.equal(wantsThread(messageOf(direct)), false, "p2p never threads");
+});

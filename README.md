@@ -24,7 +24,7 @@ CLI      ─┘
 
 | | |
 |---|---|
-| 飞书 | 群/单聊各自一个 conversation；群里 @ 才响应；话题里追问 → 该话题独立 fork |
+| 飞书 | 群/单聊各自一个 conversation；群里 @ 才响应；**被 @ 就回在话题里**（群里不刷屏），话题里的追问 → 该话题独立 fork |
 | 客户端 | 自建会话（每个自动分配 git worktree）、流式渲染、步骤时间线（见下） |
 | CLI | `durable ask "…"` / `durable chat`（REPL）、`durable sessions` |
 | 输入 | 文字、图片（飞书 image/post 消息；客户端粘贴截图）、语音（本地 whisper） |

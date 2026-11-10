@@ -256,15 +256,19 @@ type PendingApproval = {
 };
 
 /**
- * A thread reply inside a normal (non-topic) group is collapsed behind "N 条回复",
- * which reads as "the bot never answered". Only thread when the question itself is
- * already in a thread; "always"/"never" override it.
+ * Answers belong in a topic: an @ in a group is a person asking one question, and the
+ * answer should not push the conversation aside for everyone else. A plain message in a
+ * group (only possible once the app may read all group messages) still answers inline.
+ * Feishu collapses thread replies behind "N 条回复", which is the trade-off the owner
+ * asked for; "always"/"never" override the whole rule.
  */
-function wantsThread(message: NonNullable<IncomingMessage["message"]>): boolean {
+export function wantsThread(message: NonNullable<IncomingMessage["message"]>): boolean {
   const mode = config.feishu.replyInThread;
   if (message.chat_type !== "group" || mode === "never") return false;
   if (mode === "always") return true;
-  return message.thread_id !== undefined && message.thread_id !== message.message_id;
+  const alreadyInThread = message.thread_id !== undefined && message.thread_id !== message.message_id;
+  const addressed = (message.mentions ?? []).length > 0;
+  return alreadyInThread || addressed;
 }
 
 function mentionFor(
