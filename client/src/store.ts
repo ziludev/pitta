@@ -14,6 +14,8 @@ import {
 import { initialLang, type Lang } from "@/i18n";
 import { setErrorSink } from "@/lib/api";
 import type {
+  GitInfo,
+  PushResult,
   Project,
   MemorySuggestion,
   MergeResult,
@@ -74,6 +76,10 @@ type State = {
   convMatches: number[];
   /** Recent client-side failures, newest last (the log file is not visible in-app). */
   errors: Array<{ at: string; message: string }>;
+  git?: GitInfo;
+  commitDiffs: Record<string, string>;
+  /** Text pushed into the composer by "edit and resend". */
+  composerDraft: string | null;
 
   init(): Promise<void>;
   select(conversationId: number): Promise<void>;
@@ -121,6 +127,10 @@ type State = {
   clearSuggestions(): void;
   loadApprovals(): Promise<void>;
   setConvQuery(query: string): void;
+  setComposerDraft(text: string | null): void;
+  loadGit(): Promise<void>;
+  loadCommitDiff(hash: string): Promise<string>;
+  pushBranch(dryRun?: boolean): Promise<PushResult>;
   pushError(message: string): void;
   clearErrors(): void;
   setConvMatches(ids: number[]): void;
@@ -191,6 +201,8 @@ export const useStore = create<State>((set, get) => ({
   convMatchIndex: 0,
   convMatches: [],
   errors: [],
+  commitDiffs: {},
+  composerDraft: null,
   favorites: JSON.parse(localStorage.getItem("agent.favoriteModels") ?? "[]") as string[],
   recents: JSON.parse(localStorage.getItem("agent.recentModels") ?? "[]") as string[],
 
@@ -292,7 +304,7 @@ export const useStore = create<State>((set, get) => ({
     socket.onerror = () => set({ connection: "failed" });
     socket.onclose = () => set({ connection: "closed" });
 
-    await Promise.all([get().loadMemory(), get().loadChanges()]);
+    await Promise.all([get().loadMemory(), get().loadChanges(), get().loadGit().catch(() => {})]);
   },
 
   async loadMemory() {
@@ -547,6 +559,38 @@ export const useStore = create<State>((set, get) => ({
 
   clearSuggestions() {
     set({ memorySuggestions: [] });
+  },
+
+  setComposerDraft(text) {
+    set({ composerDraft: text });
+  },
+
+  async loadGit() {
+    const id = get().current;
+    if (id === undefined) return;
+    const git = await api<GitInfo>(`/api/git?conversationId=${id}`);
+    set({ git });
+  },
+
+  async loadCommitDiff(hash) {
+    const cached = get().commitDiffs[hash];
+    if (cached !== undefined) return cached;
+    const id = get().current;
+    if (id === undefined) return "";
+    const result = await api<{ diff: string }>(`/api/git/diff?conversationId=${id}&hash=${hash}`);
+    set({ commitDiffs: { ...get().commitDiffs, [hash]: result.diff } });
+    return result.diff;
+  },
+
+  async pushBranch(dryRun = false) {
+    const id = get().current;
+    if (id === undefined) throw new Error("no conversation");
+    const result = await api<PushResult>("/api/git/push", {
+      method: "POST",
+      body: JSON.stringify({ conversationId: id, dryRun }),
+    });
+    await get().loadGit().catch(() => {});
+    return result;
   },
 
   pushError(message) {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MessageSquarePlus, Send, Trash2 } from "lucide-react";
 import { AnimateService, motion } from "motion/react";
-import { Brain, Check, GitCompareArrows, RefreshCw, Signal, Wand2 } from "lucide-react";
+import { Brain, Check, GitCommitHorizontal, GitCompareArrows, RefreshCw, Signal, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,7 @@ import { cssEase, easeInOutCubic, easeOutCubic, hoverLift, tabs } from "@/lib/mo
 import { EmptyState } from "@/components/ui/empty-state";
 import { Spinner } from "@/components/ui/spinner";
 import { CommitDialog } from "@/components/CommitDialog";
+import { Commits } from "@/components/Commits";
 import { UsageCalendar } from "@/components/UsageCalendar";
 import { MergeButton } from "@/components/MergeButton";
 import { DiffView } from "@/lib/diff";
@@ -356,6 +357,10 @@ export function SidePanel() {
             <GitCompareArrows className="size-3" />
             {tr(lang, "changes")}
           </TabsTrigger>
+          <TabsTrigger value="commits" className="gap-1.5 text-[11px]">
+            <GitCommitHorizontal className="size-3" />
+            {tr(lang, "commits")}
+          </TabsTrigger>
           <TabsTrigger value="usage" className="gap-1.5 text-[11px]">
             <Signal className="size-3" />
             {tr(lang, "usage")}
@@ -377,6 +382,9 @@ export function SidePanel() {
           >
             <TabsContent value="changes" className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <Changes />
+            </TabsContent>
+            <TabsContent value="commits" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <Commits />
             </TabsContent>
             <TabsContent value="usage" className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <UsageCalendar />

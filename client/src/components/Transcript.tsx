@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
+import { Copy, Pencil, RotateCcw } from "lucide-react";
+import { toast } from "sonner";
 import { tr } from "@/i18n";
 import type { Entry } from "@/lib/api";
 import { diffStats } from "@/lib/diff";
@@ -116,12 +118,44 @@ function groupTurns(entries: Entry[]): Turn[] {
   return turns;
 }
 
-function UserBubble({ entry }: { entry: Entry }) {
+/** Copy / resend / edit on hover. Regenerating in place is not possible: resending the
+ * same input is the honest equivalent, and it keeps the transcript truthful. */
+function MessageActions({ text, onRetry }: { text: string; onRetry?: () => void }) {
+  const { lang, setComposerDraft, submit } = useStore();
+  const copy = (): void => {
+    void navigator.clipboard?.writeText(text);
+    toast(tr(lang, "copied"));
+  };
+  return (
+    <div className="flex gap-0.5 opacity-0 transition group-hover:opacity-100">
+      <button onClick={copy} title={tr(lang, "copy")} className="rounded p-1 text-muted-foreground hover:text-foreground">
+        <Copy className="size-3" />
+      </button>
+      <button
+        onClick={() => setComposerDraft(text)}
+        title={tr(lang, "edit")}
+        className="rounded p-1 text-muted-foreground hover:text-foreground"
+      >
+        <Pencil className="size-3" />
+      </button>
+      {onRetry === undefined ? null : (
+        <button onClick={onRetry} title={tr(lang, "retry")} className="rounded p-1 text-muted-foreground hover:text-foreground">
+          <RotateCcw className="size-3" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function UserBubble({ entry, onRetry }: { entry: Entry; onRetry?: () => void }) {
   const { lang, convQuery } = useStore();
   const parts = partsOf(entry.model);
   const images = parts.filter((part) => part["type"] === "image").length;
   return (
-    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="flex justify-end">
+    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="group flex items-start justify-end gap-1">
+      <div className="mt-1 shrink-0">
+        <MessageActions text={textOf(parts)} onRetry={onRetry} />
+      </div>
       <div className="max-w-[86%] rounded-xl rounded-br-sm border border-primary/25 bg-primary/12 px-3 py-2 text-[13px] leading-relaxed">
         <Markdown text={textOf(parts)} highlight={convQuery} />
         {images > 0 ? (
@@ -134,12 +168,23 @@ function UserBubble({ entry }: { entry: Entry }) {
   );
 }
 
-function AnswerBubble({ entry }: { entry: Entry }) {
+function AnswerBubble({ entry, retryText }: { entry: Entry; retryText?: string }) {
   const convQuery = useStore((state) => state.convQuery);
+  const { lang, submit } = useStore();
   return (
-    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="max-w-[92%]">
+    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="group flex max-w-[92%] items-start gap-1">
       <div className="rounded-xl rounded-bl-sm border border-border bg-card/70 px-3 py-2 text-[13px] leading-relaxed">
         <Markdown text={textOf(partsOf(entry.model))} highlight={convQuery} />
+      </div>
+      <div className="mt-1 shrink-0">
+        <MessageActions
+          text={textOf(partsOf(entry.model))}
+          onRetry={
+            retryText === undefined
+              ? undefined
+              : () => void submit(retryText, "followUp").then(() => toast(tr(lang, "resent")))
+          }
+        />
       </div>
     </motion.div>
   );
@@ -190,7 +235,7 @@ function LiveBlock() {
 }
 
 export function Transcript() {
-  const { entries, focusEntry, lang, convQuery, setConvMatches } = useStore();
+  const { entries, focusEntry, lang, convQuery, setConvMatches, submit } = useStore();
   const boxRef = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
   const [unseen, setUnseen] = useState(0);
@@ -260,14 +305,22 @@ export function Transcript() {
       <div className="flex flex-col gap-2">
         {turns.map((turn) => (
           <div key={turn.id} className="flex flex-col gap-1.5" data-entry={turn.anchor.id}>
-            {turn.user !== undefined ? <UserBubble entry={turn.user} /> : null}
+            {turn.user !== undefined ? (
+              <UserBubble
+                entry={turn.user}
+                onRetry={() => void submit(textOf(partsOf(turn.user!.model)), "followUp")}
+              />
+            ) : null}
             {turn.reports.map((entry) => (
               <FeatureReport key={entry.id} entry={entry} />
             ))}
             <StepRail turn={turn} />
             {turn.finals.map((entry) => (
               <div key={entry.id} data-entry={entry.id}>
-                <AnswerBubble entry={entry} />
+                <AnswerBubble
+                  entry={entry}
+                  retryText={turn.user === undefined ? undefined : textOf(partsOf(turn.user.model))}
+                />
               </div>
             ))}
             <TurnDivider stats={turn.stats} />

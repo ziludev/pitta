@@ -95,7 +95,7 @@ bun run build    # 产出 build/darwin-arm64/Agent.app + .dmg
 
 - 左栏：会话列表（**客户端自建会话 / 飞书会话 / cli 测试**，按标题显示并按来源过滤，`+` 新建对话；每行 `⋯` 可**重命名 / 归档 / 清理工作区**，归档项默认隐藏）、运行中的后台任务、agent 状态与 重启/备份/日志 按钮、累计花费
 - 中间：transcript 流式渲染（用户/助手/工具输出折叠/思考折叠/需求报告），`/new` `/stop`，插话（steer）开关
-- 右栏：两个 tab —— **改动**（工作区 git diff，逐文件折叠、+/- 着色、一键提交、**合并回主线**）和 **记忆**（全局/工作/本对话）
+- 右栏：三个 tab —— **改动**（工作区 git diff，逐文件折叠、+/- 着色、一键提交、**合并回主线**）、**提交**（本会话分支相对主线的 commit 列表，展开看每个 commit 的 patch，可推送并拿到 PR/MR 链接）、**用量**（按日 token 方块图）与 **记忆**（全局/工作/本对话）
 - **模型选择器**在输入框那一行（标题栏只留会话信息与查找），命令面板式（参考 ThinkRail）：搜索框（名称/provider/id）+ 最近使用 + 收藏（★）+ 按 provider 折叠分组（当前 provider 默认展开）+ 每个模型显示 `provider · 每百万 $in/$out · 上下文`；底部「力度」滑杆调 thinking level，还有「设为默认」（写 durable `app.default-model`，新会话生效）和「刷新」。切换只影响该会话（`configure({model})`）
 - **token 方块图**（右栏「用量」tab）：GitHub 贡献图样式，17 周，按日总量着色；近 7/30 天与合计
 - 中英切换（默认跟随系统语言，`?lang=zh|en` 可强制；选择记在 localStorage）
@@ -291,6 +291,9 @@ ThinkRail 的三层是 project → workspace → chats，我们补上了 project
 ```
 GET  /api/projects            已打开的项目
 POST /api/projects            { path } 打开一个仓库（~ 可用）
+GET  /api/git?conversationId= 本会话分支、基线、commit 列表、本地分支、远端类型、PR/MR 链接
+GET  /api/git/diff?hash=      单个 commit 的 patch
+POST /api/git/push            { conversationId, dryRun? } 推当前分支到 origin（dryRun 只报告）
 POST /api/conversations       { projectId } 在该项目里新建会话
 ```
 

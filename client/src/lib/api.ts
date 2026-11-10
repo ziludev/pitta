@@ -2,6 +2,32 @@ import { Agent } from "@/mygo";
 
 /** feishu = a group/p2p chat, client = a chat started in this app, other = cli/tests. */
 export type SurfaceKind = "feishu" | "client" | "other";
+export type Commit = {
+  hash: string;
+  short: string;
+  date: string;
+  subject: string;
+  files: number;
+  added: number;
+  removed: number;
+};
+
+export type GitInfo = {
+  worktree: string;
+  branch: string;
+  base: string;
+  commits: Commit[];
+  branches: Array<{ name: string; current: boolean; upstream?: string; track?: string }>;
+  remote: { url?: string; kind: "github" | "gitlab" | "other" | "none"; webUrl?: string };
+  compareUrl?: string;
+};
+
+export type PushResult =
+  | { status: "pushed"; branch: string; remote: string; compareUrl?: string }
+  | { status: "dry-run"; branch: string; remote: string; output: string }
+  | { status: "no-remote" }
+  | { status: "error"; message: string };
+
 export type Project = { id: string; name: string; path: string; builtin?: boolean; createdAt: number };
 export type Surface = {
   surfaceId: string;

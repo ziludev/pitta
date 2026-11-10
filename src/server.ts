@@ -9,7 +9,8 @@ import { collectChanges, commitChanges, ensureRepo } from "./changes.ts";
 import { mergeWorktree } from "./worktree.ts";
 import { listApprovals, resolveApproval } from "./approvals.ts";
 import { surfaceMeta, updateSurfaceMeta } from "./surface-meta.ts";
-import { removeWorktree } from "./worktree.ts";
+import { removeWorktree, worktreePaths } from "./worktree.ts";
+import { branches, commitDiff, commitLog, compareUrl, pushBranch, remoteInfo } from "./git-info.ts";
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import { ChatMemory, GlobalMemory, WorkMemory } from "./memory.ts";
@@ -472,6 +473,52 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         if (callId.length === 0) return send(res, 400, { error: "callId required" });
         const handled = resolveApproval(callId, approved, "client");
         return send(res, handled ? 200 : 404, { ok: handled });
+      }
+
+      if (req.method === "GET" && path === "/api/git") {
+        const conversationId = Number(url.searchParams.get("conversationId"));
+        if (!Number.isFinite(conversationId)) return send(res, 400, { error: "conversationId required" });
+        const worktree = await dirFor(conversationId);
+        const projectPath = await runtime.projectPathOf(conversationId);
+        const [commits, branchList, remote] = await Promise.all([
+          commitLog(worktree, projectPath, Math.min(Number(url.searchParams.get("limit") ?? 20) || 20, 100)),
+          branches(projectPath),
+          remoteInfo(projectPath),
+        ]);
+        const head = await execGit(worktree, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "");
+        const base = await execGit(projectPath, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "");
+        return send(res, 200, {
+          worktree,
+          branch: head.trim(),
+          base: base.trim(),
+          commits,
+          branches: branchList,
+          remote,
+          compareUrl: compareUrl(remote, base.trim(), head.trim()),
+        });
+      }
+
+      if (req.method === "GET" && path === "/api/git/diff") {
+        const conversationId = Number(url.searchParams.get("conversationId"));
+        const hash = url.searchParams.get("hash") ?? "";
+        if (!Number.isFinite(conversationId) || !/^[0-9a-f]{6,40}$/i.test(hash)) {
+          return send(res, 400, { error: "conversationId and hash required" });
+        }
+        const diff = await commitDiff(await dirFor(conversationId), hash);
+        return send(res, 200, { hash, diff });
+      }
+
+      if (req.method === "POST" && path === "/api/git/push") {
+        const body = await readJson(req);
+        const conversationId = conversationIdOf(body);
+        if (conversationId === undefined) return send(res, 400, { error: "conversationId required" });
+        const worktree = await dirFor(conversationId);
+        const projectPath = await runtime.projectPathOf(conversationId);
+        const branch =
+          (await execGit(worktree, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "")).trim() ||
+          worktreePaths(projectPath, conversationId).branch;
+        const result = await pushBranch(worktree, projectPath, branch, { dryRun: body["dryRun"] === true });
+        return send(res, 200, result);
       }
 
       if (req.method === "GET" && path === "/api/tasks") {

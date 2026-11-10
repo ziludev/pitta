@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Send } from "lucide-react";
 import { ModelPicker } from "@/components/ModelPicker";
 import { Button } from "@/components/ui/button";
@@ -7,8 +7,17 @@ import { tr } from "@/i18n";
 import { useStore } from "@/store";
 
 export function Composer() {
-  const { lang, current, submit } = useStore();
+  const { lang, current, submit, composerDraft, setComposerDraft } = useStore();
   const [text, setText] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // "Edit and resend" pushes the old text here; focus so a fix can be typed at once.
+  useEffect(() => {
+    if (composerDraft === null) return;
+    setText(composerDraft);
+    setComposerDraft(null);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, [composerDraft, setComposerDraft]);
   const [steer, setSteer] = useState(false);
 
   const disabled = current === undefined || text.trim().length === 0;
@@ -23,6 +32,7 @@ export function Composer() {
   return (
     <div className="border-t border-border px-4 pt-3 pb-3.5">
       <Textarea
+        ref={inputRef}
         value={text}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
