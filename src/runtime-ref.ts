@@ -13,3 +13,15 @@ export function setHarnessRef(next: Harness): void {
 export function getHarness(): Harness | undefined {
   return harness;
 }
+
+/** The session runtime (projects, git, conversations), for tools that need host services. */
+type Runtime = Awaited<ReturnType<typeof import("./harness.ts").openRuntime>>;
+let runtime: Runtime | undefined;
+
+export function setRuntimeRef(next: Runtime): void {
+  runtime = next;
+}
+
+export function getRuntime(): Runtime | undefined {
+  return runtime;
+}

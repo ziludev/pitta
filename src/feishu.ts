@@ -44,6 +44,7 @@ const HELP = [
   "- `/stop` 中断当前任务",
   "- `/cost` 今日花费",
   "- `/memory` 看记忆内容",
+  "- `/project` 看/切换工作仓库（带参数即切换）",
   "- `/id` 当前 chat 与 conversation",
   "",
   "直接说话就行：能查文件、跑命令、定时提醒、记长期记忆。",
@@ -623,10 +624,44 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       );
       return;
     }
-    if (/^\/(id|会话)$/i.test(command)) {
+    if (/^\/(project|项目|projects?)(\s|$)/i.test(command)) {
+      const wanted = command.replace(/^\/(project|项目|projects?)\s*/i, "").trim();
+      const conversationId = conversation.id as unknown as number;
+      const projects = await runtime.projects();
+      const currentId = await runtime.projectOfConversation(conversationId);
+
+      if (wanted.length === 0) {
+        const lines = projects.map(
+          (project) => `- ${project.name}${project.id === currentId ? " ← 当前" : ""}\n  \`${project.path}\``,
+        );
+        await replyCard(
+          message.message_id,
+          `当前仓库：${projects.find((p) => p.id === currentId)?.name ?? "workspace"}\n\n${lines.join("\n")}\n\n切换：\`/project ${projects[0]?.name ?? "名字"}\``,
+          "📦 项目",
+          { thread: wantsThread(message), mention: mentionFor(event, message) },
+        );
+        return;
+      }
+      if (!isOwner) {
+        await sendText(chatId, "只有 owner 能切仓库。");
+        return;
+      }
+      const result = await runtime.switchProject(conversationId, wanted);
+      if ("error" in result) {
+        await sendText(chatId, `${result.error}\n可选：${result.candidates.join("、") || "（无）"}`);
+        return;
+      }
       await sendText(
         chatId,
-        `chat: ${chatId}\nconversation: ${conversation.id}${threadKey === undefined ? "" : `\nthread: ${threadKey}（已 fork）`}`,
+        `已切到 ${result.project.name}\n目录：${result.dir}\n分支：${result.branch}\n上下文保留，接着说就行。`,
+      );
+      return;
+    }
+    if (/^\/(id|会话)$/i.test(command)) {
+      const currentProjectId = await runtime.projectOfConversation(conversation.id as unknown as number);
+      await sendText(
+        chatId,
+        `chat: ${chatId}\nconversation: ${conversation.id}${threadKey === undefined ? "" : `\nthread: ${threadKey}（已 fork）`}\nproject: ${(await runtime.projects()).find((project) => project.id === currentProjectId)?.name ?? "workspace"}`,
       );
       return;
     }

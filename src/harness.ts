@@ -23,6 +23,7 @@ import { guardExtension } from "./approval.ts";
 import { larkExtension } from "./lark-tools.ts";
 import { skillsExtension } from "./skills.ts";
 import { subagentExtension } from "./subagents.ts";
+import { projectExtension } from "./project-tools.ts";
 import { UsageSampler, UsageDays, sampleUsage, usageCalendar } from "./usage-days.ts";
 import { applySuggestions, curateMemory } from "./curator.ts";
 import { connectMcp, type McpRuntime } from "./mcp.ts";
@@ -30,6 +31,7 @@ import { personalExtension } from "./personal.ts";
 import { checkBudget, type BudgetCheck } from "./budget.ts";
 import { rememberSurface } from "./channel.ts";
 import { setWaitRecorder } from "./approvals.ts";
+import { setRuntimeRef } from "./runtime-ref.ts";
 import { log } from "./log.ts";
 import { acquireStorageLock } from "./storage-lock.ts";
 import { ensureRepo } from "./changes.ts";
@@ -96,6 +98,12 @@ export type AgentRuntime = {
   originBranchOf(conversationId: number): Promise<string | undefined>;
   setBaseBranch(conversationId: number, branch: string): Promise<void>;
   projects(): Promise<Project[]>;
+  /** Moves an existing chat into another project's worktree, keeping the transcript. */
+  switchProject(
+    conversationId: number,
+    query: string,
+    base?: string,
+  ): Promise<{ project: Project; dir: string; branch: string } | { error: string; candidates: string[] }>;
   addProject(path: string): Promise<AddProjectResult>;
   /** The repository root a conversation works in, for merge and project-scoped diffs. */
   projectPathOf(conversationId: number): Promise<string>;
@@ -168,6 +176,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   registry.install(reminderExtension);
   registry.install(guardExtension);
   registry.install(subagentExtension);
+  registry.install(projectExtension);
   registry.install(defineExtension({ name: "usage-sampler", tasks: [UsageSampler] }));
   if (mcp.extension !== undefined) registry.install(mcp.extension);
 
@@ -310,6 +319,54 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     log("agent", "compare base changed", { conversationId, branch });
   }
 
+  /**
+   * Re-points a live conversation at another repo. The transcript stays: Feishu has one
+   * conversation per group, so "修一下 example-service" must not throw away what was said.
+   */
+  async function switchProject(
+    conversationId: number,
+    query: string,
+    base?: string,
+  ): Promise<{ project: Project; dir: string; branch: string } | { error: string; candidates: string[] }> {
+    const projects = await listProjects(harness, context);
+    const needle = query.trim().toLowerCase();
+    const matched = projects.filter(
+      (project) =>
+        project.id === query ||
+        project.name.toLowerCase() === needle ||
+        project.name.toLowerCase().includes(needle) ||
+        project.path.toLowerCase().includes(needle),
+    );
+    const names = projects.map((project) => `${project.name} (${project.id})`);
+    if (matched.length === 0) return { error: `没有匹配的项目：${query}`, candidates: names };
+    if (matched.length > 1) return { error: `匹配到多个项目：${matched.map((m) => m.name).join(", ")}`, candidates: names };
+    const project = matched[0]!;
+
+    await prepareProject(project.path);
+    const conversation = await harness.conversation(conversationId as never, context);
+    if (conversation === undefined) return { error: "会话不存在", candidates: names };
+
+    await bindProject(harness, context, conversationId, project.id);
+    const origin = base ?? (await gitBranchOf(project.path)) ?? "HEAD";
+    await setOrigin(harness, context, conversationId, origin);
+
+    // Move the cwd first, then the worktree: a failed checkout must not leave the chat
+    // pointing at a directory that does not exist.
+    let dir = project.path;
+    let branch = origin;
+    await conversation.configure({ cwd: project.path }, context).catch(() => {});
+    if (config.worktree !== "off") {
+      const worktree = await ensureWorktree(project.path, conversationId, base);
+      if (worktree !== undefined) {
+        dir = worktree.dir;
+        branch = worktree.branch;
+        await conversation.configure({ cwd: worktree.dir }, context).catch(() => {});
+      }
+    }
+    log("project", "conversation switched project", { conversationId, project: project.id, dir });
+    return { project, dir, branch };
+  }
+
   async function projectPathOf(conversationId: number): Promise<string> {
     const projectId = await projectOf(harness, context, conversationId);
     const projects = await listProjects(harness, context);
@@ -436,7 +493,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
 
   log("agent", `mcp: ${mcp.serverCount} servers, ${mcp.toolCount} tools`);
 
-  return {
+  const runtime: AgentRuntime = {
     harness,
     conversationFor,
     attachSurface,
@@ -445,6 +502,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     originBranchOf,
     setBaseBranch,
     projects: () => listProjects(harness, context),
+    switchProject,
     addProject: (path: string) => addProject(harness, context, path),
     projectPathOf,
     projectOfConversation: (conversationId: number) => projectOf(harness, context, conversationId),
@@ -530,6 +588,9 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     },
     mcp: mcp as McpRuntime,
   };
+
+  setRuntimeRef(runtime);
+  return runtime;
 }
 
 export { ConversationBusy };
