@@ -31,6 +31,38 @@ import { tr } from "@/i18n";
 import type { Surface, Task } from "@/lib/api";
 import { useStore } from "@/store";
 
+const TASK_LABELS: Record<string, Record<string, string>> = {
+  "app.feature": { zh: "需求流水线", en: "Feature pipeline" },
+  "app.reminder": { zh: "定时提醒", en: "Reminder" },
+};
+
+const STATE_LABELS: Record<string, Record<string, string>> = {
+  pending: { zh: "排队中", en: "queued" },
+  running: { zh: "运行中", en: "running" },
+  waiting: { zh: "等待中", en: "waiting" },
+  sleeping: { zh: "休眠", en: "sleeping" },
+  completing: { zh: "收尾", en: "finishing" },
+};
+
+/** Traffic-light dot: green = working, amber = queued/asleep, red = needs a look. */
+const TASK_DOT: Record<string, string> = {
+  running: "bg-emerald-400",
+  completing: "bg-emerald-400",
+  pending: "bg-amber-400",
+  waiting: "bg-amber-400",
+  sleeping: "bg-amber-400",
+  blocked: "bg-rose-500",
+  faulted: "bg-rose-500",
+};
+
+function taskLabel(lang: "zh" | "en", kind: string): string {
+  return TASK_LABELS[kind]?.[lang] ?? kind;
+}
+
+function taskState(lang: "zh" | "en", state: string): string {
+  return STATE_LABELS[state]?.[lang] ?? state;
+}
+
 function surfaceLabel(surfaceId: string, feishu: string): string {
   return surfaceId.startsWith("oc_") ? `${feishu} ${surfaceId.slice(3, 9)}` : surfaceId;
 }
@@ -163,7 +195,11 @@ export function Rail() {
     return a.conversationId - b.conversationId;
   });
 
-  const liveTasks = tasks.filter((task) => !task.kind.startsWith("pi."));
+  // Infrastructure tasks (usage sampling) and internal pi.* tasks are noise here:
+  // the rail shows the work the owner started.
+  const liveTasks = tasks.filter(
+    (task) => task.kind.startsWith("app.") && task.kind !== "app.usage-sampler",
+  );
 
   function onDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -294,11 +330,15 @@ export function Rail() {
           <div className="py-2 text-[11px] text-muted-foreground">{tr(lang, "noTasks")}</div>
         ) : (
           liveTasks.map((task: Task) => (
-            <div key={task.id} className="flex items-baseline justify-between gap-2 py-0.5 text-[11px]">
-              <span className="truncate">{task.kind}</span>
-              <Badge variant="secondary" className="shrink-0 text-[10px]">
-                #{task.id} {task.state}
-              </Badge>
+            <div key={task.id} className="flex items-center gap-1.5 py-1 text-[11px]">
+              <span
+                className={`size-1.5 shrink-0 rounded-full ${TASK_DOT[task.state] ?? "bg-muted-foreground/40"} ${
+                  task.state === "running" ? "animate-pulse" : ""
+                }`}
+                title={taskState(lang, task.state)}
+              />
+              <span className="min-w-0 flex-1 truncate">{taskLabel(lang, task.kind)}</span>
+              <span className="shrink-0 text-[10px] text-muted-foreground/70">{taskState(lang, task.state)}</span>
             </div>
           ))
         )}
