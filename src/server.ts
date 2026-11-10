@@ -606,6 +606,13 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         const callId = typeof body["callId"] === "string" ? body["callId"] : "";
         const approved = body["approved"] === true;
         if (callId.length === 0) return send(res, 400, { error: "callId required" });
+        // "Allow for the rest of this conversation": worth doing before the resolve, so a
+        // run that resumes immediately already sees the grant.
+        const pending = listApprovals().find((entry) => entry.callId === callId);
+        if (approved && body["session"] === true && pending?.grantKey !== undefined) {
+          const conversationId = Number(body["conversationId"] ?? pending.conversationId ?? 0);
+          if (conversationId > 0) await runtime.grantSession(conversationId, pending.grantKey);
+        }
         const handled = resolveApproval(callId, approved, "client");
         return send(res, handled ? 200 : 404, { ok: handled });
       }

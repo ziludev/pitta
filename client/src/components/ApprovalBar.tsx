@@ -52,6 +52,16 @@ export function ApprovalBar() {
             <Button size="xs" variant="secondary" onClick={() => void decideApproval(approval.callId, true)}>
               {tr(lang, "allow")}
             </Button>
+            {approval.grantKey === undefined ? null : (
+              <Button
+                size="xs"
+                variant="outline"
+                title={tr(lang, "allowSessionHint")}
+                onClick={() => void decideApproval(approval.callId, true, { session: true })}
+              >
+                {tr(lang, "allowSession")}
+              </Button>
+            )}
             <Button size="xs" variant="ghost" onClick={() => void decideApproval(approval.callId, false)}>
               {tr(lang, "deny")}
             </Button>

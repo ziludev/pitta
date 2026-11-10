@@ -31,8 +31,9 @@ import { personalExtension } from "./personal.ts";
 import { checkBudget, type BudgetCheck } from "./budget.ts";
 import { rememberSurface } from "./channel.ts";
 import { setWaitRecorder } from "./approvals.ts";
+import { grantSession, loadGrants } from "./grants.ts";
 import { setRuntimeRef } from "./runtime-ref.ts";
-import { log } from "./log.ts";
+import { log, logError } from "./log.ts";
 import { acquireStorageLock } from "./storage-lock.ts";
 import { ensureRepo } from "./changes.ts";
 import { ensureWorktree, worktreePaths } from "./worktree.ts";
@@ -144,6 +145,8 @@ export type AgentRuntime = {
   ): Promise<void>;
   usageCalendar(days: number): Promise<Array<{ date: string; cost: number; tokens: number }>>;
   approvalWaits(conversationId: number): Promise<Array<{ start: number; end: number; tool: string }>>;
+  /** "Allow this risk class for the rest of the conversation". */
+  grantSession: (conversationId: number, key: string) => Promise<void>;
   curateMemory(hours?: number): Promise<import("./curator.ts").CurateResult>;
   applyMemorySuggestions(
     accepted: import("./curator.ts").Suggestion[],
@@ -207,6 +210,8 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   );
   harness.resume();
   setHarnessRef(harness);
+  // Session grants are read by the guard on every tool call: load them once at boot.
+  await loadGrants(harness, context).catch((error) => logError("approval", "could not load grants", error));
 
   // An approval blocks a run; those seconds belong to the turn, not to nowhere.
   setWaitRecorder((wait) => {
@@ -590,6 +595,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
       ),
     curateMemory: (hours) => curateMemory(harness, models, context, { hours }),
     applyMemorySuggestions: (accepted) => applySuggestions(harness, context, accepted),
+    grantSession: (conversationId: number, key: string) => grantSession(harness, context, conversationId, key),
     approvalWaits: async (conversationId) => {
       const doc = await harness.snapshot(ApprovalWaits, context);
       return (doc?.waits ?? [])

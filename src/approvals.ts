@@ -1,6 +1,8 @@
 import { log } from "./log.ts";
 
 export type PendingApproval = {
+  /** Risk class the caller may grant for the whole conversation. */
+  grantKey?: string;
   callId: string;
   tool: string;
   summary: string;
@@ -41,10 +43,10 @@ export function registerApproval(
   log("approval", "registered", { callId: entry.callId.slice(-12), tool: entry.tool, surfaceId: entry.surfaceId });
 }
 
-export function listApprovals(): Array<Omit<PendingApproval, "resolve">> {
+export function listApprovals(): Array<Omit<PendingApproval, "resolve"> & { conversationId?: number }> {
   return [...pending.values()]
     .sort((a, b) => a.createdAt - b.createdAt)
-    .map(({ resolve: _resolve, ...rest }) => rest);
+    .map(({ resolve: _resolve, ...rest }) => ({ ...rest, conversationId: conversations.get(rest.callId) }));
 }
 
 export function resolveApproval(callId: string, approved: boolean, by = "unknown"): boolean {

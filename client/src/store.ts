@@ -148,7 +148,7 @@ type State = {
   clearErrors(): void;
   setConvMatches(ids: number[]): void;
   stepMatch(direction: 1 | -1): void;
-  decideApproval(callId: string, approved: boolean): Promise<void>;
+  decideApproval(callId: string, approved: boolean, options?: { session?: boolean }): Promise<void>;
 };
 
 let socket: WebSocket | undefined;
@@ -680,8 +680,11 @@ export const useStore = create<State>((set, get) => ({
     if (fresh) set({ focusApprovalAt: Date.now() } as never);
   },
 
-  async decideApproval(callId, approved) {
-    await api("/api/approvals", { method: "POST", body: JSON.stringify({ callId, approved }) });
+  async decideApproval(callId, approved, options) {
+    await api("/api/approvals", {
+      method: "POST",
+      body: JSON.stringify({ callId, approved, session: options?.session === true, conversationId: get().current }),
+    });
     set({ approvals: get().approvals.filter((entry) => entry.callId !== callId) });
   },
 

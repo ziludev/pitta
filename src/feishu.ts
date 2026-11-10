@@ -89,7 +89,7 @@ function renderDetails(details: TurnDetails): string {
   return `${header}\n\n${lines.join("\n\n")}`;
 }
 
-function approvalCard(request: ApprovalRequest): Record<string, unknown> {
+export function approvalCard(request: ApprovalRequest): Record<string, unknown> {
   return {
     config: { wide_screen_mode: true, update_multi: true },
     header: {
@@ -109,6 +109,18 @@ function approvalCard(request: ApprovalRequest): Record<string, unknown> {
             type: "primary",
             value: { approval: request.callId, ok: true },
           },
+          // One chat deliberately writing outside the workspace should not raise this
+          // card per file: grant the class for the rest of the conversation.
+          ...(request.grantKey === undefined
+            ? []
+            : [
+                {
+                  tag: "button",
+                  text: { tag: "plain_text", content: "本会话内全部允许" },
+                  type: "default",
+                  value: { approval: request.callId, ok: true, session: true, key: request.grantKey },
+                },
+              ]),
           {
             tag: "button",
             text: { tag: "plain_text", content: "拒绝" },
@@ -253,6 +265,8 @@ type PendingApproval = {
   resolve: (approved: boolean) => void;
   timer: NodeJS.Timeout;
   chatId: string;
+  /** The original ask, so a session-wide grant knows which conversation it belongs to. */
+  request: ApprovalRequest;
 };
 
 /**
@@ -451,11 +465,12 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
           resolve(false);
         }
       }, request.timeoutMs);
-      pendingApprovals.set(request.callId, { resolve, timer, chatId: request.surfaceId });
+      pendingApprovals.set(request.callId, { resolve, timer, chatId: request.surfaceId, request });
       // The desktop client sees the same request and may answer it first.
       registerApproval({
         callId: request.callId,
         conversationId: request.conversationId,
+        grantKey: request.grantKey,
         tool: request.tool,
         summary: request.summary,
         reason: request.reason,
@@ -578,6 +593,14 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     pendingApprovals.delete(callId);
     clearTimeout(entry.timer);
     const approved = value["ok"] === true;
+    if (approved && value["session"] === true && typeof value["key"] === "string") {
+      const conversationId = entry.request.conversationId;
+      if (conversationId !== undefined) {
+        void runtime.grantSession(conversationId, value["key"]).catch((error) =>
+          logError("feishu", "could not store session grant", error),
+        );
+      }
+    }
     // Route through the registry so the client's pending list clears too.
     const handled = resolveApproval(callId, approved, `feishu:${operator.slice(-6)}`);
     if (!handled) entry.resolve(approved);

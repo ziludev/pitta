@@ -117,6 +117,8 @@ export type ModelEntry = {
 };
 export type PendingApproval = {
   callId: string;
+  /** Risk class, when the caller may grant it for the rest of this conversation. */
+  grantKey?: string;
   tool: string;
   summary: string;
   reason: string;

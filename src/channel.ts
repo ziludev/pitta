@@ -24,6 +24,8 @@ export type ApprovalRequest = {
   callId: string;
   /** Conversation the blocked call belongs to, so the wait can be charted on its turn. */
   conversationId: number;
+  /** Risk class, for a grant that covers the rest of the conversation. */
+  grantKey?: string;
   tool: string;
   /** One-line summary of what the model is about to do. */
   summary: string;
