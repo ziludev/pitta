@@ -63,6 +63,10 @@ type State = {
   memorySuggestions: MemorySuggestion[];
   curating: boolean;
   approvals: PendingApproval[];
+  /** In-conversation search. */
+  convQuery: string;
+  convMatchIndex: number;
+  convMatches: number[];
 
   init(): Promise<void>;
   select(conversationId: number): Promise<void>;
@@ -107,6 +111,9 @@ type State = {
   applySuggestions(accepted: MemorySuggestion[]): Promise<{ added: number; skipped: number }>;
   clearSuggestions(): void;
   loadApprovals(): Promise<void>;
+  setConvQuery(query: string): void;
+  setConvMatches(ids: number[]): void;
+  stepMatch(direction: 1 | -1): void;
   decideApproval(callId: string, approved: boolean): Promise<void>;
 };
 
@@ -162,6 +169,9 @@ export const useStore = create<State>((set, get) => ({
   memorySuggestions: [],
   curating: false,
   approvals: [],
+  convQuery: "",
+  convMatchIndex: 0,
+  convMatches: [],
   favorites: JSON.parse(localStorage.getItem("agent.favoriteModels") ?? "[]") as string[],
   recents: JSON.parse(localStorage.getItem("agent.recentModels") ?? "[]") as string[],
 
@@ -182,6 +192,9 @@ export const useStore = create<State>((set, get) => ({
         ? requested
         : sorted[sorted.length - 1]?.conversationId;
     if (target !== undefined) await get().select(target);
+    // ?q= ... deep links a search inside the conversation.
+    const query = new URLSearchParams(location.search).get("q");
+    if (query !== null && query.trim().length >= 2) get().setConvQuery(query);
     setInterval(() => {
       void get()
         .refreshSurfaces()
@@ -493,6 +506,24 @@ export const useStore = create<State>((set, get) => ({
 
   clearSuggestions() {
     set({ memorySuggestions: [] });
+  },
+
+  setConvQuery(query) {
+    set({ convQuery: query, convMatchIndex: 0, convMatches: [] });
+  },
+
+  setConvMatches(ids) {
+    if (ids.length === get().convMatches.length && ids.every((id, index) => id === get().convMatches[index])) return;
+    set({ convMatches: ids, convMatchIndex: 0 });
+    if (ids.length > 0) get().setFocusEntry(ids[0]);
+  },
+
+  stepMatch(direction) {
+    const { convMatches, convMatchIndex } = get();
+    if (convMatches.length === 0) return;
+    const next = (convMatchIndex + direction + convMatches.length) % convMatches.length;
+    set({ convMatchIndex: next });
+    get().setFocusEntry(convMatches[next]!);
   },
 
   async loadApprovals() {

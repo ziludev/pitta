@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 /** Tiny markdown subset: fenced code, inline code, bold, line breaks. React escapes text. */
-export function Markdown({ text }: { text: string }): ReactNode {
+export function Markdown({ text, highlight }: { text: string; highlight?: string }): ReactNode {
   const blocks = text.split(/```/);
   return (
     <>
@@ -17,13 +17,13 @@ export function Markdown({ text }: { text: string }): ReactNode {
             </pre>
           );
         }
-        return <span key={index}>{inline(block)}</span>;
+        return <span key={index}>{inline(block, highlight)}</span>;
       })}
     </>
   );
 }
 
-function inline(text: string): ReactNode[] {
+function inline(text: string, highlight?: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   const pattern = /`([^`]+)`|\*\*([^*]+)\*\*|\n/g;
   let last = 0;
@@ -45,5 +45,30 @@ function inline(text: string): ReactNode[] {
     last = match.index + match[0].length;
   }
   if (last < text.length) nodes.push(text.slice(last));
-  return nodes;
+  return highlight === undefined || highlight.length === 0 ? nodes : markMatches(nodes, highlight);
+}
+
+/** Wraps occurrences of `needle` in <mark>, keeping existing nodes intact. */
+function markMatches(nodes: ReactNode[], needle: string): ReactNode[] {
+  const pattern = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+  const out: ReactNode[] = [];
+  for (const node of nodes) {
+    if (typeof node !== "string") {
+      out.push(node);
+      continue;
+    }
+    let last = 0;
+    for (const match of node.matchAll(pattern)) {
+      const at = match.index ?? 0;
+      if (at > last) out.push(node.slice(last, at));
+      out.push(
+        <mark key={`m-${at}`} className="rounded bg-amber-400/35 px-0.5 text-inherit">
+          {match[0]}
+        </mark>,
+      );
+      last = at + match[0].length;
+    }
+    if (last < node.length) out.push(node.slice(last));
+  }
+  return out;
 }

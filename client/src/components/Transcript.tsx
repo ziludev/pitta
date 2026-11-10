@@ -28,6 +28,13 @@ const isThinkingOrTool = (entry: Entry): boolean => {
   return hasCall || !hasText;
 };
 
+/** Plain text of an entry, for in-conversation search. */
+function entryText(entry: Entry): string {
+  const parts = partsOf(entry.model);
+  const payload = (entry.data ?? {}) as { text?: string };
+  return `${textOf(parts)} ${payload.text ?? ""}`.trim();
+}
+
 function timestampOf(entry: Entry): number | undefined {
   const messages = Array.isArray(entry.model) ? (entry.model as Array<Record<string, unknown>>) : [];
   const stamped = messages.find((message) => typeof message["timestamp"] === "number");
@@ -110,13 +117,13 @@ function groupTurns(entries: Entry[]): Turn[] {
 }
 
 function UserBubble({ entry }: { entry: Entry }) {
-  const { lang } = useStore();
+  const { lang, convQuery } = useStore();
   const parts = partsOf(entry.model);
   const images = parts.filter((part) => part["type"] === "image").length;
   return (
     <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="flex justify-end">
       <div className="max-w-[86%] rounded-xl rounded-br-sm border border-primary/25 bg-primary/12 px-3 py-2 text-[13px] leading-relaxed">
-        <Markdown text={textOf(parts)} />
+        <Markdown text={textOf(parts)} highlight={convQuery} />
         {images > 0 ? (
           <div className="mt-1 text-[10px] text-muted-foreground">
             [{images} {tr(lang, "images")}]
@@ -128,23 +135,24 @@ function UserBubble({ entry }: { entry: Entry }) {
 }
 
 function AnswerBubble({ entry }: { entry: Entry }) {
+  const convQuery = useStore((state) => state.convQuery);
   return (
     <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="max-w-[92%]">
       <div className="rounded-xl rounded-bl-sm border border-border bg-card/70 px-3 py-2 text-[13px] leading-relaxed">
-        <Markdown text={textOf(partsOf(entry.model))} />
+        <Markdown text={textOf(partsOf(entry.model))} highlight={convQuery} />
       </div>
     </motion.div>
   );
 }
 
 function FeatureReport({ entry }: { entry: Entry }) {
-  const { lang } = useStore();
+  const { lang, convQuery } = useStore();
   const payload = (entry.data ?? {}) as { text?: string };
   return (
     <div className="max-w-[92%] rounded-lg border border-border bg-card/60 p-2.5">
       <div className="mb-1 text-[11px] text-muted-foreground">🧩 {tr(lang, "featureReport")}</div>
       <div className="text-[13px] leading-relaxed">
-        <Markdown text={payload.text ?? ""} />
+        <Markdown text={payload.text ?? ""} highlight={convQuery} />
       </div>
     </div>
   );
@@ -182,13 +190,23 @@ function LiveBlock() {
 }
 
 export function Transcript() {
-  const { entries, focusEntry, lang } = useStore();
+  const { entries, focusEntry, lang, convQuery, setConvMatches } = useStore();
   const boxRef = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
   const [unseen, setUnseen] = useState(0);
   const lastFocus = useRef<number | undefined>(undefined);
   const seenCount = useRef(0);
   const turns = useMemo(() => groupTurns(entries), [entries]);
+
+  // In-conversation search: matches are cheap here, the whole window is in memory.
+  useEffect(() => {
+    const needle = convQuery.trim().toLowerCase();
+    if (needle.length < 2) {
+      setConvMatches([]);
+      return;
+    }
+    setConvMatches(entries.filter((entry) => entryText(entry).toLowerCase().includes(needle)).map((entry) => entry.id));
+  }, [convQuery, entries, setConvMatches]);
 
   useEffect(() => {
     const box = boxRef.current;
@@ -207,7 +225,8 @@ export function Transcript() {
     lastFocus.current = focusEntry;
     setStick(false);
     setUnseen(0);
-    node.scrollIntoView({ block: "start" });
+    // Jump after layout settles, otherwise a streaming append can pull the view back.
+    requestAnimationFrame(() => node.scrollIntoView({ block: "start" }));
     node.classList.add("ring-1", "ring-primary/40", "rounded-lg");
     const timer = setTimeout(() => node.classList.remove("ring-1", "ring-primary/40", "rounded-lg"), 1500);
     return () => clearTimeout(timer);

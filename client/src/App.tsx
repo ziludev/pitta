@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { ApprovalBar } from "@/components/ApprovalBar";
+import { ConvSearch } from "@/components/ConvSearch";
 import { Composer } from "@/components/Composer";
 import { ModelPicker } from "@/components/ModelPicker";
 import { Rail } from "@/components/Rail";
@@ -59,6 +60,7 @@ export function App() {
                   <div className="truncate text-[10px] text-muted-foreground">{surface?.surfaceId ?? ""}</div>
                 </div>
                 <div className="flex items-center gap-2">
+                  <ConvSearch />
                   <ModelPicker />
                   <span className="h-4 w-px bg-border" />
                 </div>
