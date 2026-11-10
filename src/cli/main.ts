@@ -260,7 +260,7 @@ async function approvals(action?: string, id?: string): Promise<void> {
     return;
   }
   if (id === undefined) {
-    console.error("用法: agent approve <id> | agent deny <id>");
+    console.error("用法: durable approve <id> | durable deny <id>");
     process.exit(2);
   }
   const result = await api<{ ok: boolean }>("/api/approvals", {
@@ -271,20 +271,20 @@ async function approvals(action?: string, id?: string): Promise<void> {
 }
 
 function usage(): void {
-  console.log(`${c.bold("agent")} — 个人助理的 CLI
+  console.log(`${c.bold("durable")} — 个人助理的 CLI
 
 ${c.bold("开箱")}
-  agent setup                写 .env（App ID/Secret/白名单）并立刻体检
-  agent doctor               本地 + 飞书双侧体检，告诉你控制台还差什么
+  durable setup                写 .env（App ID/Secret/白名单）并立刻体检
+  durable doctor               本地 + 飞书双侧体检，告诉你控制台还差什么
 
 ${c.bold("对话")}（走本机桥接，agent 在跑也能用）
-  agent ask "…"              一次性提问
-  agent chat                 交互式多轮（/new /stop /exit）
-  agent sessions             列出会话
+  durable ask "…"              一次性提问
+  durable chat                 交互式多轮（/new /stop /exit）
+  durable sessions             列出会话
 
 ${c.bold("审批")}
-  agent approvals            看待审批
-  agent approve <id> | deny <id>
+  durable approvals            看待审批
+  durable approve <id> | deny <id>
 
 ${c.bold("运维")}
   ./scripts/agentctl install|start|stop|restart|status|logs|doctor|backup|restore
@@ -303,7 +303,7 @@ try {
       await doctor();
       break;
     case "ask":
-      if (rest.length === 0) throw new Error('用法: agent ask "你的问题"');
+      if (rest.length === 0) throw new Error('用法: durable ask "你的问题"');
       await ask(rest.join(" "));
       break;
     case "chat":

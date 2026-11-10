@@ -280,19 +280,21 @@ ThinkRail 的定位和我们几乎一样（"a thin host that runs `pi` and bridg
 ## CLI
 
 ```bash
-ln -sf "$PWD/bin/agent" ~/.local/bin/agent   # 放到 PATH
-agent                 # 命令总览
-agent setup           # 写 .env（App ID/Secret/白名单）并立刻体检
-agent doctor          # 本地 + 飞书双侧体检
-agent ask "…"         # 一次性提问（流式）
-agent chat            # 交互式多轮（/new /stop /exit）
-agent sessions        # 列出会话
-agent approvals       # 待审批；agent approve <id> / deny <id>
+ln -sf "$PWD/bin/durable" ~/.local/bin/durable   # 放到 PATH
+durable                 # 命令总览
+durable setup           # 写 .env（App ID/Secret/白名单）并立刻体检
+durable doctor          # 本地 + 飞书双侧体检
+durable ask "…"         # 一次性提问（流式）
+durable chat            # 交互式多轮（/new /stop /exit）
+durable sessions        # 列出会话
+durable approvals       # 待审批；durable approve <id> / deny <id>
 ```
+
+命令名用 `durable` 而不是 `agent`：`agent` 已经被 grok 的 CLI 占用（`~/.grok/bin/agent`）。
 
 对话类命令走**本机 HTTP/WS 桥**，所以 agent 正跑着（launchd 托管）时也能用，不需要停进程。
 
-`agent doctor` 的飞书部分是把控制台最容易配错的地方读回来校验：凭证、机器人能力、
+`durable doctor` 的飞书部分是把控制台最容易配错的地方读回来校验：凭证、机器人能力、
 事件订阅方式是否长连接、在线版本是否含 `im.message.receive_v1`、卡片回调、消息 scope、
 机器人是否已在群里。每一项失败都给一句「去哪儿点」。
 

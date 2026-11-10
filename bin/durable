@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Thin launcher: `durable` on PATH (npm link, or a symlink into ~/.local/bin).
+# Resolves symlinks so the project is found whichever way it was invoked.
+set -euo pipefail
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  case "$SOURCE" in /*) ;; *) SOURCE="$DIR/$SOURCE" ;; esac
+done
+PROJECT="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
+exec node "$PROJECT/src/cli/main.ts" "$@"

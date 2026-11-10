@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-# Thin launcher so `agent` can be put on PATH (npm link / symlink into ~/.local/bin).
-exec node "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/src/cli/main.ts" "$@"
