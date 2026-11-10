@@ -58,7 +58,8 @@ type State = {
   recents: string[];
   usageDays: UsageDay[];
   memoryQuery: string;
-  onlyFeishu: boolean;
+  /** Which surfaces the rail shows: everything, only this app's chats, or only Feishu. */
+  surfaceFilter: "all" | "client" | "feishu";
   memorySuggestions: MemorySuggestion[];
   curating: boolean;
   approvals: PendingApproval[];
@@ -95,7 +96,8 @@ type State = {
   setModel(input: { provider: string; modelId: string; thinkingLevel?: string }): Promise<void>;
   loadUsage(): Promise<void>;
   setMemoryQuery(query: string): void;
-  toggleOnlyFeishu(): void;
+  setSurfaceFilter(filter: "all" | "client" | "feishu"): void;
+  newChat(): Promise<number>;
   curateMemory(hours?: number): Promise<{ scanned: number; suggested: number }>;
   applySuggestions(accepted: MemorySuggestion[]): Promise<{ added: number; skipped: number }>;
   clearSuggestions(): void;
@@ -150,7 +152,7 @@ export const useStore = create<State>((set, get) => ({
   models: [],
   usageDays: [],
   memoryQuery: "",
-  onlyFeishu: localStorage.getItem("agent.onlyFeishu") === "1",
+  surfaceFilter: (localStorage.getItem("agent.surfaceFilter") as "all" | "client" | "feishu" | null) ?? "all",
   memorySuggestions: [],
   curating: false,
   approvals: [],
@@ -415,10 +417,19 @@ export const useStore = create<State>((set, get) => ({
     set({ memoryQuery: query });
   },
 
-  toggleOnlyFeishu() {
-    const next = !get().onlyFeishu;
-    localStorage.setItem("agent.onlyFeishu", next ? "1" : "0");
-    set({ onlyFeishu: next });
+  setSurfaceFilter(filter) {
+    localStorage.setItem("agent.surfaceFilter", filter);
+    set({ surfaceFilter: filter });
+  },
+
+  async newChat() {
+    const result = await api<{ conversationId: number; surfaceId: string }>("/api/conversations", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    await get().refreshSurfaces();
+    await get().select(result.conversationId);
+    return result.conversationId;
   },
 
   async curateMemory(hours = 24) {

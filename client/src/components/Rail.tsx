@@ -2,7 +2,18 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type D
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Database, FileText, GripVertical, Languages, Pin, PinOff, RotateCw } from "lucide-react";
+import {
+  Database,
+  FileText,
+  GripVertical,
+  Languages,
+  MessagesSquare,
+  Monitor,
+  Pin,
+  PinOff,
+  Plus,
+  RotateCw,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +35,7 @@ function SessionRow({
   surface,
   active,
   pinned,
+  kind,
   label,
   pinTitle,
   onSelect,
@@ -32,6 +44,7 @@ function SessionRow({
   surface: Surface;
   active: boolean;
   pinned: boolean;
+  kind: string;
   label: string;
   pinTitle: string;
   onSelect: () => void;
@@ -45,7 +58,7 @@ function SessionRow({
   return (
     <div
       ref={setNodeRef}
-      className={`group flex items-center gap-1 rounded-md px-1.5 py-1 text-xs transition-[transform,box-shadow,background-color] ${
+      className={`group flex items-center gap-1 overflow-hidden rounded-md px-1.5 py-1 text-xs whitespace-nowrap transition-[transform,box-shadow,background-color] ${
         active
           ? "bg-accent/15 text-foreground"
           : "hover:-translate-y-[2px] hover:bg-accent/10 hover:shadow-[0_6px_14px_-6px_rgba(0,0,0,0.45)]"
@@ -66,8 +79,13 @@ function SessionRow({
       >
         <GripVertical className="size-3" />
       </button>
-      <button onClick={onSelect} className="flex min-w-0 flex-1 items-center justify-between gap-2 text-left">
-        <span className="truncate">{label}</span>
+      <button onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-left">
+        {kind === "client" ? (
+          <Monitor className="size-2.5 shrink-0 text-primary/70" />
+        ) : kind === "feishu" ? (
+          <MessagesSquare className="size-2.5 shrink-0 text-muted-foreground/60" />
+        ) : null}
+        <span className="min-w-0 flex-1 truncate">{label}</span>
         <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">#{surface.conversationId}</span>
       </button>
       <button
@@ -95,8 +113,9 @@ export function Rail() {
     busy,
     home,
     filter,
-    onlyFeishu,
-    toggleOnlyFeishu,
+    surfaceFilter,
+    setSurfaceFilter,
+    newChat,
     select,
     setOrder,
     togglePin,
@@ -106,8 +125,9 @@ export function Rail() {
   } = useStore();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
-  // Test conversations (cli, remtest, …) have no chat id; they clutter the rail.
-  const visible = (onlyFeishu ? surfaces.filter((surface) => surface.surfaceId.startsWith("oc_")) : surfaces).filter((surface) => {
+  const kindOf = (surface: Surface): string =>
+    surface.kind ?? (surface.surfaceId.startsWith("oc_") ? "feishu" : surface.surfaceId.startsWith("client:") ? "client" : "other");
+  const visible = (surfaceFilter === "all" ? surfaces : surfaces.filter((surface) => kindOf(surface) === surfaceFilter)).filter((surface) => {
     if (filter.trim().length === 0) return true;
     const needle = filter.trim().toLowerCase();
     return surface.surfaceId.toLowerCase().includes(needle) || String(surface.conversationId).includes(needle);
@@ -182,12 +202,24 @@ export function Rail() {
         <span className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
           {tr(lang, "sessions")}
         </span>
-        <button
-          onClick={toggleOnlyFeishu}
-          className={`text-[10px] ${onlyFeishu ? "text-primary" : "text-muted-foreground/60 hover:text-foreground"}`}
-        >
-          {tr(lang, "hideTests")}
-        </button>
+        <Button variant="ghost" size="icon-xs" title={tr(lang, "newChat")} onClick={() => void newChat()}>
+          <Plus className="size-3" />
+        </Button>
+      </div>
+      <div className="mb-1 flex gap-1 px-2">
+        {(["all", "client", "feishu"] as const).map((filter) => (
+          <button
+            key={filter}
+            onClick={() => setSurfaceFilter(filter)}
+            className={`rounded-full px-2 py-0.5 text-[10px] transition-colors ${
+              surfaceFilter === filter
+                ? "bg-primary/15 text-primary"
+                : "text-muted-foreground/70 hover:text-foreground"
+            }`}
+          >
+            {tr(lang, filter === "all" ? "allChats" : filter === "client" ? "clientChats" : "feishuChats")}
+          </button>
+        ))}
       </div>
       <SearchBox />
       <ScrollArea className="min-h-0 flex-1 px-1.5">
@@ -205,7 +237,14 @@ export function Rail() {
                   surface={surface}
                   active={surface.conversationId === current}
                   pinned={pinned.includes(surface.conversationId)}
-                  label={surfaceLabel(surface.surfaceId, tr(lang, "feishu"))}
+                  kind={kindOf(surface)}
+                  label={
+                    surface.title !== undefined && surface.title.length > 0
+                      ? surface.title
+                      : kindOf(surface) === "client"
+                        ? `${tr(lang, "newChat")} #${surface.conversationId}`
+                        : surfaceLabel(surface.surfaceId, tr(lang, "feishu"))
+                  }
                   pinTitle={tr(lang, "pinned")}
                   onSelect={() => void select(surface.conversationId)}
                   onTogglePin={() => togglePin(surface.conversationId)}

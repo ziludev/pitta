@@ -62,6 +62,8 @@ export type AgentRuntime = {
   conversationFor(surfaceId: string): Promise<Conversation>;
   /** Maps a conversation back to its surface, so approvals and reminders can route. */
   attachSurface(conversationId: number): Promise<void>;
+  /** Creates a fresh conversation for a surface (client "new chat"). */
+  newConversation(surfaceId: string): Promise<Conversation>;
   /** Reply/thread conversation: forked at the answered message, or the chat itself. */
   conversationForThread(
     surfaceId: string,
@@ -207,6 +209,24 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     return created;
   }
 
+  async function newConversation(surfaceId: string): Promise<Conversation> {
+    const created = await harness.createConversation(
+      { ownership: { kind: "ownerless" }, agent: agentChange },
+      context,
+    );
+    if (config.worktree !== "off") {
+      const worktree = await ensureWorktree(workspace, created.id as unknown as number);
+      if (worktree !== undefined) await created.configure({ cwd: worktree.dir }, context);
+    }
+    await harness.commit(async (tx) => {
+      const doc = await tx.doc(ChatsToken);
+      doc.chats[surfaceId] = created.id as unknown as number;
+    }, context);
+    rememberSurface(created.id as unknown as number, surfaceId);
+    log("agent", "new conversation", { surfaceId, conversationId: created.id as unknown as number });
+    return created;
+  }
+
   async function attachSurface(conversationId: number): Promise<void> {
     const mapping = await harness.snapshot(ChatsToken, context).catch(() => undefined);
     for (const [surfaceId, id] of Object.entries(mapping?.chats ?? {})) {
@@ -323,6 +343,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     harness,
     conversationFor,
     attachSurface,
+    newConversation,
     conversationForThread,
     recordMessage: recordMessageFor,
     turnSteps,

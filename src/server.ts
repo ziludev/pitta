@@ -135,10 +135,29 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         const chats = (await runtime.harness.snapshot(ChatsToken, context).catch(() => undefined)) as
           | { chats: Record<string, number> }
           | undefined;
-        const surfaces = Object.entries(chats?.chats ?? {}).map(([surfaceId, conversationId]) => ({
-          surfaceId,
-          conversationId,
-        }));
+        const entries = Object.entries(chats?.chats ?? {});
+        const surfaces = await Promise.all(
+          entries.map(async ([surfaceId, conversationId]) => {
+            const kind = surfaceId.startsWith("oc_") ? "feishu" : surfaceId.startsWith("client:") ? "client" : "other";
+            const conversation = await runtime.harness
+              .conversation(conversationId as never, context)
+              .catch(() => undefined);
+            const title =
+              conversation === undefined
+                ? ""
+                : await conversation
+                    .entries({ order: "ascending" }, 12, undefined, context)
+                    .then((page) => {
+                      const first = page.items.find((entry) => entry.kind === "pi.user");
+                      const text = first === undefined ? "" : entryText(first.model);
+                      // A title, not a transcript: collapse whitespace, drop a leading
+                      // mention, and cut where a human would still recognise it.
+                      return text.replace(/\s+/g, " ").replace(/^@\s*/, "").trim().slice(0, 32);
+                    })
+                    .catch(() => "");
+            return { surfaceId, conversationId, kind, title };
+          }),
+        );
         return send(res, 200, {
           surfaces,
           tasks: inspection.tasks.map((task) => ({
@@ -150,6 +169,15 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
           })),
           usage,
         });
+      }
+
+      if (req.method === "POST" && path === "/api/conversations") {
+        const body = await readJson(req);
+        const requested = typeof body["surfaceId"] === "string" ? (body["surfaceId"] as string) : "";
+        // Client chats get their own namespace so they never collide with Feishu ids.
+        const surfaceId = requested.startsWith("client:") ? requested : `client:${Date.now().toString(36)}`;
+        const conversation = await runtime.newConversation(surfaceId);
+        return send(res, 200, { conversationId: conversation.id as unknown as number, surfaceId });
       }
 
       if (req.method === "GET" && path === "/api/models") {
