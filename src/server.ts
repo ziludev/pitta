@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { Conversation } from "@earendil-works/pi-durable";
+import { UsageDoc, type Conversation } from "@earendil-works/pi-durable";
 import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { log, logError } from "./log.ts";
 import { config } from "./config.ts";
@@ -138,6 +138,40 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
 
       if (!tokenMatches(bearer(req))) return send(res, 401, { error: "unauthorized" });
 
+      /** How many human turns a chat has had, for "average cost per turn". */
+      const countTurns = async (conversationId: number): Promise<number> => {
+        const conversation = await runtime.harness.conversation(conversationId as never, context).catch(() => undefined);
+        if (conversation === undefined) return 0;
+        let cursor: unknown;
+        let turns = 0;
+        // Bounded: a conversation longer than 6000 entries reports what it counted.
+        for (let page = 0; page < 12; page += 1) {
+          const result = await conversation
+            .entries({ order: "ascending" }, 500, cursor as never, context)
+            .catch(() => undefined);
+          if (result === undefined) break;
+          turns += result.items.filter((entry) => entry.kind === "pi.user").length;
+          cursor = result.next;
+          if (cursor === undefined) break;
+        }
+        return turns;
+      };
+
+      /** Per-conversation spend, straight from the usage ledger the harness keeps. */
+      const usageOf = async (conversationId: number): Promise<{ cost: number; tokens: number }> => {
+        const ledger = await runtime.harness.snapshot(UsageDoc, conversationId as never, context).catch(() => undefined);
+        let cost = 0;
+        let tokens = 0;
+        const add = (bucket: unknown): void => {
+          const entry = bucket as { cost?: { total?: number }; totalTokens?: number };
+          cost += entry.cost?.total ?? 0;
+          tokens += entry.totalTokens ?? 0;
+        };
+        for (const bucket of Object.values(ledger?.models ?? {})) add(bucket);
+        for (const bucket of Object.values(ledger?.tools ?? {})) add(bucket);
+        return { cost, tokens };
+      };
+
       if (req.method === "GET" && path === "/api/state") {
         const [inspection, usage, projects] = await Promise.all([
           runtime.harness.inspect(context),
@@ -172,10 +206,13 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
                     })
                     .catch(() => "");
             const own = meta[surfaceId];
+            const spend = await usageOf(conversationId).catch(() => ({ cost: 0, tokens: 0 }));
             return {
               surfaceId,
               conversationId,
               kind,
+              cost: spend.cost,
+              tokens: spend.tokens,
               title: own?.title ?? title,
               archived: own?.archived === true,
               projectId: await runtime.projectOfConversation(conversationId as unknown as number).catch(() => undefined),
@@ -209,6 +246,16 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         if (raw.length === 0) return send(res, 400, { error: "path required" });
         const result = await runtime.addProject(raw);
         return send(res, result.status === "added" || result.status === "exists" ? 200 : 400, result);
+      }
+
+      if (req.method === "POST" && path === "/api/projects/remove") {
+        const body = await readJson(req);
+        const id = typeof body["id"] === "string" ? (body["id"] as string).trim() : "";
+        if (id.length === 0) return send(res, 400, { error: "id required" });
+        const result = await runtime.removeProject(id);
+        if (result.status === "missing") return send(res, 404, result);
+        if (result.status === "builtin") return send(res, 400, result);
+        return send(res, 200, result);
       }
 
       if (req.method === "POST" && path === "/api/surface-meta") {
@@ -306,9 +353,11 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         const newestFirst = [...page.items].reverse();
         const agent = await conversation.agent(context).catch(() => undefined);
         const waits = await runtime.approvalWaits(conversation.id as unknown as number).catch(() => []);
+        const spend = await usageOf(conversation.id as unknown as number).catch(() => ({ cost: 0, tokens: 0 }));
         return send(res, 200, {
           conversationId: conversation.id as unknown as number,
           approvalWaits: waits,
+          usage: { ...spend, turns: await countTurns(conversation.id as unknown as number) },
           model: agent?.model ?? null,
           thinkingLevel: agent?.thinkingLevel ?? null,
           entries: newestFirst.map((entry) => ({

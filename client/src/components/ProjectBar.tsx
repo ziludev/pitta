@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Check, ChevronsUpDown, FolderGit2, FolderPlus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, ChevronsUpDown, FolderGit2, FolderPlus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,14 +30,24 @@ const shortPath = (path: string): string => path.replace(/^\/Users\/[^/]+\//, "~
  * select renders the path next to the name twice and reads like a bug.
  */
 export function ProjectBar() {
-  const { lang, projects, currentProject, setProject, openProject } = useStore();
+  const { lang, projects, currentProject, setProject, openProject, removeProject } = useStore();
   const [opening, setOpening] = useState(false);
   // ?projects=1 opens the switcher (screenshots, demos).
   const [menu, setMenu] = useState(new URLSearchParams(location.search).get("projects") === "1");
   const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
+  // Removing a project is not undoable from the UI, so it asks first and names the repo.
+  const [removing, setRemoving] = useState<{ id: string; name: string } | undefined>(undefined);
+  const demosRemoval = new URLSearchParams(location.search).get("removeProject") === "1";
 
   const current = projects.find((project) => project.id === currentProject) ?? projects[0];
+
+  // ?removeProject=1 opens the confirm dialog once the list has arrived (demos).
+  useEffect(() => {
+    if (!demosRemoval || removing !== undefined) return;
+    const target = projects.find((project) => project.builtin !== true);
+    if (target !== undefined) setRemoving({ id: target.id, name: target.name });
+  }, [demosRemoval, projects, removing]);
 
   async function open(): Promise<void> {
     if (path.trim().length === 0) return;
@@ -75,7 +85,11 @@ export function ProjectBar() {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-64">
           {projects.map((project) => (
-            <DropdownMenuItem key={project.id} onSelect={() => setProject(project.id)} className="gap-2">
+            <DropdownMenuItem
+              key={project.id}
+              onSelect={() => setProject(project.id)}
+              className="group/item gap-2"
+            >
               <Check
                 className={`size-3 shrink-0 ${project.id === current?.id ? "text-primary" : "text-transparent"}`}
               />
@@ -86,6 +100,20 @@ export function ProjectBar() {
                   {project.builtin === true ? ` · ${tr(lang, "builtin")}` : ""}
                 </span>
               </span>
+              {project.builtin === true ? null : (
+                <button
+                  title={tr(lang, "removeProject")}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setRemoving({ id: project.id, name: project.name });
+                    setMenu(false);
+                  }}
+                  className="shrink-0 rounded p-0.5 text-muted-foreground/30 transition hover:text-rose-400"
+                >
+                  <Trash2 className="size-3" />
+                </button>
+              )}
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
@@ -95,6 +123,43 @@ export function ProjectBar() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <Dialog open={removing !== undefined} onOpenChange={(next) => (next ? undefined : setRemoving(undefined))}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm">
+              {tr(lang, "removeProject")} · {removing?.name}
+            </DialogTitle>
+            <DialogDescription className="text-xs">{tr(lang, "removeProjectHint")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="ghost" size="sm">
+                {tr(lang, "cancel")}
+              </Button>
+            </DialogClose>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                const target = removing;
+                setRemoving(undefined);
+                if (target === undefined) return;
+                void removeProject(target.id).then((result) => {
+                  toast(
+                    result.movedChats !== undefined && result.movedChats > 0
+                      ? `${tr(lang, "projectRemoved")} · ${result.movedChats} ${tr(lang, "chatsMoved")}`
+                      : tr(lang, "projectRemoved"),
+                  );
+                });
+              }}
+            >
+              <Trash2 className="size-3.5" />
+              {tr(lang, "remove")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={opening} onOpenChange={setOpening}>
         <DialogContent className="sm:max-w-md">

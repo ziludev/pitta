@@ -79,6 +79,8 @@ type State = {
   git?: GitInfo;
   /** Approval waits inside the open conversation, for the turn phase bar. */
   approvalWaits: Array<{ start: number; end: number; tool: string }>;
+  /** Lifetime spend and turn count of the open conversation, from its usage ledger. */
+  usage: { cost: number; tokens: number; turns: number };
   commitDiffs: Record<string, string>;
   /** Text pushed into the composer by "edit and resend". */
   composerDraft: string | null;
@@ -125,6 +127,8 @@ type State = {
   newChat(): Promise<number>;
   setProject(projectId: string): void;
   openProject(path: string): Promise<{ status: string; project?: Project; path?: string }>;
+  /** Forgets a project; its chats fall back to the sandbox. The repo itself is untouched. */
+  removeProject(id: string): Promise<{ status: string; name?: string; movedChats?: number }>;
   renameChat(conversationId: number, title: string): Promise<void>;
   archiveChat(conversationId: number, archived: boolean): Promise<void>;
   cleanupWorktree(conversationId: number): Promise<{ status: string; commits?: number }>;
@@ -210,6 +214,7 @@ export const useStore = create<State>((set, get) => ({
   errors: [],
   commitDiffs: {},
   approvalWaits: [],
+  usage: { cost: 0, tokens: 0, turns: 0 },
   composerDraft: null,
   favorites: JSON.parse(localStorage.getItem("agent.favoriteModels") ?? "[]") as string[],
   recents: JSON.parse(localStorage.getItem("agent.recentModels") ?? "[]") as string[],
@@ -285,6 +290,17 @@ export const useStore = create<State>((set, get) => ({
     return result;
   },
 
+  async removeProject(id) {
+    const result = await api<{ status: string; name?: string; movedChats?: number }>("/api/projects/remove", {
+      method: "POST",
+      body: JSON.stringify({ id }),
+    });
+    set({ projects: get().projects.filter((project) => project.id !== id) });
+    if (get().currentProject === id) get().setProject("workspace");
+    await get().refreshSurfaces();
+    return result;
+  },
+
   async select(conversationId) {
     socket?.close();
     set({ current: conversationId, connection: "connecting", entries: [], live: undefined });
@@ -295,12 +311,14 @@ export const useStore = create<State>((set, get) => ({
       model?: ModelRef;
       thinkingLevel?: string;
       approvalWaits?: Array<{ start: number; end: number; tool: string }>;
+      usage?: { cost: number; tokens: number; turns: number };
     }>(`/api/conversation?id=${conversationId}&limit=200`);
     set({
       entries: data.entries,
       model: data.model,
       thinkingLevel: data.thinkingLevel ?? undefined,
       approvalWaits: data.approvalWaits ?? [],
+      usage: data.usage ?? { cost: 0, tokens: 0, turns: 0 },
     });
 
     socket = new WebSocket(wsURL(conversationId));

@@ -321,7 +321,7 @@ function LiveBlock() {
 }
 
 export function Transcript() {
-  const { entries, focusEntry, lang, convQuery, setConvMatches, submit, approvalWaits } = useStore();
+  const { entries, focusEntry, lang, convQuery, setConvMatches, submit, approvalWaits, usage } = useStore();
   const boxRef = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
   const [unseen, setUnseen] = useState(0);
@@ -391,6 +391,24 @@ export function Transcript() {
           ↓ {unseen} {tr(lang, "newMessages")}
         </button>
       ) : null}
+    {/* What this chat has cost so far: the ledger total, not just the loaded window. */}
+    {usage.cost > 0 ? (
+      <div className="flex shrink-0 items-center gap-1.5 border-b border-border/50 px-5 py-1 text-[10px] text-muted-foreground/80 tabular-nums">
+        <span>
+          {usage.turns} {tr(lang, "turns")}
+        </span>
+        <span className="text-muted-foreground/40">·</span>
+        <span>
+          {tr(lang, "lifetime")} ${usage.cost.toFixed(usage.cost < 1 ? 3 : 2)}
+        </span>
+        <span className="text-muted-foreground/40">·</span>
+        <span>
+          {tr(lang, "avgPerTurn")} ${(usage.cost / Math.max(1, usage.turns)).toFixed(3)}
+        </span>
+        <span className="text-muted-foreground/40">·</span>
+        <span>{usage.tokens >= 1000 ? `${(usage.tokens / 1000).toFixed(1)}k tokens` : `${usage.tokens} tokens`}</span>
+      </div>
+    ) : null}
     <div
       ref={boxRef}
       onScroll={(event) => {

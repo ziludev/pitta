@@ -183,6 +183,44 @@ export async function addProject(
   }
 }
 
+export type RemoveProjectResult =
+  | { status: "removed"; name: string; movedChats: number; movedConversations: number[] }
+  | { status: "builtin" }
+  | { status: "missing" };
+
+/**
+ * Forgets a project. The repo is never touched on disk — chats that lived in it move to
+ * the built-in sandbox, because a conversation pointing at a deleted binding has no cwd.
+ */
+export async function removeProject(
+  harness: Harness,
+  context: Context,
+  projectId: string,
+): Promise<RemoveProjectResult> {
+  const projects = await listProjects(harness, context);
+  const target = projects.find((project) => project.id === projectId);
+  if (target === undefined) return { status: "missing" };
+  if (target.builtin === true) return { status: "builtin" };
+  const fallback = projects.find((project) => project.builtin === true);
+
+  const moved = await harness.commit(async (tx) => {
+    const doc = await tx.doc(ProjectsDoc);
+    doc.projects = doc.projects.filter((project) => project.id !== projectId);
+    const bindings = await tx.doc(ConversationProjectDoc);
+    const ids: number[] = [];
+    if (fallback !== undefined) {
+      for (const [conversationId, bound] of Object.entries(bindings.byConversation)) {
+        if (bound !== projectId) continue;
+        bindings.byConversation[conversationId] = fallback.id;
+        ids.push(Number(conversationId));
+      }
+    }
+    return ids;
+  }, context);
+  log("project", "removed", { id: projectId, path: target.path, movedChats: moved.length });
+  return { status: "removed", name: target.name, movedChats: moved.length, movedConversations: moved };
+}
+
 /**
  * Creates the worktree directory and keeps it out of `git status` via the repo's own
  * info/exclude — a project's tracked .gitignore belongs to the user, not to us.

@@ -46,9 +46,11 @@ import {
   ensureBuiltinProject,
   listProjects,
   prepareProject,
+  removeProject,
   projectOf,
   setBase,
   type AddProjectResult,
+  type RemoveProjectResult,
   type Project,
 } from "./projects.ts";
 import { setHarnessRef } from "./runtime-ref.ts";
@@ -105,6 +107,7 @@ export type AgentRuntime = {
     base?: string,
   ): Promise<{ project: Project; dir: string; branch: string } | { error: string; candidates: string[] }>;
   addProject(path: string): Promise<AddProjectResult>;
+  removeProject(projectId: string): Promise<RemoveProjectResult>;
   /** The repository root a conversation works in, for merge and project-scoped diffs. */
   projectPathOf(conversationId: number): Promise<string>;
   projectOfConversation(conversationId: number): Promise<string | undefined>;
@@ -506,6 +509,23 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     projects: () => listProjects(harness, context),
     switchProject,
     addProject: (path: string) => addProject(harness, context, path),
+    removeProject: async (projectId: string) => {
+      const result = await removeProject(harness, context, projectId);
+      // The repo is gone from our list, but those chats still had it as their cwd; point
+      // them at the sandbox so the next tool call does not fail on a missing directory.
+      if (result.status === "removed") {
+        for (const conversationId of result.movedConversations) {
+          const conversation = await harness.conversation(conversationId as never, context).catch(() => undefined);
+          if (conversation === undefined) continue;
+          // Back to the sandbox, in its own worktree when there is one, so the chat keeps
+          // its branch instead of landing on master.
+          const worktree =
+            config.worktree === "off" ? undefined : await ensureWorktree(builtin.path, conversationId);
+          await conversation.configure({ cwd: worktree?.dir ?? builtin.path }, context).catch(() => {});
+        }
+      }
+      return result;
+    },
     projectPathOf,
     projectOfConversation: (conversationId: number) => projectOf(harness, context, conversationId),
     surfaceOf,

@@ -35,6 +35,9 @@ export type Surface = {
   surfaceId: string;
   conversationId: number;
   kind?: SurfaceKind;
+  /** Lifetime spend and token count for this chat, from the usage ledger. */
+  cost?: number;
+  tokens?: number;
   title?: string;
   archived?: boolean;
   projectId?: string;

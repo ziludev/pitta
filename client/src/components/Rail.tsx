@@ -80,6 +80,9 @@ function surfaceLabel(surfaceId: string, feishu: string): string {
   return surfaceId.startsWith("oc_") ? `${feishu} ${surfaceId.slice(3, 9)}` : surfaceId;
 }
 
+/** Two decimals keeps the column narrow; a tenth of a cent is not a decision input. */
+const money = (cost: number): string => `$${cost < 1 ? cost.toFixed(2) : cost.toFixed(1)}`;
+
 function SessionRow({
   surface,
   active,
@@ -139,6 +142,11 @@ function SessionRow({
         <span className={`min-w-0 flex-1 truncate ${archived ? "text-muted-foreground/60 line-through" : ""}`}>
           {label}
         </span>
+        {surface.cost !== undefined && surface.cost >= 0.005 ? (
+          <span className="shrink-0 text-[10px] text-muted-foreground/60 tabular-nums" title={money(surface.cost)}>
+            {money(surface.cost)}
+          </span>
+        ) : null}
         <span className="shrink-0 text-[10px] text-muted-foreground/50 tabular-nums opacity-0 group-hover:opacity-100">
           #{surface.conversationId}
         </span>
