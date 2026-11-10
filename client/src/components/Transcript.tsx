@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { Copy, Pencil, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Agent } from "@/mygo";
+import { Images } from "@/components/Images";
 import { tr } from "@/i18n";
 import type { Entry } from "@/lib/api";
 import { diffStats } from "@/lib/diff";
@@ -151,17 +152,20 @@ function MessageActions({ text, onRetry }: { text: string; onRetry?: () => void 
 function UserBubble({ entry, onRetry }: { entry: Entry; onRetry?: () => void }) {
   const { lang, convQuery } = useStore();
   const parts = partsOf(entry.model);
-  const images = parts.filter((part) => part["type"] === "image").length;
+  const images = parts
+    .filter((part) => part["type"] === "image")
+    .map((part) => ({ data: String(part["data"] ?? ""), mimeType: String(part["mimeType"] ?? "image/png") }))
+    .filter((image) => image.data.length > 0);
   return (
     <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="group flex items-start justify-end gap-1">
       <div className="mt-1 shrink-0">
         <MessageActions text={textOf(parts)} onRetry={onRetry} />
       </div>
       <div className="max-w-[86%] rounded-xl rounded-br-sm border border-primary/25 bg-primary/12 px-3 py-2 text-[13px] leading-relaxed">
-        <Markdown text={textOf(parts)} highlight={convQuery} />
-        {images > 0 ? (
-          <div className="mt-1 text-[10px] text-muted-foreground">
-            [{images} {tr(lang, "images")}]
+        {textOf(parts).length > 0 ? <Markdown text={textOf(parts)} highlight={convQuery} /> : null}
+        {images.length > 0 ? (
+          <div className={textOf(parts).length > 0 ? "mt-1.5" : ""}>
+            <Images images={images} />
           </div>
         ) : null}
       </div>

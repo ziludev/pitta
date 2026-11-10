@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Send } from "lucide-react";
+import { Images } from "@/components/Images";
 import { ModelPicker } from "@/components/ModelPicker";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -59,21 +60,11 @@ export function Composer() {
   return (
     <div className="border-t border-border px-4 pt-3 pb-3.5">
       {images.length > 0 ? (
-        <div className="flex gap-1.5">
-          {images.map((image, index) => (
-            <button
-              key={index}
-              onClick={() => setImages((current) => current.filter((_, at) => at !== index))}
-              title={tr(lang, "removeImage")}
-              className="group relative size-14 overflow-hidden rounded-md border border-border"
-            >
-              <img src={`data:${image.mimeType};base64,${image.data}`} alt="" className="size-full object-cover" />
-              <span className="absolute inset-0 hidden items-center justify-center bg-black/60 text-[10px] text-white group-hover:flex">
-                ×
-              </span>
-            </button>
-          ))}
-        </div>
+        <Images
+          images={images}
+          size="compose"
+          onRemove={(index) => setImages((current) => current.filter((_, at) => at !== index))}
+        />
       ) : null}
       <Textarea
         ref={inputRef}
