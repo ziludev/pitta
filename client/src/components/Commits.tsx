@@ -3,6 +3,7 @@ import { ArrowUpRight, ChevronRight, Copy, GitCommitHorizontal, Upload } from "l
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DiffView } from "@/lib/diff";
@@ -14,8 +15,19 @@ import { useStore } from "@/store";
  * the project's base branch, with each commit's patch and a push that reports the
  * merge-request page (GitHub compare or GitLab MR form).
  */
+/** Likely bases first (main/master/develop, then the current base), then the rest. */
+function sortedBranches<T extends { name: string }>(branches: T[], base: string): T[] {
+  const rank = (name: string): number => {
+    if (name === base) return 0;
+    if (/^(main|master)$/.test(name)) return 1;
+    if (/^(develop|dev|release)$/.test(name)) return 2;
+    return 3;
+  };
+  return [...branches].sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name));
+}
+
 export function Commits() {
-  const { lang, git, loadCommitDiff, pushBranch, commitDiffs } = useStore();
+  const { lang, git, loadCommitDiff, pushBranch, commitDiffs, setGitBase } = useStore();
   const [open, setOpen] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const [compare, setCompare] = useState<string | undefined>(git?.compareUrl);
@@ -50,14 +62,39 @@ export function Commits() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 px-3 py-2">
-        <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" title={`${git.branch} → ${git.base}`}>
-          {git.branch} → {git.base}
+      <div className="flex items-center gap-1.5 px-3 py-2">
+        <span className="min-w-0 shrink truncate font-mono text-[10.5px] text-muted-foreground" title={git.branch}>
+          {git.branch}
         </span>
+        <span className="shrink-0 text-[10.5px] text-muted-foreground">→</span>
+        {/* The compare base is a choice: the chat may have been branched from any branch. */}
+        <Select value={git.base} onValueChange={(branch) => void setGitBase(branch)}>
+          <SelectTrigger
+            size="sm"
+            className="h-6 min-w-0 flex-1 justify-start gap-1 border-none bg-muted/40 px-1.5 font-mono text-[10.5px]"
+            title={tr(lang, "baseBranchHint")}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="max-h-72">
+            {sortedBranches(git.branches, git.base).map((branch) => (
+              <SelectItem key={branch.name} value={branch.name} className="font-mono text-[11px]">
+                {branch.name}
+                {branch.current ? " ✓" : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Button variant="ghost" size="icon-xs" title={tr(lang, "push")} disabled={busy} onClick={() => void push()}>
           <Upload className="size-3" />
         </Button>
       </div>
+
+      {git.origin !== undefined && git.origin !== git.base ? (
+        <div className="mx-3 mb-1.5 rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[10px] text-amber-300/90">
+          {tr(lang, "baseChangedHint").replace("{origin}", git.origin)}
+        </div>
+      ) : null}
 
       {compare !== undefined ? (
         <button

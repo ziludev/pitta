@@ -291,7 +291,8 @@ ThinkRail 的三层是 project → workspace → chats，我们补上了 project
 ```
 GET  /api/projects            已打开的项目
 POST /api/projects            { path } 打开一个仓库（~ 可用）
-GET  /api/git?conversationId= 本会话分支、基线、commit 列表、本地分支、远端类型、PR/MR 链接
+GET  /api/git?conversationId= 本会话分支、基线（可选）、fork 点、commit 列表、本地分支、远端类型、PR/MR 链接
+POST /api/git/base            { conversationId, base } 选比较/合并基线；换基线时提示 fork 点差异
 GET  /api/git/diff?hash=      单个 commit 的 patch
 POST /api/git/push            { conversationId, dryRun? } 推当前分支到 origin（dryRun 只报告）
 POST /api/conversations       { projectId } 在该项目里新建会话

@@ -33,13 +33,18 @@ import { log } from "./log.ts";
 import { acquireStorageLock } from "./storage-lock.ts";
 import { ensureRepo } from "./changes.ts";
 import { ensureWorktree, worktreePaths } from "./worktree.ts";
+import { gitBranchOf } from "./git-info.ts";
 import {
   addProject,
+  baseOf,
   bindProject,
+  originOf,
+  setOrigin,
   ensureBuiltinProject,
   listProjects,
   prepareProject,
   projectOf,
+  setBase,
   type AddProjectResult,
   type Project,
 } from "./projects.ts";
@@ -73,7 +78,11 @@ export type AgentRuntime = {
   /** Maps a conversation back to its surface, so approvals and reminders can route. */
   attachSurface(conversationId: number): Promise<void>;
   /** Creates a fresh conversation for a surface (client "new chat"). */
-  newConversation(surfaceId: string, projectId?: string): Promise<Conversation>;
+  newConversation(surfaceId: string, projectId?: string, base?: string): Promise<Conversation>;
+  /** Compare/merge base for a conversation, defaulting to the project's HEAD. */
+  baseBranchOf(conversationId: number): Promise<string>;
+  originBranchOf(conversationId: number): Promise<string | undefined>;
+  setBaseBranch(conversationId: number, branch: string): Promise<void>;
   projects(): Promise<Project[]>;
   addProject(path: string): Promise<AddProjectResult>;
   /** The repository root a conversation works in, for merge and project-scoped diffs. */
@@ -231,7 +240,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     return created;
   }
 
-  async function newConversation(surfaceId: string, projectId?: string): Promise<Conversation> {
+  async function newConversation(surfaceId: string, projectId?: string, base?: string): Promise<Conversation> {
     const projects = await listProjects(harness, context);
     const project = projects.find((entry) => entry.id === projectId) ?? builtin;
     await prepareProject(project.path);
@@ -243,8 +252,12 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
       context,
     );
     await bindProject(harness, context, created.id as unknown as number, project.id);
+    // The fork point is recorded even when the caller did not choose one, so a later
+    // base change can say "that branch has commits this chat never touched".
+    const origin = base ?? (await gitBranchOf(project.path)) ?? "HEAD";
+    await setOrigin(harness, context, created.id as unknown as number, origin);
     if (config.worktree !== "off") {
-      const worktree = await ensureWorktree(project.path, created.id as unknown as number);
+      const worktree = await ensureWorktree(project.path, created.id as unknown as number, base);
       if (worktree !== undefined) await created.configure({ cwd: worktree.dir }, context);
     }
     await harness.commit(async (tx) => {
@@ -254,6 +267,22 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     rememberSurface(created.id as unknown as number, surfaceId);
     log("agent", "new conversation", { surfaceId, conversationId: created.id as unknown as number });
     return created;
+  }
+
+  async function baseBranchOf(conversationId: number): Promise<string> {
+    const explicit = await baseOf(harness, context, conversationId);
+    if (explicit !== undefined) return explicit;
+    const path = await projectPathOf(conversationId);
+    return (await gitBranchOf(path)) || "HEAD";
+  }
+
+  async function originBranchOf(conversationId: number): Promise<string | undefined> {
+    return originOf(harness, context, conversationId);
+  }
+
+  async function setBaseBranch(conversationId: number, branch: string): Promise<void> {
+    await setBase(harness, context, conversationId, branch);
+    log("agent", "compare base changed", { conversationId, branch });
   }
 
   async function projectPathOf(conversationId: number): Promise<string> {
@@ -387,6 +416,9 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     conversationFor,
     attachSurface,
     newConversation,
+    baseBranchOf,
+    originBranchOf,
+    setBaseBranch,
     projects: () => listProjects(harness, context),
     addProject: (path: string) => addProject(harness, context, path),
     projectPathOf,

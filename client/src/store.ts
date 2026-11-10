@@ -86,7 +86,11 @@ type State = {
   refreshSurfaces(): Promise<void>;
   loadMemory(): Promise<void>;
   loadChanges(): Promise<void>;
-  submit(text: string, mode: "followUp" | "steer"): Promise<void>;
+  submit(
+    text: string,
+    mode: "followUp" | "steer",
+    images?: Array<{ data: string; mimeType: string }>,
+  ): Promise<void>;
   abort(): Promise<void>;
   reset(): Promise<void>;
   commit(message: string): Promise<string>;
@@ -131,6 +135,7 @@ type State = {
   loadGit(): Promise<void>;
   loadCommitDiff(hash: string): Promise<string>;
   pushBranch(dryRun?: boolean): Promise<PushResult>;
+  setGitBase(branch: string): Promise<void>;
   pushError(message: string): void;
   clearErrors(): void;
   setConvMatches(ids: number[]): void;
@@ -326,12 +331,13 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async submit(text, mode) {
+  async submit(text, mode, images) {
     const id = get().current;
-    if (id === undefined || text.trim().length === 0) return;
+    if (id === undefined) return;
+    if (text.trim().length === 0 && (images === undefined || images.length === 0)) return;
     await api("/api/submit", {
       method: "POST",
-      body: JSON.stringify({ conversationId: id, text, mode }),
+      body: JSON.stringify({ conversationId: id, text, mode, images }),
     });
   },
 
@@ -580,6 +586,13 @@ export const useStore = create<State>((set, get) => ({
     const result = await api<{ diff: string }>(`/api/git/diff?conversationId=${id}&hash=${hash}`);
     set({ commitDiffs: { ...get().commitDiffs, [hash]: result.diff } });
     return result.diff;
+  },
+
+  async setGitBase(branch) {
+    const id = get().current;
+    if (id === undefined) return;
+    await api("/api/git/base", { method: "POST", body: JSON.stringify({ conversationId: id, base: branch }) });
+    await get().loadGit();
   },
 
   async pushBranch(dryRun = false) {

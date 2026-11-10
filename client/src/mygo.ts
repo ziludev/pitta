@@ -18,6 +18,13 @@ export const Agent = {
   home(): Promise<string> {
     return call("Agent.Home");
   },
+  /**
+   * Notify shows a native notification (used when a turn finishes while the window is
+   * in the background). Returns "denied" when the system refuses notifications.
+   */
+  notify(title: string, body: string): Promise<string> {
+    return call("Agent.Notify", title, body);
+  },
   /** OpenLogs reveals the agent log directory in Finder. */
   openLogs(): Promise<string> {
     return call("Agent.OpenLogs");

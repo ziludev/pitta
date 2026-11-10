@@ -27,22 +27,26 @@ async function git(repoRoot: string, args: string[]): Promise<string> {
 }
 
 /** Creates the worktree on first use; an existing one is reused as is. */
-export async function ensureWorktree(repoRoot: string, conversationId: number): Promise<Worktree | undefined> {
+export async function ensureWorktree(
+  repoRoot: string,
+  conversationId: number,
+  base?: string,
+): Promise<Worktree | undefined> {
   const target = worktreePaths(repoRoot, conversationId);
   try {
     if (!existsSync(join(repoRoot, ".git"))) return undefined;
     if (existsSync(join(target.dir, ".git"))) return target;
 
     await mkdir(join(repoRoot, ".worktrees"), { recursive: true });
-    const base = (await git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"])).trim() || "HEAD";
+    const from = base ?? ((await git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"])).trim() || "HEAD");
 
     // Branch may already exist from an earlier session: attach instead of creating.
     const known = await git(repoRoot, ["branch", "--list", target.branch]).catch(() => "");
     const args = known.trim().length > 0
       ? ["worktree", "add", target.dir, target.branch]
-      : ["worktree", "add", "-b", target.branch, target.dir, base];
+      : ["worktree", "add", "-b", target.branch, target.dir, from];
     await git(repoRoot, args);
-    log("worktree", "created", { conversationId, dir: target.dir, branch: target.branch, base });
+    log("worktree", "created", { conversationId, dir: target.dir, branch: target.branch, from });
     return target;
   } catch (error) {
     logError("worktree", `could not create worktree for conversation ${conversationId}`, error);
@@ -63,12 +67,12 @@ export type RemoveResult =
 export async function removeWorktree(
   repoRoot: string,
   conversationId: number,
-  options: { force?: boolean } = {},
+  options: { force?: boolean; base?: string } = {},
 ): Promise<RemoveResult> {
   const target = worktreePaths(repoRoot, conversationId);
   try {
     if (!existsSync(target.dir)) return { status: "absent", branch: target.branch };
-    const base = (await git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
+    const base = options.base ?? (await git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
     const ahead = Number((await git(repoRoot, ["rev-list", "--count", `${base}..${target.branch}`])).trim()) || 0;
     if (ahead > 0 && options.force !== true) {
       log("worktree", "refusing to remove unmerged worktree", { conversationId, branch: target.branch, ahead });
@@ -128,10 +132,14 @@ export type MergeResult =
  * Refuses instead of guessing: both sides must be committed, and a conflict aborts
  * the merge and comes back as data so the agent can be asked to resolve it.
  */
-export async function mergeWorktree(repoRoot: string, conversationId: number): Promise<MergeResult> {
+export async function mergeWorktree(
+  repoRoot: string,
+  conversationId: number,
+  baseOverride?: string,
+): Promise<MergeResult> {
   const { dir, branch } = worktreePaths(repoRoot, conversationId);
   try {
-    const base = (await git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
+    const base = baseOverride ?? (await git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
     if (branch === base) return { status: "up-to-date", branch, base };
 
     const worktreeDirty = (await git(dir, ["status", "--porcelain"])).trim();

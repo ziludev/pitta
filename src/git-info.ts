@@ -28,6 +28,11 @@ export type RemoteInfo = {
   webUrl?: string;
 };
 
+/** Current branch of a checkout, for defaulting a conversation's base. */
+export async function gitBranchOf(path: string): Promise<string> {
+  return (await git(path, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "")).trim();
+}
+
 /** The branch the project's main checkout is on: the base for a chat's work. */
 export async function baseBranch(projectPath: string): Promise<string> {
   try {
@@ -42,8 +47,9 @@ export async function commitLog(
   worktreePath: string,
   projectPath: string,
   limit = 20,
+  baseOverride?: string,
 ): Promise<CommitInfo[]> {
-  const base = await baseBranch(projectPath);
+  const base = baseOverride ?? (await baseBranch(projectPath));
   const raw = await git(worktreePath, [
     "log",
     `--max-count=${limit}`,
@@ -136,7 +142,7 @@ export async function pushBranch(
   worktreePath: string,
   projectPath: string,
   branch: string,
-  options: { dryRun?: boolean } = {},
+  options: { dryRun?: boolean; base?: string } = {},
 ): Promise<PushResult> {
   const remote = await remoteInfo(projectPath);
   if (remote.kind === "none") return { status: "no-remote" };
@@ -160,7 +166,7 @@ export async function pushBranch(
       status: "pushed",
       branch,
       remote: remote.url ?? "",
-      compareUrl: compareUrl(remote, await baseBranch(projectPath), branch),
+      compareUrl: compareUrl(remote, options.base ?? (await baseBranch(projectPath)), branch),
     };
   } catch (error) {
     logError("git", "push failed", error);

@@ -232,7 +232,10 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         const conversationId = conversationIdOf(body);
         if (conversationId === undefined) return send(res, 400, { error: "conversationId required" });
         const force = body["force"] === true;
-        const result = await removeWorktree(await runtime.projectPathOf(conversationId), conversationId, { force });
+        const result = await removeWorktree(await runtime.projectPathOf(conversationId), conversationId, {
+          force,
+          base: await runtime.baseBranchOf(conversationId),
+        });
         // The conversation and its transcript stay: only the checkout is gone. Point it
         // back at the shared workspace so the chat keeps working instead of failing
         // every tool call on a missing cwd.
@@ -320,10 +323,24 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         const conversation = await resolveConversation(conversationIdOf(body));
         if (conversation === undefined) return send(res, 404, { error: "no such conversation" });
         const text = typeof body["text"] === "string" ? body["text"] : "";
-        if (text.trim().length === 0) return send(res, 400, { error: "empty text" });
+        const images = Array.isArray(body["images"])
+          ? (body["images"] as Array<{ data?: string; mimeType?: string }>)
+              .filter((image) => typeof image?.data === "string")
+              .slice(0, 3)
+              .map((image) => ({
+                type: "image" as const,
+                data: image.data as string,
+                mimeType: typeof image.mimeType === "string" ? image.mimeType : "image/png",
+              }))
+          : [];
+        if (text.trim().length === 0 && images.length === 0) return send(res, 400, { error: "empty text" });
         const mode = body["mode"];
         const whenBusy = mode === "steer" ? "steer" : mode === "reject" ? "reject" : "followUp";
-        const submission = await conversation.submit({ type: "input", content: text, whenBusy }, context);
+        const content =
+          images.length === 0
+            ? text
+            : [{ type: "text" as const, text: text.length > 0 ? text : "看看这几张图。" }, ...images];
+        const submission = await conversation.submit({ type: "input", content, whenBusy }, context);
         return send(res, 200, { submissionId: submission.id as unknown as number });
       }
 
@@ -441,7 +458,11 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         const body = await readJson(req);
         const conversationId = conversationIdOf(body);
         if (conversationId === undefined) return send(res, 400, { error: "conversationId required" });
-        const result = await mergeWorktree(await runtime.projectPathOf(conversationId), conversationId);
+        const result = await mergeWorktree(
+          await runtime.projectPathOf(conversationId),
+          conversationId,
+          await runtime.baseBranchOf(conversationId),
+        );
         log("http", "merge requested", { conversationId, status: result.status });
         return send(res, 200, result);
       }
@@ -480,22 +501,34 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         if (!Number.isFinite(conversationId)) return send(res, 400, { error: "conversationId required" });
         const worktree = await dirFor(conversationId);
         const projectPath = await runtime.projectPathOf(conversationId);
+        const base = await runtime.baseBranchOf(conversationId);
         const [commits, branchList, remote] = await Promise.all([
-          commitLog(worktree, projectPath, Math.min(Number(url.searchParams.get("limit") ?? 20) || 20, 100)),
+          commitLog(worktree, projectPath, Math.min(Number(url.searchParams.get("limit") ?? 20) || 20, 100), base),
           branches(projectPath),
           remoteInfo(projectPath),
         ]);
         const head = await execGit(worktree, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "");
-        const base = await execGit(projectPath, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "");
         return send(res, 200, {
           worktree,
           branch: head.trim(),
-          base: base.trim(),
+          base,
+          origin: await runtime.originBranchOf(conversationId).catch(() => undefined),
           commits,
           branches: branchList,
           remote,
           compareUrl: compareUrl(remote, base.trim(), head.trim()),
         });
+      }
+
+      if (req.method === "POST" && path === "/api/git/base") {
+        const body = await readJson(req);
+        const conversationId = conversationIdOf(body);
+        const branch = typeof body["base"] === "string" ? (body["base"] as string).trim() : "";
+        if (conversationId === undefined || branch.length === 0) {
+          return send(res, 400, { error: "conversationId and base required" });
+        }
+        await runtime.setBaseBranch(conversationId, branch);
+        return send(res, 200, { ok: true, base: branch });
       }
 
       if (req.method === "GET" && path === "/api/git/diff") {
@@ -517,7 +550,10 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         const branch =
           (await execGit(worktree, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "")).trim() ||
           worktreePaths(projectPath, conversationId).branch;
-        const result = await pushBranch(worktree, projectPath, branch, { dryRun: body["dryRun"] === true });
+        const result = await pushBranch(worktree, projectPath, branch, {
+          dryRun: body["dryRun"] === true,
+          base: await runtime.baseBranchOf(conversationId),
+        });
         return send(res, 200, result);
       }
 

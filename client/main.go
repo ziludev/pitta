@@ -85,6 +85,16 @@ func (Agent) Control(action string) string {
 	}
 }
 
+// Notify shows a native notification (used when a turn finishes while the window is
+// in the background). Returns "denied" when the system refuses notifications.
+func (Agent) Notify(title string, body string) string {
+	note := mygo.NewNotification(mygo.NotificationOptions{Title: title, Body: body, Group: "agent"})
+	if err := note.Show(); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
 // OpenLogs reveals the agent log directory in Finder.
 func (Agent) OpenLogs() string {
 	logs := filepath.Join(agentHome(), "logs")

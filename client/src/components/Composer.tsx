@@ -9,6 +9,7 @@ import { useStore } from "@/store";
 export function Composer() {
   const { lang, current, submit, composerDraft, setComposerDraft } = useStore();
   const [text, setText] = useState("");
+  const [images, setImages] = useState<Array<{ data: string; mimeType: string; name: string }>>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // "Edit and resend" pushes the old text here; focus so a fix can be typed at once.
@@ -20,19 +21,63 @@ export function Composer() {
   }, [composerDraft, setComposerDraft]);
   const [steer, setSteer] = useState(false);
 
-  const disabled = current === undefined || text.trim().length === 0;
+  const disabled = current === undefined || (text.trim().length === 0 && images.length === 0);
+
+  /** Screenshots arrive through paste; each becomes an image part of this turn. */
+  async function onPaste(event: React.ClipboardEvent): Promise<void> {
+    const files = [...event.clipboardData.items]
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null);
+    if (files.length === 0) return;
+    event.preventDefault();
+    const next = await Promise.all(
+      files.slice(0, 3).map(
+        async (file) =>
+          await new Promise<{ data: string; mimeType: string; name: string }>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const url = String(reader.result ?? "");
+              resolve({ data: url.slice(url.indexOf(",") + 1), mimeType: file.type, name: file.name });
+            };
+            reader.readAsDataURL(file);
+          }),
+      ),
+    );
+    setImages((current) => [...current, ...next].slice(0, 3));
+  }
 
   async function send() {
     if (disabled) return;
     const value = text;
+    const attachments = images.map(({ data, mimeType }) => ({ data, mimeType }));
     setText("");
-    await submit(value, steer ? "steer" : "followUp");
+    setImages([]);
+    await submit(value, steer ? "steer" : "followUp", attachments);
   }
 
   return (
     <div className="border-t border-border px-4 pt-3 pb-3.5">
+      {images.length > 0 ? (
+        <div className="flex gap-1.5">
+          {images.map((image, index) => (
+            <button
+              key={index}
+              onClick={() => setImages((current) => current.filter((_, at) => at !== index))}
+              title={tr(lang, "removeImage")}
+              className="group relative size-14 overflow-hidden rounded-md border border-border"
+            >
+              <img src={`data:${image.mimeType};base64,${image.data}`} alt="" className="size-full object-cover" />
+              <span className="absolute inset-0 hidden items-center justify-center bg-black/60 text-[10px] text-white group-hover:flex">
+                ×
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
       <Textarea
         ref={inputRef}
+        onPaste={(event) => void onPaste(event)}
         value={text}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {

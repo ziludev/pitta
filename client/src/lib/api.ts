@@ -16,6 +16,8 @@ export type GitInfo = {
   worktree: string;
   branch: string;
   base: string;
+  /** Branch the worktree was forked from. */
+  origin?: string;
   commits: Commit[];
   branches: Array<{ name: string; current: boolean; upstream?: string; track?: string }>;
   remote: { url?: string; kind: "github" | "gitlab" | "other" | "none"; webUrl?: string };

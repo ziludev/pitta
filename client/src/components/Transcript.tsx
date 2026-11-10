@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Copy, Pencil, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
+import { Agent } from "@/mygo";
 import { tr } from "@/i18n";
 import type { Entry } from "@/lib/api";
 import { diffStats } from "@/lib/diff";
@@ -240,6 +241,8 @@ export function Transcript() {
   const [stick, setStick] = useState(true);
   const [unseen, setUnseen] = useState(0);
   const lastFocus = useRef<number | undefined>(undefined);
+  /** Entry id of the newest answer we already notified about. */
+  const notified = useRef<number | undefined>(undefined);
   const seenCount = useRef(0);
   const turns = useMemo(() => groupTurns(entries), [entries]);
 
@@ -261,6 +264,17 @@ export function Transcript() {
     if (stick) box !== null && (box.scrollTop = box.scrollHeight);
     else setUnseen((count) => count + grew);
   }, [entries, stick]);
+
+  // A finished answer should reach the owner when the window is in the background.
+  useEffect(() => {
+    if (!document.hidden) return;
+    const answer = [...entries].reverse().find((entry) => entry.kind === "pi.assistant");
+    if (answer === undefined || notified.current === answer.id) return;
+    notified.current = answer.id;
+    const text = textOf(partsOf(answer.model)).replace(/\s+/g, " ").slice(0, 120);
+    if (text.length === 0) return;
+    void Agent.notify("Agent · 回答完成", text).catch(() => {});
+  }, [entries]);
 
   // ?entry=<id> and search hits: jump every time the target changes, not only once.
   useEffect(() => {

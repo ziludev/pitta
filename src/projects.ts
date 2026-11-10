@@ -34,11 +34,17 @@ export const ProjectsDoc = defineDoc<{ projects: Project[] }>({
 });
 
 /** conversationId -> projectId, so a chat remembers which repo it belongs to. */
-export const ConversationProjectDoc = defineDoc<{ byConversation: Record<string, string> }>({
+export const ConversationProjectDoc = defineDoc<{
+  byConversation: Record<string, string>;
+  /** Branch this chat compares against and merges into; defaults to the project's HEAD. */
+  baseByConversation?: Record<string, string>;
+  /** Branch the worktree was created from; a different base means extra commits show up. */
+  originByConversation?: Record<string, string>;
+}>({
   kind: "app.conversation-project",
   version: 1,
   scope: "session",
-  initial: () => ({ byConversation: {} }),
+  initial: () => ({ byConversation: {}, baseByConversation: {}, originByConversation: {} }),
   checkpointWhen: () => false,
 });
 
@@ -53,6 +59,49 @@ export async function projectOf(
 ): Promise<string | undefined> {
   const doc = await harness.snapshot(ConversationProjectDoc, context);
   return doc?.byConversation[String(conversationId)];
+}
+
+export async function baseOf(
+  harness: Harness,
+  context: Context,
+  conversationId: number,
+): Promise<string | undefined> {
+  const doc = await harness.snapshot(ConversationProjectDoc, context);
+  return doc?.baseByConversation?.[String(conversationId)];
+}
+
+export async function originOf(
+  harness: Harness,
+  context: Context,
+  conversationId: number,
+): Promise<string | undefined> {
+  const doc = await harness.snapshot(ConversationProjectDoc, context);
+  return doc?.originByConversation?.[String(conversationId)];
+}
+
+export async function setOrigin(
+  harness: Harness,
+  context: Context,
+  conversationId: number,
+  branch: string,
+): Promise<void> {
+  await harness.commit(async (tx) => {
+    const doc = await tx.doc(ConversationProjectDoc);
+    doc.originByConversation = { ...(doc.originByConversation ?? {}), [String(conversationId)]: branch };
+    doc.baseByConversation = { ...(doc.baseByConversation ?? {}), [String(conversationId)]: branch };
+  }, context);
+}
+
+export async function setBase(
+  harness: Harness,
+  context: Context,
+  conversationId: number,
+  branch: string,
+): Promise<void> {
+  await harness.commit(async (tx) => {
+    const doc = await tx.doc(ConversationProjectDoc);
+    doc.baseByConversation = { ...(doc.baseByConversation ?? {}), [String(conversationId)]: branch };
+  }, context);
 }
 
 export async function bindProject(
