@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FolderPlus, FolderGit2 } from "lucide-react";
+import { Check, ChevronsUpDown, FolderGit2, FolderPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,18 +11,29 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { tr } from "@/i18n";
 import { useStore } from "@/store";
 
+const shortPath = (path: string): string => path.replace(/^\/Users\/[^/]+\//, "~/");
+
 /**
- * A project is a repo the agent may work in; chats inside it get their own worktree.
- * The rail is scoped to one project at a time (ThinkRail's project → workspace → chats).
+ * Project switcher. A project is a repo the agent may work in; chats inside it get
+ * their own worktree. Shown as a menu (name + path, current one checked) because a
+ * select renders the path next to the name twice and reads like a bug.
  */
 export function ProjectBar() {
   const { lang, projects, currentProject, setProject, openProject } = useStore();
   const [opening, setOpening] = useState(false);
+  // ?projects=1 opens the switcher (screenshots, demos).
+  const [menu, setMenu] = useState(new URLSearchParams(location.search).get("projects") === "1");
   const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -50,28 +61,40 @@ export function ProjectBar() {
   }
 
   return (
-    <div className="flex items-center gap-1 px-2 pt-2">
-      <Select value={current?.id ?? ""} onValueChange={setProject}>
-        <SelectTrigger size="sm" className="h-7 flex-1 gap-1.5 border-none bg-muted/40 px-2 text-[11px]">
-          <FolderGit2 className="size-3 shrink-0 text-muted-foreground" />
-          <SelectValue placeholder={tr(lang, "project")} />
-        </SelectTrigger>
-        <SelectContent>
+    <div className="px-2 pt-2">
+      <DropdownMenu open={menu} onOpenChange={setMenu}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            className="h-8 w-full justify-start gap-1.5 px-2 text-[11.5px] font-medium hover:bg-accent/10"
+          >
+            <FolderGit2 className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate text-left">{current?.name ?? tr(lang, "project")}</span>
+            <ChevronsUpDown className="size-3 shrink-0 text-muted-foreground/60" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-64">
           {projects.map((project) => (
-            <SelectItem key={project.id} value={project.id} className="text-[11px]">
-              <span className="truncate">{project.name}</span>
-              {project.path.replace(/\/[^/]+$/, "").split("/").pop() !== project.name ? null : (
-                <span className="ml-1 truncate text-[10px] text-muted-foreground">
-                  {project.path.replace(/^\/Users\/[^/]+\//, "~/")}
+            <DropdownMenuItem key={project.id} onSelect={() => setProject(project.id)} className="gap-2">
+              <Check
+                className={`size-3 shrink-0 ${project.id === current?.id ? "text-primary" : "text-transparent"}`}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[11.5px]">{project.name}</span>
+                <span className="block truncate text-[10px] text-muted-foreground">
+                  {shortPath(project.path)}
+                  {project.builtin === true ? ` · ${tr(lang, "builtin")}` : ""}
                 </span>
-              )}
-            </SelectItem>
+              </span>
+            </DropdownMenuItem>
           ))}
-        </SelectContent>
-      </Select>
-      <Button variant="ghost" size="icon-xs" title={tr(lang, "openProject")} onClick={() => setOpening(true)}>
-        <FolderPlus className="size-3" />
-      </Button>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => setOpening(true)} className="gap-2">
+            <FolderPlus className="size-3" />
+            {tr(lang, "openProject")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <Dialog open={opening} onOpenChange={setOpening}>
         <DialogContent className="sm:max-w-md">
