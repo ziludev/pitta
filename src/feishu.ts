@@ -279,10 +279,31 @@ function mentionFor(
   return event.sender?.sender_id?.open_id ?? undefined;
 }
 
+/** Liveness of the long connection, so a deaf bot is visible instead of silent. */
+export type FeishuStatus = {
+  ready: boolean;
+  /** Epoch ms of the last successful connect (or of process start). */
+  since: number;
+  /** Connect failures since start; a flapping link drops events while it is down. */
+  flaps: number;
+  lastError?: string;
+};
+
+const feishuStatus: FeishuStatus = { ready: false, since: Date.now(), flaps: 0 };
+let feishuStarted = false;
+
+/** Snapshot for the client: how long the bot has been deaf, in ms (0 while connected). */
+export const getFeishuStatus = (): FeishuStatus & { started: boolean; downMs: number } => ({
+  ...feishuStatus,
+  started: feishuStarted,
+  downMs: feishuStatus.ready ? 0 : Date.now() - feishuStatus.since,
+});
+
 export type FeishuBridge = { stop(): void };
 
 export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBridge> {
   const { appId, appSecret } = requireFeishuCredentials();
+  feishuStarted = true;
   const client = new Lark.Client({ appId, appSecret });
   const handled = new Set<string>();
   const pendingApprovals = new Map<string, PendingApproval>();
@@ -1006,14 +1027,45 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     appSecret,
     loggerLevel,
     // Connection state is not obvious from the SDK's own logs; make flapping visible.
-    onReady: () => console.log("[feishu] ws ready"),
-    onError: (error: unknown) =>
-      console.error(`[feishu] ws error: ${(error as Error)?.message ?? String(error)}`),
-    onReconnecting: () => console.warn("[feishu] ws reconnecting"),
-    onReconnected: () => console.log("[feishu] ws reconnected"),
+    onReady: () => {
+      console.log("[feishu] ws ready");
+      feishuStatus.ready = true;
+      feishuStatus.since = Date.now();
+    },
+    onError: (error: unknown) => {
+      feishuStatus.ready = false;
+      feishuStatus.flaps += 1;
+      feishuStatus.lastError = (error as Error)?.message ?? String(error);
+      console.error(`[feishu] ws error: ${feishuStatus.lastError}`);
+    },
+    onReconnecting: () => {
+      feishuStatus.ready = false;
+      console.warn("[feishu] ws reconnecting");
+    },
+    onReconnected: () => {
+      feishuStatus.ready = true;
+      feishuStatus.since = Date.now();
+      console.log("[feishu] ws reconnected");
+    },
   });
   await wsClient.start({ eventDispatcher });
   log("feishu", `long connection established for app ${appId}`);
+
+  // The SDK stops retrying once it gives up, and a long connection that dies silently
+  // is indistinguishable from a bot nobody talks to. Restart it ourselves when it stays
+  // down; while it is down, events published by Feishu are lost, not queued.
+  let lastAttempt = Date.now();
+  const supervisor = setInterval(() => {
+    if (feishuStatus.ready) return;
+    const down = Date.now() - feishuStatus.since;
+    if (down < 120_000 || Date.now() - lastAttempt < 120_000) return;
+    lastAttempt = Date.now();
+    logError("feishu", `long connection down ${Math.round(down / 1000)}s, restarting it`, undefined);
+    void wsClient.start({ eventDispatcher }).catch((error: unknown) => {
+      feishuStatus.lastError = (error as Error)?.message ?? String(error);
+      logError("feishu", "could not restart long connection", error);
+    });
+  }, 30_000);
 
   // A crash or redeploy leaves the conversation resuming in this process while the
   // old card has no owner. Reacquire the submission, wait for it, deliver the answer
@@ -1077,6 +1129,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
 
   return {
     stop() {
+      clearInterval(supervisor);
       for (const entry of pendingApprovals.values()) {
         clearTimeout(entry.timer);
         entry.resolve(false);

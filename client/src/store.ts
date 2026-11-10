@@ -77,6 +77,8 @@ type State = {
   /** Recent client-side failures, newest last (the log file is not visible in-app). */
   errors: Array<{ at: string; message: string }>;
   git?: GitInfo;
+  /** Feishu long-connection health; a deaf bot must not look like a quiet one. */
+  feishu?: { ready: boolean; downMs: number; flaps: number; lastError?: string };
   /** Approval waits inside the open conversation, for the turn phase bar. */
   approvalWaits: Array<{ start: number; end: number; tool: string }>;
   /** Lifetime spend and turn count of the open conversation, from its usage ledger. */
@@ -198,7 +200,7 @@ export const useStore = create<State>((set, get) => ({
   view: new URLSearchParams(location.search).get("file")
     ? { kind: "file", path: new URLSearchParams(location.search).get("file")! }
     : { kind: "transcript" },
-  filter: "",
+  filter: new URLSearchParams(location.search).get("filter") ?? "",
   review: [],
   models: [],
   usageDays: [],
@@ -266,11 +268,17 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async refreshSurfaces() {
-    const state = await api<{ surfaces: Surface[]; tasks: Task[]; projects?: Project[] }>("/api/state");
+    const state = await api<{
+      surfaces: Surface[];
+      tasks: Task[];
+      projects?: Project[];
+      feishu?: { ready: boolean; downMs: number; flaps: number; lastError?: string };
+    }>("/api/state");
     set({
       surfaces: state.surfaces,
       tasks: state.tasks,
       projects: state.projects ?? get().projects,
+      feishu: state.feishu,
     });
   },
 

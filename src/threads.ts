@@ -15,9 +15,12 @@ export const MessageIndex = defineDoc<{
   checkpointWhen: () => false,
 });
 
-/** thread key -> its forked conversation. */
+/** thread key -> its forked conversation, plus where the fork came from. */
 export const ThreadMap = defineDoc<{
-  threads: Record<string, { conversationId: number; at: number }>;
+  threads: Record<
+    string,
+    { conversationId: number; parentConversationId?: number; surfaceId?: string; at: number }
+  >;
 }>({
   kind: "app.threads",
   version: 1,
@@ -60,15 +63,33 @@ export async function recordThread(
   context: Context,
   threadKey: string,
   conversationId: number,
+  parentConversationId?: number,
+  surfaceId?: string,
 ): Promise<void> {
   await harness.commit(async (tx) => {
     const doc = await tx.doc(ThreadMap);
-    doc.threads[threadKey] = { conversationId, at: Date.now() };
+    doc.threads[threadKey] = { conversationId, parentConversationId, surfaceId, at: Date.now() };
     const keys = Object.keys(doc.threads);
     if (keys.length > MAX_ENTRIES) {
       for (const key of keys.slice(0, keys.length - MAX_ENTRIES)) delete doc.threads[key];
     }
   }, context);
+}
+
+/** conversationId -> the thread it belongs to, for grouping topics under their chat. */
+export type ThreadInfo = { key: string; parent?: number; surfaceId?: string };
+
+export async function threadIndex(harness: Harness, context: Context): Promise<Record<string, ThreadInfo>> {
+  const doc = await harness.snapshot(ThreadMap, context);
+  const index: Record<string, ThreadInfo> = {};
+  for (const [key, value] of Object.entries(doc?.threads ?? {})) {
+    index[String(value.conversationId)] = {
+      key,
+      parent: value.parentConversationId,
+      surfaceId: value.surfaceId,
+    };
+  }
+  return index;
 }
 
 export async function lookupThread(

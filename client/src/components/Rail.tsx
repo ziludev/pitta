@@ -22,6 +22,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SearchBox } from "@/components/SearchBox";
+import { CornerDownRight, PlugZap } from "lucide-react";
 import { ProjectBar } from "@/components/ProjectBar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChatMenu } from "@/components/ChatMenu";
@@ -91,6 +92,7 @@ function SessionRow({
   label,
   archived,
   pinTitle,
+  topic,
   onSelect,
   onTogglePin,
 }: {
@@ -101,6 +103,8 @@ function SessionRow({
   label: string;
   archived: boolean;
   pinTitle: string;
+  /** A topic fork: nested under its chat, marked so the nesting reads on purpose. */
+  topic: boolean;
   onSelect: () => void;
   onTogglePin: () => void;
 }) {
@@ -112,7 +116,9 @@ function SessionRow({
   return (
     <div
       ref={setNodeRef}
-      className={`group flex items-center gap-1.5 overflow-hidden rounded-md px-2 py-1.5 text-xs whitespace-nowrap transition-[transform,box-shadow,background-color] ${
+      className={`group flex items-center gap-1.5 overflow-hidden rounded-md py-1.5 pr-2 text-xs whitespace-nowrap transition-[transform,box-shadow,background-color] ${
+        topic ? "pl-5" : "pl-2"
+      } ${
         active
           ? "bg-accent/15 text-foreground"
           : "hover:-translate-y-[2px] hover:bg-accent/10 hover:shadow-[0_6px_14px_-6px_rgba(0,0,0,0.45)]"
@@ -134,7 +140,9 @@ function SessionRow({
         <GripVertical className="size-3" />
       </button>
       <button onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-left">
-        {kind === "client" ? (
+        {topic ? (
+          <CornerDownRight className="size-2.5 shrink-0 text-muted-foreground/50" />
+        ) : kind === "client" ? (
           <Monitor className="size-2.5 shrink-0 text-primary/70" />
         ) : kind === "feishu" ? (
           <MessagesSquare className="size-2.5 shrink-0 text-muted-foreground/60" />
@@ -179,6 +187,7 @@ export function Rail() {
     filter,
     surfaceFilter,
     setSurfaceFilter,
+    feishu,
     currentProject,
     newChat,
     showArchived,
@@ -197,12 +206,12 @@ export function Rail() {
   // Rail is scoped to one project: the builtin sandbox unless the owner opened a repo.
   const inProject = surfaces.filter((surface) => (surface.projectId ?? "workspace") === currentProject);
   const scoped = surfaceFilter === "all" ? inProject : inProject.filter((surface) => kindOf(surface) === surfaceFilter);
-  const visible = (showArchived ? scoped : scoped.filter((surface) => surface.archived !== true)).filter((surface) => {
+  const visibleBase = (showArchived ? scoped : scoped.filter((surface) => surface.archived !== true)).filter((surface) => {
     if (filter.trim().length === 0) return true;
     const needle = filter.trim().toLowerCase();
     return surface.surfaceId.toLowerCase().includes(needle) || String(surface.conversationId).includes(needle);
   });
-  const sorted = [...visible].sort((a, b) => {
+  const sorted = [...visibleBase].sort((a, b) => {
     const ap = pinned.indexOf(a.conversationId);
     const bp = pinned.indexOf(b.conversationId);
     if (ap !== -1 || bp !== -1) {
@@ -215,6 +224,23 @@ export function Rail() {
     if (ai !== -1 && bi !== -1) return ai - bi;
     return a.conversationId - b.conversationId;
   });
+
+  // A topic fork shares its parent's chat, so it is shown under it instead of as another
+  // conversation at the same level — otherwise a busy group fills the rail with topics.
+  const present = new Set(sorted.map((surface) => surface.conversationId));
+  const childrenOf = new Map<number, Surface[]>();
+  for (const surface of sorted) {
+    if (surface.threadParent === undefined || !present.has(surface.threadParent)) continue;
+    const list = childrenOf.get(surface.threadParent) ?? [];
+    list.push(surface);
+    childrenOf.set(surface.threadParent, list);
+  }
+  const nested: Array<{ surface: Surface; topic: boolean }> = [];
+  for (const surface of sorted) {
+    if (surface.threadParent !== undefined && present.has(surface.threadParent)) continue;
+    nested.push({ surface, topic: false });
+    for (const child of childrenOf.get(surface.conversationId) ?? []) nested.push({ surface: child, topic: true });
+  }
 
   // Infrastructure tasks (usage sampling) and internal pi.* tasks are noise here:
   // the rail shows the work the owner started.
@@ -281,6 +307,17 @@ export function Rail() {
           <Plus className="size-3" />
         </Button>
       </div>
+      {feishu !== undefined && feishu.ready === false && feishu.downMs > 60_000 ? (
+        <div
+          className="mx-2 mb-1.5 flex items-center gap-1.5 rounded-md border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-[10px] text-rose-300"
+          title={feishu.lastError ?? tr(lang, "feishuDownHint")}
+        >
+          <PlugZap className="size-3 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">
+            {tr(lang, "feishuDown")} {Math.round(feishu.downMs / 60_000)}m
+          </span>
+        </div>
+      ) : null}
       <div className="mb-1.5 flex items-center gap-1 px-2">
         <Select value={surfaceFilter} onValueChange={(next) => setSurfaceFilter(next as typeof surfaceFilter)}>
           <SelectTrigger size="sm" className="h-6 flex-1 border-none bg-muted/40 px-2 text-[10.5px]">
@@ -317,9 +354,10 @@ export function Rail() {
         >
           <SortableContext items={sorted.map((surface) => surface.conversationId)} strategy={verticalListSortingStrategy}>
             <div className="flex flex-col gap-0.5 pb-2">
-              {sorted.map((surface) => (
+              {nested.map(({ surface, topic }) => (
                 <SessionRow
                   key={surface.conversationId}
+                  topic={topic}
                   surface={surface}
                   active={surface.conversationId === current}
                   pinned={pinned.includes(surface.conversationId)}

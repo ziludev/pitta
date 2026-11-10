@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
 import { UsageDoc, type Conversation } from "@earendil-works/pi-durable";
 import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
+import { getFeishuStatus } from "./feishu.ts";
 import { log, logError } from "./log.ts";
 import { config } from "./config.ts";
 import { collectChanges, commitChanges, ensureRepo } from "./changes.ts";
@@ -185,6 +186,11 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
           runtime.harness,
           context,
         ).catch(() => ({}));
+        type ThreadInfo = { key: string; parent?: number; surfaceId?: string };
+        const threads: Record<string, ThreadInfo> = await runtime.threads().catch((error: unknown) => {
+          logError("server", "could not read thread index", error);
+          return {} as Record<string, ThreadInfo>;
+        });
         const entries = Object.entries(chats?.chats ?? {});
         const surfaces = await Promise.all(
           entries.map(async ([surfaceId, conversationId]) => {
@@ -207,10 +213,14 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
                     .catch(() => "");
             const own = meta[surfaceId];
             const spend = await usageOf(conversationId).catch(() => ({ cost: 0, tokens: 0 }));
+            const thread = threads[String(conversationId)];
             return {
               surfaceId,
               conversationId,
               kind,
+              // A forked topic: the client nests it under the chat it branched from.
+              threadKey: thread?.key,
+              threadParent: thread?.parent,
               cost: spend.cost,
               tokens: spend.tokens,
               title: own?.title ?? title,
@@ -219,7 +229,45 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
             };
           }),
         );
+        // A topic fork shares its parent's surface, so the chat map only ever names the
+        // parent. List the forks too, or the client cannot read what the bot said in a
+        // topic at all.
+        const listed = new Set(surfaces.map((surface) => surface.conversationId));
+        for (const [id, info] of Object.entries(threads)) {
+          const conversationId = Number(id);
+          if (listed.has(conversationId) || info.surfaceId === undefined) continue;
+          const conversation = await runtime.harness
+            .conversation(conversationId as never, context)
+            .catch(() => undefined);
+          if (conversation === undefined) continue;
+          // A topic inherits its chat's history, so its first user message is the parent's
+          // question. Title it by the latest ask instead, which is what the topic is about.
+          const title = await conversation
+            .entries({ order: "descending" }, 40, undefined, context)
+            .then((page) => {
+              const last = page.items.find((entry) => entry.kind === "pi.user");
+              const text = last === undefined ? "" : entryText(last.model);
+              return text.replace(/\s+/g, " ").replace(/^@\s*/, "").trim().slice(0, 32);
+            })
+            .catch(() => "");
+          const spend = await usageOf(conversationId).catch(() => ({ cost: 0, tokens: 0 }));
+          const own = meta[info.surfaceId];
+          surfaces.push({
+            surfaceId: info.surfaceId,
+            conversationId,
+            kind: "feishu",
+            threadKey: info.key,
+            threadParent: info.parent,
+            cost: spend.cost,
+            tokens: spend.tokens,
+            title: title.length > 0 ? title : `话题 ${info.key.slice(-6)}`,
+            archived: own?.archived === true,
+            projectId: await runtime.projectOfConversation(conversationId).catch(() => undefined),
+          });
+        }
+
         return send(res, 200, {
+          feishu: getFeishuStatus(),
           projects,
           surfaces,
           tasks: inspection.tasks.map((task) => ({

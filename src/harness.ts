@@ -54,7 +54,7 @@ import {
   type Project,
 } from "./projects.ts";
 import { setHarnessRef } from "./runtime-ref.ts";
-import { forkAt, lookupMessage, lookupThread, recordMessage, recordThread } from "./threads.ts";
+import { forkAt, lookupMessage, lookupThread, recordMessage, recordThread, threadIndex } from "./threads.ts";
 import { config } from "./config.ts";
 
 export const context = BACKGROUND_CONTEXT;
@@ -111,6 +111,8 @@ export type AgentRuntime = {
   /** The repository root a conversation works in, for merge and project-scoped diffs. */
   projectPathOf(conversationId: number): Promise<string>;
   projectOfConversation(conversationId: number): Promise<string | undefined>;
+  /** conversationId -> its thread (topic), so the client can nest forks under their chat. */
+  threads(): Promise<Record<string, { key: string; parent?: number; surfaceId?: string }>>;
   /** The surface a conversation belongs to, for rename/archive/cleanup by chat id. */
   surfaceOf(conversationId: number): Promise<string | undefined>;
   /** Reply/thread conversation: forked at the answered message, or the chat itself. */
@@ -424,7 +426,14 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
           // Empty change: the fork inherits the parent's agent at the fork entry,
           // which keeps it in the same worktree as the chat it branched from.
           const forked = await forkAt(parent, anchor.entryId, {}, context);
-          await recordThread(harness, context, threadKey, forked.id as unknown as number);
+          await recordThread(
+            harness,
+            context,
+            threadKey,
+            forked.id as unknown as number,
+            parent.id as unknown as number,
+            surfaceId,
+          );
           rememberSurface(forked.id as unknown as number, surfaceId);
           console.log(`[agent] forked conversation ${forked.id} from ${parent.id} at entry ${anchor.entryId}`);
           return forked;
@@ -528,6 +537,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     },
     projectPathOf,
     projectOfConversation: (conversationId: number) => projectOf(harness, context, conversationId),
+    threads: () => threadIndex(harness, context),
     surfaceOf,
     conversationForThread,
     recordMessage: recordMessageFor,

@@ -38,6 +38,9 @@ export type Surface = {
   /** Lifetime spend and token count for this chat, from the usage ledger. */
   cost?: number;
   tokens?: number;
+  /** Set on a topic fork: the thread key and the chat it branched from. */
+  threadKey?: string;
+  threadParent?: number;
   title?: string;
   archived?: boolean;
   projectId?: string;
