@@ -41,8 +41,9 @@ export function ConvSearch() {
             event.preventDefault();
             stepMatch(event.shiftKey ? -1 : 1);
           }}
-          placeholder={tr(lang, "findInChat")}
-          className="h-6 w-40 pl-6 text-[11px]"
+          placeholder={tr(lang, "findShort")}
+          title={tr(lang, "findInChat")}
+          className="h-6 w-56 pl-6 text-[11px]"
         />
         {convQuery.length > 0 ? (
           <button

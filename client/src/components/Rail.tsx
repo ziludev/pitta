@@ -84,29 +84,33 @@ function SessionRow({
       >
         <GripVertical className="size-3" />
       </button>
-      <button onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-left">
-        {kind === "client" ? (
-          <Monitor className="size-2.5 shrink-0 text-primary/70" />
-        ) : kind === "feishu" ? (
-          <MessagesSquare className="size-2.5 shrink-0 text-muted-foreground/60" />
-        ) : null}
+      <button
+        onClick={onSelect}
+        title={`#${surface.conversationId} · ${label}`}
+        className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-left"
+      >
+        <span className="flex size-3 shrink-0 items-center justify-center">
+          {kind === "client" ? (
+            <Monitor className="size-2.5 text-primary/70" />
+          ) : kind === "feishu" ? (
+            <MessagesSquare className="size-2.5 text-muted-foreground/60" />
+          ) : (
+            <span className="size-1 rounded-full bg-muted-foreground/30" />
+          )}
+        </span>
         <span className={`min-w-0 flex-1 truncate ${archived ? "text-muted-foreground/60 line-through" : ""}`}>
           {label}
         </span>
-        <span className="shrink-0 text-[10px] text-muted-foreground/50 tabular-nums opacity-0 group-hover:opacity-100">
-          #{surface.conversationId}
-        </span>
       </button>
-      <ChatMenu conversationId={surface.conversationId} title={label} archived={archived} />
-      <button
-        onClick={onTogglePin}
-        title={pinTitle}
-        className={`shrink-0 transition ${
-          pinned ? "text-primary" : "text-muted-foreground/40 opacity-0 group-hover:opacity-100"
-        }`}
-      >
-        {pinned ? <Pin className="size-3" /> : <PinOff className="size-3" />}
-      </button>
+      {pinned ? <Pin className="size-2.5 shrink-0 text-primary" /> : null}
+      <ChatMenu
+        conversationId={surface.conversationId}
+        title={label}
+        archived={archived}
+        pinned={pinned}
+        onTogglePin={onTogglePin}
+        pinTitle={pinTitle}
+      />
     </div>
   );
 }
@@ -246,7 +250,7 @@ export function Rail() {
         </Button>
       </div>
       <SearchBox />
-      <ScrollArea className="min-h-0 flex-1 px-1.5">
+      <ScrollArea className="min-h-0 w-full flex-1 px-1.5 [&_[data-radix-scroll-area-viewport]>div]:!block">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}

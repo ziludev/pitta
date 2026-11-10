@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Archive, ArchiveRestore, Eraser, MoreHorizontal, Pencil } from "lucide-react";
+import { Archive, ArchiveRestore, Eraser, MoreHorizontal, Pencil, Pin, PinOff } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,10 +31,16 @@ export function ChatMenu({
   conversationId,
   title,
   archived,
+  pinned,
+  pinTitle,
+  onTogglePin,
 }: {
   conversationId: number;
   title: string;
   archived: boolean;
+  pinned: boolean;
+  pinTitle: string;
+  onTogglePin: () => void;
 }) {
   const { lang, renameChat, archiveChat, cleanupWorktree } = useStore();
   const [renaming, setRenaming] = useState(false);
@@ -48,7 +54,7 @@ export function ChatMenu({
           <Button
             variant="ghost"
             size="icon-xs"
-            className="shrink-0 opacity-0 group-hover:opacity-100 aria-expanded:opacity-100"
+            className="size-5 shrink-0 text-muted-foreground/50 opacity-0 group-hover:opacity-100 aria-expanded:opacity-100"
             onClick={(event) => event.stopPropagation()}
           >
             <MoreHorizontal className="size-3" />
@@ -63,6 +69,10 @@ export function ChatMenu({
           >
             <Pencil className="size-3" />
             {tr(lang, "rename")}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={onTogglePin} title={pinTitle}>
+            {pinned ? <PinOff className="size-3" /> : <Pin className="size-3" />}
+            {pinTitle}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => void archiveChat(conversationId, !archived)}>
             {archived ? <ArchiveRestore className="size-3" /> : <Archive className="size-3" />}
