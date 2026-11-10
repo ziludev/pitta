@@ -181,7 +181,8 @@ durable approvals       # 待审批；durable approve <id> / deny <id>
 - plist 是模板（`launchd/*.plist.tmpl`），`install` 时渲染实路径，换机器不用手改
 - 备份：`sqlite3 .backup` 热备 → `journal_mode=DELETE` 收成单文件 → 完整性校验 → 保留 14 份；恢复会先停进程、等它真正退出
 - **一份 storage 只能一个进程写**：`openRuntime()` 会写 `.data/agent.owner`（pid），第二个进程直接报错而不是把运行中的会话搞坏
-- 日志：`logs/agent.log`、`logs/agent.err.log`、`logs/backup.log`；`[report] <kind>` 是 hook/tool/listener 的失败（不会抛进 harness，只能在这看）
+- 日志：`logs/agent.log`、`logs/agent.err.log`、`logs/backup.log`；`[report] <时间戳> <kind>` 是 hook/tool/listener 的失败（不会抛进 harness，只能在这看）
+- `doctor` 的判据是**相对量**：重启次数与上次体检比（`+N since last check`），错误只看近两天；旧日志里没有时间戳的行单独计数，不会永远冒充"新故障"
 
 ---
 

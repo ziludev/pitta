@@ -193,7 +193,9 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
       },
       onReport: (report) => {
         // Hook/tool/listener failures never throw into the harness, so log them here.
-        console.error(`[report] ${report.kind}`, JSON.stringify(report).slice(0, 800));
+        // Timestamped: doctor treats an error older than a day as history, not a problem.
+        const stamp = new Date().toISOString();
+        console.error(`[report] ${stamp} ${report.kind}`, JSON.stringify(report).slice(0, 800));
       },
     },
     context,
