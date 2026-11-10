@@ -17,7 +17,7 @@ import { tr } from "@/i18n";
 import { useStore } from "@/store";
 
 /** Commit the workspace as a checkpoint; the message is the only input. */
-export function CommitDialog({ files }: { files: number }) {
+export function CommitDialog({ files, iconOnly = false }: { files: number; iconOnly?: boolean }) {
   const { lang, commit, loadChanges } = useStore();
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
@@ -41,9 +41,9 @@ export function CommitDialog({ files }: { files: number }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="xs" title={tr(lang, "commit")}>
+        <Button variant="ghost" size={iconOnly ? "icon-xs" : "xs"} title={tr(lang, "commit")}>
           <GitCommitHorizontal className="size-3" />
-          {tr(lang, "commit")}
+          {iconOnly ? null : tr(lang, "commit")}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">

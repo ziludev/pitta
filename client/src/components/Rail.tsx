@@ -3,6 +3,7 @@ import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  Archive,
   Database,
   FileText,
   GripVertical,
@@ -21,6 +22,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SearchBox } from "@/components/SearchBox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChatMenu } from "@/components/ChatMenu";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cssEase, easeOutCubic, hoverLift } from "@/lib/motion";
@@ -61,7 +63,7 @@ function SessionRow({
   return (
     <div
       ref={setNodeRef}
-      className={`group flex items-center gap-1 overflow-hidden rounded-md px-1.5 py-1 text-xs whitespace-nowrap transition-[transform,box-shadow,background-color] ${
+      className={`group flex items-center gap-1.5 overflow-hidden rounded-md px-2 py-1.5 text-xs whitespace-nowrap transition-[transform,box-shadow,background-color] ${
         active
           ? "bg-accent/15 text-foreground"
           : "hover:-translate-y-[2px] hover:bg-accent/10 hover:shadow-[0_6px_14px_-6px_rgba(0,0,0,0.45)]"
@@ -91,7 +93,9 @@ function SessionRow({
         <span className={`min-w-0 flex-1 truncate ${archived ? "text-muted-foreground/60 line-through" : ""}`}>
           {label}
         </span>
-        <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">#{surface.conversationId}</span>
+        <span className="shrink-0 text-[10px] text-muted-foreground/50 tabular-nums opacity-0 group-hover:opacity-100">
+          #{surface.conversationId}
+        </span>
       </button>
       <ChatMenu conversationId={surface.conversationId} title={label} archived={archived} />
       <button
@@ -215,29 +219,31 @@ export function Rail() {
           <Plus className="size-3" />
         </Button>
       </div>
-      <div className="mb-1 flex gap-1 px-2">
-        {(["all", "client", "feishu"] as const).map((filter) => (
-          <button
-            key={filter}
-            onClick={() => setSurfaceFilter(filter)}
-            className={`rounded-full px-2 py-0.5 text-[10px] transition-colors ${
-              surfaceFilter === filter
-                ? "bg-primary/15 text-primary"
-                : "text-muted-foreground/70 hover:text-foreground"
-            }`}
-          >
-            {tr(lang, filter === "all" ? "allChats" : filter === "client" ? "clientChats" : "feishuChats")}
-          </button>
-        ))}
-        <button
+      <div className="mb-1.5 flex items-center gap-1 px-2">
+        <Select value={surfaceFilter} onValueChange={(next) => setSurfaceFilter(next as typeof surfaceFilter)}>
+          <SelectTrigger size="sm" className="h-6 flex-1 border-none bg-muted/40 px-2 text-[10.5px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all" className="text-[11px]">
+              {tr(lang, "allChats")} · {surfaces.length}
+            </SelectItem>
+            <SelectItem value="client" className="text-[11px]">
+              {tr(lang, "clientChats")} · {surfaces.filter((surface) => kindOf(surface) === "client").length}
+            </SelectItem>
+            <SelectItem value="feishu" className="text-[11px]">
+              {tr(lang, "feishuChats")} · {surfaces.filter((surface) => kindOf(surface) === "feishu").length}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+        <Button
+          variant={showArchived ? "secondary" : "ghost"}
+          size="icon-xs"
           onClick={toggleShowArchived}
-          className={`ml-auto rounded-full px-1.5 py-0.5 text-[10px] ${
-            showArchived ? "bg-primary/15 text-primary" : "text-muted-foreground/60 hover:text-foreground"
-          }`}
           title={tr(lang, "archived")}
         >
-          {tr(lang, "archived")}
-        </button>
+          <Archive className="size-3" />
+        </Button>
       </div>
       <SearchBox />
       <ScrollArea className="min-h-0 flex-1 px-1.5">

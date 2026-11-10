@@ -47,7 +47,8 @@ export function SearchBox() {
             setFilter(event.target.value);
             if (event.target.value.trim().length < 2) setHits(undefined);
           }}
-          placeholder={tr(lang, "search")}
+          placeholder={tr(lang, "searchShort")}
+          title={tr(lang, "search")}
           className="h-7 pl-7 text-[11px]"
         />
       </form>

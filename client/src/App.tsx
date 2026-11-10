@@ -45,7 +45,7 @@ export function App() {
     <TooltipProvider delayDuration={300}>
       <div className="h-screen w-screen overflow-hidden bg-background text-foreground">
         <PanelGroup direction="horizontal" autoSaveId="agent-layout">
-          <Panel defaultSize={19} minSize={13} maxSize={30}>
+          <Panel defaultSize={22} minSize={15} maxSize={32}>
             <Rail />
           </Panel>
           <Handle />
@@ -84,7 +84,7 @@ export function App() {
           </Panel>
 
           <Handle />
-          <Panel defaultSize={23} minSize={16} maxSize={36}>
+          <Panel defaultSize={24} minSize={17} maxSize={36}>
             <SidePanel />
           </Panel>
         </PanelGroup>

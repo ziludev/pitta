@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Send, Square, SquarePen } from "lucide-react";
+import { Send } from "lucide-react";
 import { ModelPicker } from "@/components/ModelPicker";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -7,7 +7,7 @@ import { tr } from "@/i18n";
 import { useStore } from "@/store";
 
 export function Composer() {
-  const { lang, current, busy, submit, abort, reset } = useStore();
+  const { lang, current, submit } = useStore();
   const [text, setText] = useState("");
   const [steer, setSteer] = useState(false);
 
@@ -48,14 +48,6 @@ export function Composer() {
             />
             {tr(lang, "steer")}
           </label>
-          <Button variant="ghost" size="xs" onClick={() => void reset()} title="/new">
-            <SquarePen className="size-3" />
-            /new
-          </Button>
-          <Button variant="ghost" size="xs" onClick={() => void abort()} disabled={!busy} title="/stop">
-            <Square className="size-3" />
-            /stop
-          </Button>
         </div>
         <Button size="sm" onClick={() => void send()} disabled={disabled}>
           <Send className="size-3.5" />

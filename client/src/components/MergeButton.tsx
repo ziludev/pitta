@@ -16,7 +16,7 @@ import { tr } from "@/i18n";
 import { useStore } from "@/store";
 
 /** Merges this conversation's branch back into the main branch, refusing to guess. */
-export function MergeButton() {
+export function MergeButton({ iconOnly = false }: { iconOnly?: boolean }) {
   const { lang, changes, merge, askAgentToResolve, commit } = useStore();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -58,9 +58,9 @@ export function MergeButton() {
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="ghost" size="xs" title={tr(lang, "merge")}>
+        <Button variant="ghost" size={iconOnly ? "icon-xs" : "xs"} title={tr(lang, "merge")}>
           <GitMerge className="size-3" />
-          {tr(lang, "merge")}
+          {iconOnly ? null : tr(lang, "merge")}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
