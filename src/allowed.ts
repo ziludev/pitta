@@ -16,6 +16,36 @@ export const AllowedChats = defineDoc<{ extra: string[] }>({
   checkpointWhen: () => false,
 });
 
+/**
+ * The owner's own p2p chat, learned from the first message they send. Needed to report
+ * strangers: their chat id is new to us, so it cannot be the address we send to.
+ */
+export const OwnerChat = defineDoc<{ chatId?: string }>({
+  kind: "app.owner-chat",
+  version: 1,
+  scope: "session",
+  initial: () => ({}),
+  checkpointWhen: () => false,
+});
+
+let cachedOwnerChat: string | undefined;
+
+export async function ownerChatId(harness: Harness, context: Context): Promise<string | undefined> {
+  if (cachedOwnerChat !== undefined) return cachedOwnerChat;
+  const doc = await harness.snapshot(OwnerChat, context);
+  cachedOwnerChat = doc?.chatId;
+  return cachedOwnerChat;
+}
+
+export async function rememberOwnerChat(harness: Harness, context: Context, chatId: string): Promise<void> {
+  if (cachedOwnerChat === chatId) return;
+  cachedOwnerChat = chatId;
+  await harness.commit(async (tx) => {
+    (await tx.doc(OwnerChat)).chatId = chatId;
+  }, context);
+  log("feishu", "owner chat recorded", { chatId });
+}
+
 export async function extraChats(harness: Harness, context: Context): Promise<string[]> {
   return (await harness.snapshot(AllowedChats, context))?.extra ?? [];
 }

@@ -10,7 +10,7 @@ import { log, logError } from "./log.ts";
 import { transcribeAudio } from "./asr.ts";
 import { attachSubmission, clearCardPending, leftoverCards, markCardPending } from "./cards.ts";
 import { readTurnDetails, saveTurnDetails, type TurnDetails } from "./details.ts";
-import { allowChat, extraChats } from "./allowed.ts";
+import { allowChat, extraChats, ownerChatId, rememberOwnerChat } from "./allowed.ts";
 import { dropApproval, registerApproval, resolveApproval } from "./approvals.ts";
 import { guestChatIds, markGuestChat, setGuestPolicy } from "./guest.ts";
 
@@ -441,6 +441,22 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     const receivedAt = Date.now();
     const value = payload.action?.value ?? {};
 
+    if (value["kind"] === "allow-chat") {
+      const operator = payload.operator?.open_id ?? "";
+      const { allowedSenderIds } = config.feishu;
+      if (allowedSenderIds.length > 0 && !allowedSenderIds.includes(operator)) {
+        return { toast: { type: "warning", content: "只有主人可以授权" } };
+      }
+      const chatId = typeof value["chatId"] === "string" ? value["chatId"] : "";
+      if (chatId.length === 0) return { toast: { type: "error", content: "缺少会话 id" } };
+      await allowChat(runtime.harness, context, chatId);
+      const messageId = payload.context?.open_message_id;
+      if (messageId !== undefined) {
+        void patchCard(messageId, `✅ 已授权 ${chatId}`, "对方现在可以正常使用了").catch(() => {});
+      }
+      return { toast: { type: "success", content: "已授权" } };
+    }
+
     if (value["kind"] === "detail") {
       const messageId = typeof value["messageId"] === "string" ? value["messageId"] : "";
       const chatId = payload.context?.open_chat_id ?? "";
@@ -500,6 +516,57 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     return { toast: { type: "success", content: approved ? "已允许，继续执行" : "已拒绝" } };
   }
 
+  /**
+   * Someone the allowlist does not know is talking to the bot. Silence would look like a
+   * broken bot, so the owner gets the ask with a one-click authorize button.
+   */
+  async function notifyOwnerOfStranger(
+    event: IncomingMessage,
+    message: NonNullable<IncomingMessage["message"]>,
+    text: string,
+    reason: string,
+    isGuestChat: boolean,
+  ): Promise<void> {
+    const ownerChat = await ownerChatId(runtime.harness, context).catch(() => undefined);
+    if (ownerChat === undefined) return;
+    const senderId = event.sender?.sender_id?.open_id ?? "?";
+    const where =
+      message.chat_type === "p2p"
+        ? "私聊"
+        : isGuestChat
+          ? "已开放的群（但发送者不在白名单）"
+          : "群聊";
+    const headline = isGuestChat ? "有人给 bot 发消息，但不在白名单" : "有未授权的会话找 bot";
+    const body = text.replace(/[\n`]/g, " ").slice(0, 200);
+    const cardBody =
+      `**${headline}**\n` +
+      `- 来源：${where}\n` +
+      `- 会话：\`${message.chat_id}\`\n` +
+      `- 发送者：\`${senderId}\`\n` +
+      `- 内容：${body.length > 0 ? body : "（非文字消息）"}\n`;
+    const buttons =
+      reason === "chat-not-allowed"
+        ? [{ label: "授权此会话", value: { kind: "allow-chat", chatId: message.chat_id }, type: "primary" as const }]
+        : [{ label: "加此人进白名单（改 .env）", value: { kind: "noop" } }];
+    try {
+      await client.im.message.create({
+        params: { receive_id_type: "chat_id" },
+        data: {
+          receive_id: ownerChat,
+          msg_type: "interactive",
+          content: JSON.stringify(card(cardBody, "对方没有收到回复", buttons)),
+        },
+      });
+      log("feishu", "stranger reported to owner", {
+        chat: message.chat_id,
+        chatType: message.chat_type,
+        reason,
+      });
+    } catch (error) {
+      logError("feishu", "could not report stranger to owner", error);
+    }
+  }
+
   async function handle(event: IncomingMessage): Promise<void> {
     const message = event.message;
     if (message?.message_id === undefined || message.chat_id === undefined) return;
@@ -512,6 +579,14 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     const guests = await guestChatIds(runtime.harness, context).catch(() => [] as string[]);
     const reason = rejectionReason(event, parsed, extraAllowed, guests);
     const isGuestChat = guests.includes(message.chat_id);
+    // Where to send "someone is asking" — the stranger's chat cannot be the address.
+    if (isOwner && message.chat_type === "p2p") {
+      void rememberOwnerChat(runtime.harness, context, message.chat_id).catch(() => {});
+    }
+    // A stranger in an unauthorized chat gets no answer, so the owner must hear about it.
+    if (!isOwner && (reason === "chat-not-allowed" || reason === "sender-not-allowed")) {
+      await notifyOwnerOfStranger(event, message, text, reason, isGuestChat);
+    }
 
     // Self-service onboarding: the owner authorizes a new group from the group.
     if (text.trim() === "/allow" && isOwner) {
