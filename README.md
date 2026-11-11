@@ -78,6 +78,7 @@ CLI      ─┘
 | `work_memory` | 项目/环境细节 | ❌ 只留一行索引，靠 `recall` 搜 |
 
 - 工具：`remember(scope)` / `forget` / `recall`
+- **群专属记忆**（飞书命令，owner 可改，群里所有人受益）：`/memo` 看、`/memo add 本群代号是金刚狼` 加、`/memo del 2` 删第 2 条、`/memo clear` 清空。写的就是该会话的 `chat_memory`，每次回答自动注入；guest 群也能用（只影响本群，不碰全局记忆）
 - **手动整理**：右栏「记忆 → 整理 24h」读最近会话，只产出**建议**（带 scope + 理由），你勾选后才写入；`global` 每次最多 3 条
 - 删除过的记忆进 `app/memory-tombstones`，不会被模型"复活"；去重用字符 bigram 相似度（换说法也能识别）
 

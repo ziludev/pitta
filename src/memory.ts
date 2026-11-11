@@ -1,5 +1,7 @@
 import { defineDoc, defineExtension, defineTool, section } from "@earendil-works/pi-durable";
 import { obj, opt, str } from "@earendil-works/pi-schema";
+import type { Harness } from "@earendil-works/pi-durable";
+import type { Context } from "@earendil-works/chord";
 import { ChatPolicy } from "./guest.ts";
 
 export type Note = { at: string; text: string };
@@ -88,6 +90,64 @@ const remember = defineTool({
     };
   },
 });
+
+/** Manual chat-memory editing from Feishu: `/memo add …` writes what the model will see. */
+export async function chatNotes(harness: Harness, context: Context, conversationId: number): Promise<Note[]> {
+  const doc = await harness.snapshot(ChatMemory, conversationId as never, context).catch(() => undefined);
+  return doc?.notes ?? [];
+}
+
+export async function addChatNote(
+  harness: Harness,
+  context: Context,
+  conversationId: number,
+  text: string,
+): Promise<{ added: boolean; total: number }> {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return { added: false, total: (await chatNotes(harness, context, conversationId)).length };
+  let added = false;
+  let total = 0;
+  await harness.commit(async (tx) => {
+    const doc = await tx.doc(ChatMemory, conversationId as never);
+    if (doc.notes.some((note) => note.text.trim() === trimmed)) {
+      total = doc.notes.length;
+      return;
+    }
+    doc.notes.push({ at: new Date().toISOString(), text: trimmed });
+    total = doc.notes.length;
+    added = true;
+  }, context);
+  return { added, total };
+}
+
+export async function removeChatNote(
+  harness: Harness,
+  context: Context,
+  conversationId: number,
+  index: number,
+): Promise<{ removed?: string; total: number }> {
+  let removed: string | undefined;
+  let total = 0;
+  await harness.commit(async (tx) => {
+    const doc = await tx.doc(ChatMemory, conversationId as never);
+    total = doc.notes.length;
+    if (index < 1 || index > doc.notes.length) return;
+    removed = doc.notes[index - 1]?.text;
+    doc.notes.splice(index - 1, 1);
+    total = doc.notes.length;
+  }, context);
+  return { removed, total };
+}
+
+export async function clearChatNotes(harness: Harness, context: Context, conversationId: number): Promise<number> {
+  let removed = 0;
+  await harness.commit(async (tx) => {
+    const doc = await tx.doc(ChatMemory, conversationId as never);
+    removed = doc.notes.length;
+    doc.notes = [];
+  }, context);
+  return removed;
+}
 
 const forget = defineTool({
   name: "forget",

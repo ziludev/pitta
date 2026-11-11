@@ -19,6 +19,7 @@ import {
   rememberOwnerChat,
 } from "./allowed.ts";
 import { dropApproval, registerApproval, resolveApproval } from "./approvals.ts";
+import { addChatNote, chatNotes, clearChatNotes, removeChatNote } from "./memory.ts";
 import { guestChatIds, markGuestChat, setGuestPolicy } from "./guest.ts";
 
 type IncomingMessage = {
@@ -51,6 +52,7 @@ const HELP = [
   "- `/stop` 中断当前任务",
   "- `/cost` 今日花费",
   "- `/memory` 看记忆内容",
+  "- `/memo` 看本群专属记忆；`/memo add 内容` 添加；`/memo del 3` 删第 3 条；`/memo clear` 清空",
   "- `/project` 看/切换工作仓库（带参数即切换）",
   "- `/id` 当前 chat 与 conversation",
   "",
@@ -872,6 +874,54 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       await sendText(
         chatId,
         `已切到 ${result.project.name}\n目录：${result.dir}\n分支：${result.branch}\n上下文保留，接着说就行。`,
+      );
+      return;
+    }
+    if (/^\/(memo|群记忆|本群记忆)(\s|$)/i.test(command)) {
+      const arg = command.replace(/^\/(memo|群记忆|本群记忆)\s*/i, "").trim();
+      const conversationId = conversation.id as unknown as number;
+
+      if (arg.length === 0) {
+        const notes = await chatNotes(runtime.harness, context, conversationId);
+        const body =
+          notes.length === 0
+            ? "本群还没有专属记忆。\n\n`/memo add 这个群只讨论 Android 客户端` 这样添加，模型每次回答都会看到。"
+            : `本群专属记忆（${notes.length}）\n${notes
+                .map((note, index) => `${index + 1}. ${note.text}`)
+                .join("\n")}\n\n\`/memo add 内容\` · \`/memo del 序号\` · \`/memo clear\``;
+        await replyCard(message.message_id, body, "📌 本群记忆", {
+          thread: wantsThread(message),
+          mention: mentionFor(event, message),
+        });
+        return;
+      }
+      if (!isOwner) {
+        await sendText(chatId, "只有 owner 能改本群记忆。");
+        return;
+      }
+      if (/^clear$/i.test(arg)) {
+        const removed = await clearChatNotes(runtime.harness, context, conversationId);
+        await sendText(chatId, `已清空本群记忆（删除 ${removed} 条）。`);
+        return;
+      }
+      const del = arg.match(/^(?:del|delete|remove|删)\s+(\d+)$/i);
+      if (del !== null) {
+        const result = await removeChatNote(runtime.harness, context, conversationId, Number(del[1]));
+        await sendText(
+          chatId,
+          result.removed === undefined
+            ? `没有第 ${del[1]} 条（当前 ${result.total} 条）`
+            : `已删除：${result.removed}\n还剩 ${result.total} 条`,
+        );
+        return;
+      }
+      const text = arg.replace(/^(?:add|set|加|记)\s+/i, "").trim();
+      const result = await addChatNote(runtime.harness, context, conversationId, text);
+      await sendText(
+        chatId,
+        result.added
+          ? `已记入本群记忆（共 ${result.total} 条）：${text}`
+          : `这条已经在记忆里了（共 ${result.total} 条）`,
       );
       return;
     }
