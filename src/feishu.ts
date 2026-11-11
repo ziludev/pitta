@@ -268,6 +268,27 @@ export function quoteText(
   return "（没有可读的文字）";
 }
 
+/**
+ * The message a reply is really pointing at, or "" when there is nothing worth reading.
+ *
+ * Feishu sets `parent_id` to the topic's root on every message posted inside a topic (44 of 46 in
+ * the log here), which is not a quote: that text is already in the fork's history, and re-reading
+ * it would paste the same paragraph in front of every turn. A quote is a parent that is not the
+ * topic root, or any parent of a message outside a topic.
+ */
+export function quotedParentId(message: {
+  parent_id?: string;
+  root_id?: string;
+  thread_id?: string;
+  message_id?: string;
+}): string {
+  const parent = message.parent_id ?? "";
+  if (parent.length === 0 || parent === message.message_id) return "";
+  const inTopic = (message.thread_id ?? "").length > 0;
+  if (inTopic && parent === (message.root_id ?? "")) return "";
+  return parent;
+}
+
 /** The block the model sees in front of the reply, so "这个" has something to point at. */
 export function quoteBlock(quoted: Quoted): string {
   return `[引用 · ${quoted.who} 的消息]\n${quoted.text}\n[引用结束]\n\n`;
@@ -1311,9 +1332,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     /** Who is talking, on its own line, so a long turn does not read as the assistant's own. */
     const tag = (text: string): string => (speaker === undefined ? text : `${speaker} ${text}`);
     // A reply carries the id of the message it answers, never its text: "这个怎么改" needs the quote.
-    const parentId = message.parent_id ?? "";
-    const quoted =
-      parentId.length > 0 && parentId !== message.message_id ? await readQuoted(parentId) : undefined;
+    const quotedId = quotedParentId(message);
+    const quoted = quotedId.length > 0 ? await readQuoted(quotedId) : undefined;
+    if (quoted !== undefined) log("feishu", "quoted message attached", { id: quotedId.slice(-8), chars: quoted.text.length });
     const withQuote = (text: string): string => (quoted === undefined ? tag(text) : tag(`${quoteBlock(quoted)}${text}`));
     if (parsed.audioKey !== undefined) {
       const bytes = await downloadResource(message.message_id ?? "", parsed.audioKey, "file");

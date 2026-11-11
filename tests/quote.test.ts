@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { quoteBlock, quoteText } from "../src/feishu.ts";
+import { quoteBlock, quoteText, quotedParentId } from "../src/feishu.ts";
 
 /**
  * A reply in Feishu carries the id of the message it answers, never its text, so "这个怎么改"
@@ -42,4 +42,21 @@ test("a quote that cannot be parsed still tells the model it was something", () 
 test("the block marks where the quote starts and ends", () => {
   const block = quoteBlock({ who: "ou_9d6f1a", text: "原文一行" });
   assert.equal(block, "[引用 · ou_9d6f1a 的消息]\n原文一行\n[引用结束]\n\n");
+});
+
+/**
+ * Feishu sets parent_id to the topic's root on every message inside a topic, which is not a quote:
+ * 44 of the 46 topic messages in this agent's log had parent == root. Reading it would paste the
+ * topic's first message in front of every turn.
+ */
+test("a topic message is not a quote unless it points at something else", () => {
+  // A plain message in a topic: parent is the root, nothing was quoted.
+  assert.equal(quotedParentId({ parent_id: "om_root", root_id: "om_root", thread_id: "omt_1" }), "");
+  // A real quote inside a topic.
+  assert.equal(quotedParentId({ parent_id: "om_other", root_id: "om_root", thread_id: "omt_1" }), "om_other");
+  // A plain reply outside a topic: parent == root is still the message being answered.
+  assert.equal(quotedParentId({ parent_id: "om_asked", root_id: "om_asked" }), "om_asked");
+  // Nothing to read.
+  assert.equal(quotedParentId({}), "");
+  assert.equal(quotedParentId({ parent_id: "om_self", message_id: "om_self" }), "");
 });
