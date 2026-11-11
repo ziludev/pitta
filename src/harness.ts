@@ -20,6 +20,8 @@ import { assertModelAvailable, createAgentModels, warnIfRoutingGroup } from "./m
 import { deferredExtension } from "./deferred.ts";
 import { codemodeExtension } from "./codemode.ts";
 import { openTelemetry } from "./telemetry.ts";
+import { titleExtension } from "./title.ts";
+import { contextGuardExtension } from "./context-guard.ts";
 import { ChatMemory, GlobalMemory, memoryExtension, type Note } from "./memory.ts";
 import type { ToolStep } from "./details.ts";
 import { reminderExtension } from "./reminders.ts";
@@ -193,6 +195,8 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   registry.install(createToolSearchExtension());
   registry.install(deferredExtension);
   registry.install(codemodeExtension);
+  registry.install(titleExtension);
+  registry.install(contextGuardExtension);
   registry.install(subagentExtension);
   registry.install(projectExtension);
   registry.install(defineExtension({ name: "usage-sampler", tasks: [UsageSampler] }));
@@ -211,6 +215,15 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
         retry: { maxRetries: 3 },
         compaction: { reserveTokens: 16384 },
         toolExecution: "parallel",
+        // Only when set: the provider's own timeouts/retries stay the default otherwise.
+        ...(config.stream.timeoutMs > 0 || config.stream.maxRetries > 0
+          ? {
+              stream: {
+                ...(config.stream.timeoutMs > 0 ? { timeoutMs: config.stream.timeoutMs } : {}),
+                ...(config.stream.maxRetries > 0 ? { maxRetries: config.stream.maxRetries } : {}),
+              },
+            }
+          : {}),
       },
       onReport: (report) => {
         // Hook/tool/listener failures never throw into the harness, so log them here.

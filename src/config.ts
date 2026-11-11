@@ -106,6 +106,14 @@ export const config = {
   maxTurns: num("AGENT_MAX_TURNS", 80),
   /** USD per day; 0 or less means unlimited. */
   dailyBudgetUsd: num("AGENT_DAILY_BUDGET_USD", 0),
+  /**
+   * Per-request provider settings, 0 = leave the provider's default. A flaky gateway is a reason to
+   * raise the timeout; a rate-limited one is a reason to raise the retries.
+   */
+  stream: {
+    timeoutMs: num("AGENT_STREAM_TIMEOUT_MS", 0),
+    maxRetries: num("AGENT_STREAM_RETRIES", 0),
+  },
   /** MCP servers: JSON file with { "servers": { name: {...} } }. Empty = none. */
   mcpConfig: process.env.AGENT_MCP_CONFIG ?? "./mcp.json",
   /** Skill folders holding <name>/SKILL.md; project dirs first so they win name clashes. */
