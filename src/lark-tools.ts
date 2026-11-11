@@ -79,6 +79,7 @@ function summarize(data: unknown): string {
 
 const agenda = defineTool({
   name: "feishu_agenda",
+  deferred: true,
   description: "看主人的飞书日历日程（默认今天，可指定往后几天）。用来回答'我今天有什么会'、安排时间。",
   parameters: obj({
     days: opt(num({ description: "从今天算起看几天，默认 1" })),
@@ -100,6 +101,7 @@ const agenda = defineTool({
 
 const tasks = defineTool({
   name: "feishu_tasks",
+  deferred: true,
   description: "列出主人飞书里 assigned 给自己的任务（未完成的）。用来回答'我还欠什么'。",
   parameters: obj({}),
   replay: "safe",
@@ -114,6 +116,7 @@ const tasks = defineTool({
 
 const createTask = defineTool({
   name: "feishu_create_task",
+  deferred: true,
   description: "在飞书任务里给主人新建一条待办。会写到主人的真实任务列表里（需要审批）。",
   parameters: obj({
     summary: str({ description: "任务标题" }),
@@ -133,6 +136,7 @@ const createTask = defineTool({
 
 const readDoc = defineTool({
   name: "feishu_doc_read",
+  deferred: true,
   description: "读一篇飞书云文档的内容，参数可以是文档链接或 token。",
   parameters: obj({ url: str({ description: "文档 URL 或 token" }) }),
   replay: "safe",
@@ -145,7 +149,10 @@ const readDoc = defineTool({
   },
 });
 
+/** Named so a conversation can defer them; they still come back through `tool_search`. */
+export const LARK_TOOLS = [agenda, tasks, createTask, readDoc];
+
 export const larkExtension = defineExtension({
   name: "feishu-native",
-  tools: [agenda, tasks, createTask, readDoc],
+  tools: LARK_TOOLS,
 });

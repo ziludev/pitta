@@ -104,6 +104,7 @@ async function runChild(
 
 const delegate = defineTool({
   name: "delegate",
+  deferred: true,
   description:
     "派活给一个专职子 agent：planner（拆需求）/ designer（写设计文档）/ implementer（实现）/ tester（写测试）/ reviewer（只读评审）。子 agent 有自己的会话和上下文，返回它的结论。适合把一件明确的事整体外包。",
   parameters: obj({
@@ -131,6 +132,7 @@ const delegate = defineTool({
 
 const delegateParallel = defineTool({
   name: "delegate_parallel",
+  deferred: true,
   description:
     "并行派给多个角色，全部完成后汇总。适合互不依赖的事（例如同时做 reviewer 评审 + tester 写测试）。",
   parameters: obj({
@@ -338,6 +340,7 @@ async function report(
 
 const buildFeature = defineTool({
   name: "build_feature",
+  deferred: true,
   description:
     "把需求跑完整流水线：designer 写设计文档 → implementer 实现自测 → tester 写测试。background=\"1\" 时丢到后台跑，立即返回，完成后主动发消息（推荐，尤其是要几分钟的活）；否则同步等待结果。",
   parameters: obj({
@@ -436,6 +439,7 @@ const buildFeature = defineTool({
 
 const taskStatus = defineTool({
   name: "task_status",
+  deferred: true,
   description:
     "看后台任务状态：不传 taskId 列出当前所有在跑的后台任务（含 app.feature 流水线）；传 taskId 看单个详情。",
   parameters: obj({ taskId: opt(str({ description: "任务 id，可选" })) }),
@@ -482,6 +486,7 @@ outcome: ${JSON.stringify(
 
 const cancelTask = defineTool({
   name: "cancel_task",
+  deferred: true,
   description: "取消一个后台任务（例如跑偏的 app.feature 流水线）。会级联停掉它拥有的子 agent。",
   parameters: obj({ taskId: str({ description: "要取消的 task id" }) }),
   execute: async (args, _api, context) => {
@@ -502,8 +507,11 @@ const cancelTask = defineTool({
   },
 });
 
+/** Deferred per conversation: a group message never needs to spawn a subagent. */
+export const SUBAGENT_TOOLS = [delegate, delegateParallel, buildFeature, taskStatus, cancelTask];
+
 export const subagentExtension = defineExtension({
   name: "subagents",
-  tools: [delegate, delegateParallel, buildFeature, taskStatus, cancelTask],
+  tools: SUBAGENT_TOOLS,
   tasks: [FeatureTask],
 });

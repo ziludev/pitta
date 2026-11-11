@@ -14,8 +14,10 @@ import {
 } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
+import { createToolSearchExtension } from "@earendil-works/pi-durable/tool-search";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { assertModelAvailable, createAgentModels, warnIfRoutingGroup } from "./models.ts";
+import { deferredExtension } from "./deferred.ts";
 import { ChatMemory, GlobalMemory, memoryExtension, type Note } from "./memory.ts";
 import type { ToolStep } from "./details.ts";
 import { reminderExtension } from "./reminders.ts";
@@ -185,6 +187,9 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   registry.install(reminderExtension);
   registry.install(guardExtension);
   registry.install(diagnosticsExtension);
+  // Deferred tools are installed but not offered; this is how the model finds them again.
+  registry.install(createToolSearchExtension());
+  registry.install(deferredExtension);
   registry.install(subagentExtension);
   registry.install(projectExtension);
   registry.install(defineExtension({ name: "usage-sampler", tasks: [UsageSampler] }));
