@@ -116,7 +116,7 @@ function SessionRow({
   return (
     <div
       ref={setNodeRef}
-      className={`group flex items-center gap-1.5 overflow-hidden rounded-md py-1.5 pr-2 text-xs whitespace-nowrap transition-[transform,box-shadow,background-color] ${
+      className={`group flex items-center gap-1 overflow-hidden rounded-md py-1 pr-1.5 text-[11.5px] whitespace-nowrap transition-[transform,box-shadow,background-color] ${
         topic ? "pl-5" : "pl-2"
       } ${
         active
@@ -279,7 +279,7 @@ export function Rail() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-card/40">
-      <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
+      <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <div>
           <div className="text-sm font-semibold tracking-tight">Agent</div>
           <div className={`text-[11px] ${busy ? "text-primary" : "text-muted-foreground"}`}>{status}</div>
@@ -299,28 +299,15 @@ export function Rail() {
       </div>
 
       <ProjectBar />
-      <div className="flex items-center justify-between px-2.5 pt-1 pb-1">
-        <span className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+      <div className="flex items-center gap-0.5 pl-2.5 pr-1.5 pt-1 pb-0.5">
+        <span className="shrink-0 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
           {tr(lang, "sessions")}
         </span>
-        <Button variant="ghost" size="icon-xs" title={tr(lang, "newChat")} onClick={() => void newChat()}>
-          <Plus className="size-3" />
-        </Button>
-      </div>
-      {feishu !== undefined && feishu.ready === false && feishu.downMs > 60_000 ? (
-        <div
-          className="mx-2 mb-1.5 flex items-center gap-1.5 rounded-md border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-[10px] text-rose-300"
-          title={feishu.lastError ?? tr(lang, "feishuDownHint")}
-        >
-          <PlugZap className="size-3 shrink-0" />
-          <span className="min-w-0 flex-1 truncate">
-            {tr(lang, "feishuDown")} {Math.round(feishu.downMs / 60_000)}m
-          </span>
-        </div>
-      ) : null}
-      <div className="mb-1.5 flex items-center gap-1 px-2">
         <Select value={surfaceFilter} onValueChange={(next) => setSurfaceFilter(next as typeof surfaceFilter)}>
-          <SelectTrigger size="sm" className="h-6 flex-1 border-none bg-muted/40 px-2 text-[10.5px]">
+          <SelectTrigger
+            size="sm"
+            className="h-5 max-w-[96px] gap-0.5 border-none bg-transparent px-1 text-[10.5px] text-muted-foreground hover:bg-muted/40"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -338,12 +325,27 @@ export function Rail() {
         <Button
           variant={showArchived ? "secondary" : "ghost"}
           size="icon-xs"
+          className="ml-auto"
           onClick={toggleShowArchived}
           title={tr(lang, "archived")}
         >
           <Archive className="size-3" />
         </Button>
+        <Button variant="ghost" size="icon-xs" title={tr(lang, "newChat")} onClick={() => void newChat()}>
+          <Plus className="size-3" />
+        </Button>
       </div>
+      {feishu !== undefined && feishu.ready === false && feishu.downMs > 60_000 ? (
+        <div
+          className="mx-2 mb-1.5 flex items-center gap-1.5 rounded-md border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-[10px] text-rose-300"
+          title={feishu.lastError ?? tr(lang, "feishuDownHint")}
+        >
+          <PlugZap className="size-3 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">
+            {tr(lang, "feishuDown")} {Math.round(feishu.downMs / 60_000)}m
+          </span>
+        </div>
+      ) : null}
       <SearchBox />
       <ScrollArea className="min-h-0 w-full flex-1 px-1.5 [&_[data-radix-scroll-area-viewport]>div]:!block">
         <DndContext
@@ -380,15 +382,14 @@ export function Rail() {
         </DndContext>
       </ScrollArea>
 
+      {liveTasks.length === 0 ? null : (
+        <>
       <Separator className="mx-2.5" />
       <div className="px-2.5 pt-2 pb-1 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
         {tr(lang, "running")}
       </div>
       <div className="min-h-0 max-h-40 overflow-y-auto px-2.5 pb-2">
-        {liveTasks.length === 0 ? (
-          <div className="py-2 text-[11px] text-muted-foreground">{tr(lang, "noTasks")}</div>
-        ) : (
-          liveTasks.map((task: Task) => (
+        {liveTasks.map((task: Task) => (
             <div key={task.id} className="flex items-center gap-1.5 py-1 text-[11px]">
               <span
                 className={`size-1.5 shrink-0 rounded-full ${TASK_DOT[task.state] ?? "bg-muted-foreground/40"} ${
@@ -405,15 +406,17 @@ export function Rail() {
                   : taskState(lang, task.state)}
               </span>
             </div>
-          ))
-        )}
+        ))}
       </div>
+        </>
+      )}
 
       <div className="mt-auto flex flex-col gap-2 border-t border-border p-2.5">
-        <div className="flex gap-1.5">
+        <div className="flex items-center gap-0.5">
           <Button
-            variant="outline"
-            size="xs"
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground"
             title="agentctl restart"
             onClick={async () => {
               const output = await control("restart");
@@ -421,11 +424,11 @@ export function Rail() {
             }}
           >
             <RotateCw className="size-3" />
-            {tr(lang, "restart")}
           </Button>
           <Button
-            variant="outline"
-            size="xs"
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground"
             title="agentctl backup"
             onClick={async () => {
               const output = await control("backup");
@@ -433,14 +436,20 @@ export function Rail() {
             }}
           >
             <Database className="size-3" />
-            {tr(lang, "backup")}
           </Button>
-          <Button variant="outline" size="xs" title="open logs" onClick={() => void openLogs()}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground"
+            title="open logs"
+            onClick={() => void openLogs()}
+          >
             <FileText className="size-3" />
-            {tr(lang, "logs")}
           </Button>
+          <span className="ml-auto min-w-0 truncate text-[9.5px] text-muted-foreground/50" title={home}>
+            {home.replace(/^\/Users\/[^/]+\//, "~/")}
+          </span>
         </div>
-        <div className="truncate text-[10px] text-muted-foreground">{home}</div>
       </div>
     </div>
   );

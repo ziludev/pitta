@@ -45,28 +45,40 @@ export function App() {
     <TooltipProvider delayDuration={300}>
       <div className="h-screen w-screen overflow-hidden bg-background text-foreground">
         <PanelGroup direction="horizontal" autoSaveId="agent-layout">
-          <Panel defaultSize={22} minSize={15} maxSize={32}>
+          <Panel defaultSize={21} minSize={16} maxSize={30}>
             <Rail />
           </Panel>
           <Handle />
 
           <Panel minSize={35}>
             <div className="flex h-full min-h-0 flex-col">
-              <div className="flex items-center justify-between border-b border-border px-4 py-2">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">
-                    {current === undefined ? tr(lang, "noConversation") : `#${current}`}
+              <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3.5">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-medium leading-tight">
+                    {surface !== undefined && surface.title !== undefined && surface.title.length > 0
+                      ? surface.title
+                      : current === undefined
+                        ? tr(lang, "noConversation")
+                        : `${tr(lang, "newChat")} #${current}`}
                   </div>
-                  <div className="truncate text-[10px] text-muted-foreground">{surface?.surfaceId ?? ""}</div>
+                  <div className="flex min-w-0 items-baseline gap-1.5 text-[10px] text-muted-foreground/60">
+                    <span className="truncate font-mono">{surface?.surfaceId ?? ""}</span>
+                    {current === undefined ? null : <span className="shrink-0 font-mono">#{current}</span>}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <ConvSearch />
-                </div>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="xs" onClick={() => void reset()} title="/new">
+                <ConvSearch />
+                <div className="flex shrink-0 items-center gap-0.5">
+                  <Button variant="ghost" size="icon-xs" onClick={() => void reset()} title="/new">
                     <SquarePen className="size-3" />
                   </Button>
-                  <Button variant="ghost" size="xs" onClick={() => void abort()} disabled={!busy} title="/stop">
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={() => void abort()}
+                    disabled={!busy}
+                    title="/stop"
+                    className={busy ? "text-rose-500" : undefined}
+                  >
                     <Square className="size-3" />
                   </Button>
                 </div>
@@ -84,7 +96,7 @@ export function App() {
           </Panel>
 
           <Handle />
-          <Panel defaultSize={24} minSize={17} maxSize={36}>
+          <Panel defaultSize={26} minSize={18} maxSize={34}>
             <SidePanel />
           </Panel>
         </PanelGroup>

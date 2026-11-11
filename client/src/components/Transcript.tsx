@@ -216,28 +216,29 @@ export function Transcript() {
       ) : null}
     {/* What this chat has cost so far: the ledger total, not just the loaded window. */}
     {usage.cost > 0 ? (
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-border/50 px-5 py-1 text-[10px] text-muted-foreground/80 tabular-nums">
-        <span>
+      {/* A receipt, not a sentence: work on the left, what it cost on the right. */}
+      <div className="flex shrink-0 items-baseline gap-2 border-b border-border/50 px-5 py-1 text-[10px] tabular-nums">
+        <span className="text-muted-foreground/70">
           {usage.turns} {tr(lang, "turns")}
         </span>
-        <span className="text-muted-foreground/40">·</span>
-        <span>
-          {tr(lang, "lifetime")} ${usage.cost.toFixed(usage.cost < 1 ? 3 : 2)}
-        </span>
-        <span className="text-muted-foreground/40">·</span>
-        <span>
-          {tr(lang, "avgPerTurn")} ${(usage.cost / Math.max(1, usage.turns)).toFixed(3)}
-        </span>
-        <span className="text-muted-foreground/40">·</span>
-        <span>{usage.tokens >= 1000 ? `${(usage.tokens / 1000).toFixed(1)}k tokens` : `${usage.tokens} tokens`}</span>
         {totalMs > 0 ? (
-          <>
-            <span className="text-muted-foreground/40">·</span>
-            <span title={tr(lang, "timeWindowHint")}>
-              {tr(lang, "recentTime")} {clockOf(totalMs)}
-            </span>
-          </>
+          <span className="text-muted-foreground/50" title={tr(lang, "timeWindowHint")}>
+            {clockOf(totalMs)}
+          </span>
         ) : null}
+        <span className="ml-auto flex items-baseline gap-2">
+          <span className="text-muted-foreground/60">
+            {usage.tokens >= 1000 ? `${(usage.tokens / 1000).toFixed(1)}k tokens` : `${usage.tokens} tokens`}
+          </span>
+          <span className="text-muted-foreground/25">·</span>
+          <span className="text-muted-foreground" title={tr(lang, "lifetime")}>
+            ${usage.cost.toFixed(usage.cost < 1 ? 3 : 2)}
+          </span>
+          <span className="text-muted-foreground/25">·</span>
+          <span className="text-muted-foreground/50" title={tr(lang, "avgPerTurn")}>
+            {tr(lang, "avgPerTurn")} ${(usage.cost / Math.max(1, usage.turns)).toFixed(3)}
+          </span>
+        </span>
       </div>
     ) : null}
     <div
