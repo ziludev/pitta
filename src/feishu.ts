@@ -824,6 +824,12 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       if (reason !== undefined) await sendText(message.chat_id, "只有主人能授权本群。").catch(() => {});
       return;
     }
+    if (text.trim() === "/close" && isOwner) {
+      // The level goes back to closed, so an opened group can be shut without editing .env.
+      await setChatLevel(runtime.harness, context, message.chat_id, "closed");
+      await sendText(message.chat_id, "已关闭本群的访问：之后这里 @我 不会有回应。再发 /allow 可以重新开放。");
+      return;
+    }
     if (text.trim() === "/open" && isOwner) {
       const topic = "只回答与本群主题相关的问题（Android 客户端）。";
       const conversation = await runtime.conversationFor(message.chat_id);
