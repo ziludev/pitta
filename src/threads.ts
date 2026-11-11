@@ -1,5 +1,5 @@
 import { defineDoc, type Conversation, type EntryId, type Harness } from "@earendil-works/pi-durable";
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 
 /**
  * message id -> the transcript entry it produced. Needed to fork a reply at the

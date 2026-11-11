@@ -1,5 +1,5 @@
 import { defineDoc, type Harness } from "@earendil-works/pi-durable";
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 
 /**
  * Cards that were created for a turn but not finished yet. Kept durably because the

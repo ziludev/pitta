@@ -1,6 +1,6 @@
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
 import { obj, opt, str } from "@earendil-works/pi-schema";
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import { getRuntime } from "./runtime-ref.ts";
 import { ConversationProjectDoc, ProjectsDoc } from "./projects.ts";
 import { log } from "./log.ts";

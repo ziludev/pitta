@@ -2,7 +2,7 @@
 
 跑在 [Pi Durable](https://earendil.com/posts/pi-durable/) 上的个人助理：飞书里聊、桌面上看、终端里也能用，进程挂了不丢对话。
 
-- **引擎**：`@earendil-works/pi-durable` 1.5.0。每个模型请求、每次工具调用、每次压缩都是一个 durable task，每步先落 checkpoint；进程被 `kill -9`，重启后从断点继续。
+- **引擎**：`@earendil-works/pi-durable` 1.5.2。每个模型请求、每次工具调用、每次压缩都是一个 durable task，每步先落 checkpoint；进程被 `kill -9`，重启后从断点继续。
 - **模型**：`@earendil-works/pi-ai`。默认走本机 magpie 代理（OpenAI 兼容），可换任意内置 provider；模型/思考级别可**逐会话**切换。
 - **存储**：SQLite（`.data/agent.sqlite`），单进程独占，重启原样恢复。
 - **三个入口**：
@@ -269,7 +269,7 @@ npm run eval -- --json        # 一个 envelope，给脚本读
 ## 已知限制
 
 - 测试覆盖的是纯逻辑 + 契约（记忆去重、审批注册表、diff 采集、远端链接、危险命令判定、文档与配置对齐），不是端到端；`npm test` 和 `npm run eval` 都是秒级
-- Pi Durable 是 **experimental**，1.x 之间 API 会变；升级前先 `npm run typecheck`
+- Pi Durable 是 **experimental**，1.x 之间 API 会变；升级前先 `npm run typecheck`。注意 pi-durable 会连带锁死 chord 版本：1.5.1 起 chord v2 成为包根，`Context` 只在 `@earendil-works/chord/context`，从包根 import 会编译失败
 - SQLite 用 `synchronous=NORMAL`：进程崩不丢，掉电可能丢最后一个 commit
 - `bash` 理论上能 `cd` 出工作区；靠 guard hook 兜危险性，不是沙箱
 - 跨租户"一键装飞书"做不到（见上文 CLI 一节）

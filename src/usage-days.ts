@@ -1,5 +1,5 @@
 import { defineDoc, defineTask, UsageDoc, type Harness, type TaskRuntime } from "@earendil-works/pi-durable";
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import { log, logError } from "./log.ts";
 
 export type DayUsage = {

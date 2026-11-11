@@ -1,5 +1,5 @@
 import { defineDoc, type Harness } from "@earendil-works/pi-durable";
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 
 export type ToolStep = {
   name: string;

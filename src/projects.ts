@@ -5,7 +5,7 @@ import { isAbsolute, basename, join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { defineDoc, type Harness } from "@earendil-works/pi-durable";
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import { log } from "./log.ts";
 
 const run = promisify(execFile);

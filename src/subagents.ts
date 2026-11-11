@@ -7,7 +7,7 @@ import {
   type ConversationId,
   type Tx,
 } from "@earendil-works/pi-durable";
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import { obj, opt, str } from "@earendil-works/pi-schema";
 import type { TaskRuntime, ToolExecutionApi } from "@earendil-works/pi-durable";
 import { ROLES, toolsFor, type RoleName } from "./roles.ts";

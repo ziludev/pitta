@@ -16,11 +16,11 @@
     "eval": "node evals/run.ts"
   },
   "dependencies": {
-    "@earendil-works/chord": "1.5.0",
-    "@earendil-works/pi-ai": "1.5.0",
-    "@earendil-works/pi-durable": "1.5.0",
-    "@earendil-works/pi-mcp": "^1.5.0",
-    "@earendil-works/pi-schema": "^1.5.0",
+    "@earendil-works/chord": "1.5.2",
+    "@earendil-works/pi-ai": "1.5.2",
+    "@earendil-works/pi-durable": "1.5.2",
+    "@earendil-works/pi-mcp": "^1.5.2",
+    "@earendil-works/pi-schema": "^1.5.2",
     "@larksuiteoapi/node-sdk": "^1.76.0",
     "@types/ws": "^8.18.2",
     "ws": "^8.21.0"

@@ -1,5 +1,5 @@
 import type { Harness } from "@earendil-works/pi-durable";
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import { ChatMemory, GlobalMemory, MemoryTombstones, WorkMemory, type Note } from "./memory.ts";
 import { ChatPolicy } from "./guest.ts";
 import { log, logError } from "./log.ts";
