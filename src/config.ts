@@ -102,7 +102,8 @@ export const config = {
     | "max",
   workspace: path("AGENT_WORKSPACE", "./workspace"),
   dbPath: path("AGENT_DB", "./.data/agent.sqlite"),
-  maxTurns: num("AGENT_MAX_TURNS", 40),
+  /** Tool-call turns one submission may take. A whole diagnosis (logs, DB, source) fits in 80; 40 cut real work off. */
+  maxTurns: num("AGENT_MAX_TURNS", 80),
   /** USD per day; 0 or less means unlimited. */
   dailyBudgetUsd: num("AGENT_DAILY_BUDGET_USD", 0),
   /** MCP servers: JSON file with { "servers": { name: {...} } }. Empty = none. */

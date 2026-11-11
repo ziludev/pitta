@@ -135,6 +135,24 @@ function noteSkipped(dirs: string[]): void {
   log("skills", `跳过 ${dirs.length} 个 SKILL.md 读不到的目录（多为失效软链）: ${dirs.slice(0, 6).join(", ")}${dirs.length > 6 ? " …" : ""}`);
 }
 
+let duplicatesLogged: string | undefined;
+
+/**
+ * The same skill suite is usually installed in two of the scanned directories, so a
+ * duplicate is normal and the list is stable. Logging every pair on every scan wrote ten
+ * thousand lines a day; this says it once per distinct set instead.
+ */
+function noteDuplicates(entries: string[]): void {
+  const signature = entries.join("|");
+  if (signature === duplicatesLogged) return;
+  duplicatesLogged = signature;
+  if (entries.length === 0) return;
+  log(
+    "skills",
+    `${entries.length} 个重名 skill（保留先到的）: ${entries.slice(0, 5).join(", ")}${entries.length > 5 ? " …" : ""}`,
+  );
+}
+
 /** Every skill visible to the agent, project dirs first so they win name clashes. */
 export async function listSkills(force = false): Promise<Skill[]> {
   const dirs = config.skills.dirs;
@@ -143,6 +161,7 @@ export async function listSkills(force = false): Promise<Skill[]> {
   }
   const byName = new Map<string, Skill>();
   const unreadable: string[] = [];
+  const duplicates: string[] = [];
   for (const root of dirs) {
     let entries: string[];
     try {
@@ -164,12 +183,13 @@ export async function listSkills(force = false): Promise<Skill[]> {
       if (seen === undefined) {
         byName.set(skill.name, skill);
       } else if (seen.file !== skill.file) {
-        log("skills", `duplicate skill name "${skill.name}": keeping ${seen.file}, ignoring ${skill.file}`);
+        duplicates.push(`${skill.name}（保留 ${seen.file}）`);
       }
     }
   }
   skipped = unreadable;
   noteSkipped(unreadable);
+  noteDuplicates(duplicates);
   const skills = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
   cached = { at: Date.now(), dirs, skills };
   return skills;

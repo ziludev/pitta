@@ -270,6 +270,7 @@ npm run eval -- --json        # 一个 envelope，给脚本读
 ## 已知限制
 
 - 测试覆盖的是纯逻辑 + 契约（记忆去重、审批注册表、diff 采集、远端链接、危险命令判定、文档与配置对齐），不是端到端；`npm test` 和 `npm run eval` 都是秒级
+- 一轮最多 80 步工具调用（`AGENT_MAX_TURNS`）。到上限不是出错：卡片会写「跑到 N 步上限」并提示回「继续」，transcript 都在，接着说就行。以前默认 40 步，两个真排查任务（SLS/DMS 日志、lark-cli 拉人）都死在这条线上
 - Pi Durable 是 **experimental**，1.x 之间 API 会变；升级前先 `npm run typecheck`。注意 pi-durable 会连带锁死 chord 版本：1.5.1 起 chord v2 成为包根，`Context` 只在 `@earendil-works/chord/context`，从包根 import 会编译失败
 - SQLite 用 `synchronous=NORMAL`：进程崩不丢，掉电可能丢最后一个 commit
 - `bash` 理论上能 `cd` 出工作区；靠 guard hook 兜危险性，不是沙箱

@@ -8,7 +8,7 @@ import { watchLive, type LiveSnapshot } from "./live.ts";
 import { setApprovalDecider, setNotifier, type ApprovalRequest } from "./channel.ts";
 import { log, logError } from "./log.ts";
 import { transcribeAudio } from "./asr.ts";
-import { attachSubmission, clearCardPending, leftoverCards, markCardPending } from "./cards.ts";
+import { attachSubmission, clearCardPending, leftoverCards, markCardPending, noteCardAttempt } from "./cards.ts";
 import { readTurnDetails, saveTurnDetails, type TurnDetails } from "./details.ts";
 import {
   allowChat,
@@ -1136,13 +1136,23 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
           );
         }
       } else {
-        const reasonText = settled.reason ?? "unanswered";
-        const detail = settled.detail === undefined ? "" : `\n\n${String(settled.detail)}`;
-        await deliverAnswer(chatId, cardId, `⚠️ 这次没有答出来：${reasonText}${detail}`, `⏹️ ${seconds}s`);
+        // A turn limit is not a failure: the work sits in the transcript and "继续" resumes it.
+        const limitHit = settled.reason === "turn_limit";
+        const text = limitHit
+          ? `⚠️ 这轮跑到 ${config.maxTurns} 步上限还没收尾（活比较大，不是出错）。\n\n进度都在，回一句「继续」我就接着做。`
+          : `⚠️ 这次没有答出来：${settled.reason ?? "unanswered"}${
+              settled.detail === undefined ? "" : `\n\n${String(settled.detail)}`
+            }`;
+        await deliverAnswer(chatId, cardId, text, limitHit ? `⏸️ ${seconds}s · 步数上限` : `⏹️ ${seconds}s`);
         if (seconds >= config.feishu.donePingSeconds) {
-          await pingDone(chatId, message.message_id, `⚠️ 这条没答出来（${reasonText}）· ${seconds}s`, {
-            thread: replyOptions.thread === true,
-          });
+          await pingDone(
+            chatId,
+            message.message_id,
+            limitHit
+              ? `⏸️ 这轮到了 ${config.maxTurns} 步上限 · ${seconds}s，回「继续」接着做`
+              : `⚠️ 这条没答出来（${settled.reason ?? "unanswered"}）· ${seconds}s`,
+            { thread: replyOptions.thread === true },
+          );
         }
       }
     } catch (error) {
@@ -1260,6 +1270,17 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
   void (async () => {
     const leftovers = await leftoverCards(runtime.harness, context).catch(() => []);
     for (const card of leftovers) {
+      const attempt = await noteCardAttempt(runtime.harness, context, card.requestId).catch(() => 0);
+      if (attempt > 3) {
+        // Feishu rejects the card or the chat (a placeholder written while testing, a group
+        // the bot left). Retrying every boot only produced two failed calls per restart.
+        logError("feishu", `giving up on a card after ${attempt - 1} recovery attempts`, {
+          cardId: card.cardId,
+          chatId: card.chatId,
+        });
+        await clearCardPending(runtime.harness, context, card.requestId).catch(() => {});
+        continue;
+      }
       log("feishu", "unfinished card from previous process", { cardId: card.cardId, submissionId: card.submissionId });
       const startedAt = clock(card.at);
       const elapsed = duration(Date.now() - card.at);
@@ -1301,7 +1322,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
           } else {
             await sendText(
               card.chatId,
-              `上次那条没答出来：${settled.reason ?? "unanswered"}（${startedAt} 起，${total}）`,
+              settled.reason === "turn_limit"
+                ? `上次那条跑到 ${config.maxTurns} 步上限就停了（工作是接着跑的，进度都在）。回一句「继续」我接着做。`
+                : `上次那条没答出来：${settled.reason ?? "unanswered"}（${startedAt} 起，${total}）`,
             );
           }
         } catch (error) {

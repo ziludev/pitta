@@ -12,6 +12,8 @@ export type PendingCard = {
   conversationId: number;
   /** Set once the submission exists, so another process can wait for its answer. */
   submissionId?: number;
+  /** Recovery attempts so far. A card that keeps failing is dropped instead of retried forever. */
+  attempts?: number;
   at: number;
 };
 
@@ -57,6 +59,27 @@ export async function clearCardPending(
     const doc = await tx.doc(PendingCards);
     delete doc.cards[requestId];
   }, context);
+}
+
+/**
+ * Counts one recovery attempt. A card whose cleanup never lands — the process dies again
+ * before the commit, or Feishu rejects its ids forever — would otherwise be attempted on
+ * every boot, with two failed API calls each time.
+ */
+export async function noteCardAttempt(
+  harness: Harness,
+  context: Context,
+  requestId: string,
+): Promise<number> {
+  let attempts = 1;
+  await harness.commit(async (tx) => {
+    const doc = await tx.doc(PendingCards);
+    const current = doc.cards[requestId];
+    if (current === undefined) return;
+    current.attempts = (current.attempts ?? 0) + 1;
+    attempts = current.attempts;
+  }, context);
+  return attempts;
 }
 
 /** Cards left over from a previous process, oldest first. */
