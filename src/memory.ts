@@ -151,15 +151,20 @@ export async function clearChatNotes(harness: Harness, context: Context, convers
 
 const forget = defineTool({
   name: "forget",
-  description: "删掉一条记忆，按内容关键词匹配。两个范围都会搜。",
+  description:
+    "删掉一条记忆，按内容关键词匹配。全局、本对话、工作都会搜；共享群里只动本群的记忆。",
   parameters: obj({ keyword: str({ description: "要删除内容里的关键词" }) }),
   execute: async (args, api, context) => {
     const removed: string[] = [];
+    // Same rule as remember: a guest conversation owns its notes and nothing else.
+    const policy = await api.snapshot(ChatPolicy, api.conversationId, context).catch(() => undefined);
+    const guest = policy?.guest === true;
     await api.commit(async (tx) => {
-      const global = await tx.doc(GlobalMemory);
       const chat = await tx.doc(ChatMemory, api.conversationId);
-      const work = await tx.doc(WorkMemory);
-      for (const doc of [global, chat, work]) {
+      const docs = guest
+        ? [chat]
+        : [await tx.doc(GlobalMemory), chat, await tx.doc(WorkMemory)];
+      for (const doc of docs) {
         const kept = doc.notes.filter((note) => !note.text.includes(args.keyword));
         for (const note of doc.notes) {
           if (note.text.includes(args.keyword)) removed.push(note.text);
@@ -204,12 +209,19 @@ const recall = defineTool({
     const global = await api.snapshot(GlobalMemory, context);
     const chat = await api.snapshot(ChatMemory, api.conversationId, context);
     const work = await api.snapshot(WorkMemory, context);
+    // A guest conversation may search its own notes only: the owner's memories are not
+    // injected there, so letting recall read them would reopen the same door.
+    const policy = await api.snapshot(ChatPolicy, api.conversationId, context).catch(() => undefined);
+    const guest = policy?.guest === true;
     const hits: string[] = [];
-    for (const [label, notes] of [
-      ["全局", global?.notes ?? []],
-      ["本对话", chat?.notes ?? []],
-      ["工作", work?.notes ?? []],
-    ] as const) {
+    const searched = guest
+      ? ([['本对话', chat?.notes ?? []]] as const)
+      : ([
+          ['全局', global?.notes ?? []],
+          ['本对话', chat?.notes ?? []],
+          ['工作', work?.notes ?? []],
+        ] as const);
+    for (const [label, notes] of searched) {
       for (const note of notes) {
         if (terms.every((term) => note.text.includes(term))) {
           hits.push(`- [${label}] ${note.at.slice(0, 10)} ${note.text}`);

@@ -33,9 +33,28 @@ test("an unknown p2p chat is rejected even when the sender is the owner", () => 
   assert.equal(rejectionReason(event("oc_new", "ou_owner"), parsed, [], [], [], policy), "chat-not-allowed");
 });
 
-test("a chat authorized from Feishu still needs an authorized sender", () => {
+test("a p2p chat authorized from Feishu still needs an authorized sender", () => {
   const gate = rejectionReason(event("oc_colleague", "ou_colleague"), parsed, ["oc_colleague"], [], [], policy);
   assert.equal(gate, "sender-not-allowed");
+});
+
+// Authorizing a group is authorizing the people in it: /allow opens it as a guest chat, so a
+// new member needs no per-person card. A group listed only in .env keeps the sender gate,
+// because there the allowlist is the owner's explicit rule rather than a default.
+test("a group authorized from Feishu is a guest chat, so no sender gate", () => {
+  const group = event("oc_colleague", "ou_colleague", { chatType: "group", mentions: [{ key: "@_user_1" }] });
+  assert.equal(rejectionReason(group, parsed, ["oc_colleague"], [], [], policy), undefined);
+});
+
+test("a group listed in .env still needs an authorized sender", () => {
+  const strict: Gate = { allowedChatIds: ["oc_group"], allowedSenderIds: ["ou_owner"], mentionsOnly: true };
+  const group = event("oc_group", "ou_colleague", { chatType: "group", mentions: [{ key: "@_user_1" }] });
+  assert.equal(rejectionReason(group, parsed, [], [], [], strict), "sender-not-allowed");
+});
+
+test("a guest group still requires the @", () => {
+  const group = event("oc_colleague", "ou_colleague", { chatType: "group" });
+  assert.equal(rejectionReason(group, parsed, ["oc_colleague"], [], [], policy), "group-message-without-mention");
 });
 
 test("authorizing the sender opens the gate", () => {

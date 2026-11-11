@@ -241,6 +241,32 @@ export type Gate = {
   mentionsOnly: boolean;
 };
 
+/**
+ * Chats where anyone may talk to the bot.
+ *
+ * A group the owner authorized from inside Feishu (`/allow`) counts as one: authorizing the
+ * chat is authorizing the people in it, so no per-sender card is raised there. Two cases stay
+ * exact, because each has one intended person or an owner who asked for a stricter rule:
+ * a p2p chat (its id already identifies the one person), and a chat listed in `.env`, where
+ * the sender allowlist is the owner's explicit decision rather than a default.
+ */
+export function isGuestChatOf(
+  chatId: string,
+  chatType: string | undefined,
+  allowedFromFeishu: readonly string[],
+  guestChats: readonly string[],
+): boolean {
+  if (guestChats.includes(chatId)) return true;
+  return chatType !== "p2p" && allowedFromFeishu.includes(chatId);
+}
+
+/** What a shared group turns off: the owner's memory, memory writes, and file changes. */
+const GUEST_INSTRUCTIONS =
+  "这是一个共享群（群里有其他人）。\n" +
+  "- 不要透露主人（Alex）的个人信息、记忆、日程、其他会话内容。\n" +
+  "- 不要写任何记忆。\n" +
+  "- 工作目录与工具保持只读使用（read/bash 可查证，不要改文件、不要 git push）。";
+
 export function rejectionReason(
   event: IncomingMessage,
   parsedContent: ParsedContent,
@@ -266,7 +292,7 @@ export function rejectionReason(
     return "empty-content";
   }
   if (allowedChats.length > 0 && !allowedChats.includes(chatId)) return "chat-not-allowed";
-  const guestChat = guestChats.includes(chatId);
+  const guestChat = isGuestChatOf(chatId, message?.chat_type, extraAllowed, guestChats);
   if (!guestChat && allowedSenders.length > 0 && !allowedSenders.includes(senderId)) {
     return "sender-not-allowed";
   }
@@ -729,6 +755,15 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     }
   }
 
+  /** Every step a shared group needs: remember it is open, and give its conversation the rules. */
+  async function openGroup(chatId: string, instructions: string): Promise<void> {
+    await markGuestChat(runtime.harness, context, chatId);
+    const conv = await runtime.conversationFor(chatId);
+    await setGuestPolicy(runtime.harness, context, conv.id as unknown as number);
+    await conv.configure({ instructions }, context);
+    log("feishu", "group opened as guest chat", { chatId });
+  }
+
   async function handle(event: IncomingMessage): Promise<void> {
     const message = event.message;
     if (message?.message_id === undefined || message.chat_id === undefined) return;
@@ -741,7 +776,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     const extraAllowedSenders = await extraSenders(runtime.harness, context).catch(() => [] as string[]);
     const guests = await guestChatIds(runtime.harness, context).catch(() => [] as string[]);
     const reason = rejectionReason(event, parsed, extraAllowed, guests, extraAllowedSenders);
-    const isGuestChat = guests.includes(message.chat_id);
+    const isGuestChat = isGuestChatOf(message.chat_id, message.chat_type, extraAllowed, guests);
     // Where to send "someone is asking" — the stranger's chat cannot be the address.
     if (isOwner && message.chat_type === "p2p") {
       void rememberOwnerChat(runtime.harness, context, message.chat_id).catch(() => {});
@@ -751,26 +786,30 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       await notifyOwnerOfStranger(event, message, text, reason, isGuestChat);
     }
 
-    // Self-service onboarding: the owner authorizes a new group from the group.
+    // Self-service onboarding: the owner authorizes a new group from the group. A group is
+    // shared, so /allow opens it as a guest chat in one step — its members then need no
+    // per-person card, and none of them sees the owner's memory.
     if (text.trim() === "/allow" && isOwner) {
       await allowChat(runtime.harness, context, message.chat_id);
-      await sendText(message.chat_id, "已把本群加入白名单，之后 @我 就能用。");
+      if (message.chat_type === "p2p") {
+        await sendText(message.chat_id, "已把本会话加入白名单。");
+        return;
+      }
+      await openGroup(message.chat_id, GUEST_INSTRUCTIONS);
+      await sendText(
+        message.chat_id,
+        "已把本群加入白名单，按 guest 模式开放：群里谁 @我 都能用；看不到你的个人记忆，也不会改文件。",
+      );
+      return;
+    }
+    if (text.trim() === "/allow") {
+      // Only the owner authorizes a chat; a closed group is told why, an open one stays quiet.
+      if (reason !== undefined) await sendText(message.chat_id, "只有主人能授权本群。").catch(() => {});
       return;
     }
     if (text.trim() === "/open" && isOwner) {
       await allowChat(runtime.harness, context, message.chat_id);
-      await markGuestChat(runtime.harness, context, message.chat_id);
-      const conv = await runtime.conversationFor(message.chat_id);
-      await setGuestPolicy(runtime.harness, context, conv.id as unknown as number);
-      await conv.configure(
-        {
-          instructions:
-            "这是一个共享群（群里有其他人）。只回答与 Android 客户端相关的问题；\n" +
-            "- 不要透露主人（Alex）的个人信息、记忆、日程、其他会话内容。\n" +
-            "- 不要写任何记忆。\n- 工作目录与工具保持只读使用（read/bash 可查证，不要改文件、不要 git push）。",
-        },
-        context,
-      );
+      await openGroup(message.chat_id, `${GUEST_INSTRUCTIONS}\n- 只回答与本群主题相关的问题（Android 客户端）。`);
       await sendText(message.chat_id, "已把本群开放给所有成员（guest 模式）：共享群只答本群主题，不会透露主人信息。");
       return;
     }
@@ -823,6 +862,13 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       threadKey === undefined
         ? await runtime.conversationFor(chatId)
         : await runtime.conversationForThread(chatId, { threadKey, parentMessageId });
+    if (isGuestChat && !guests.includes(chatId)) {
+      // Authorized before /allow learned to open a group: heal it once, so the read-only
+      // rules and the recorded guest mark land on the chat instead of being re-derived.
+      await openGroup(chatId, GUEST_INSTRUCTIONS).catch((error: unknown) =>
+        logError("feishu", "could not heal guest chat", error),
+      );
+    }
     if (isGuestChat) {
       await setGuestPolicy(runtime.harness, context, conversation.id as unknown as number).catch(() => {});
     }
