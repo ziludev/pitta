@@ -127,9 +127,9 @@ export const contractSuite: Suite = {
 
     // Slash commands stay documented only while they are handled somewhere.
     const commands = new Set<string>();
-    // A command is `/name` in a code span; `/a/b` is a path, so a trailing slash or word
-    // character disqualifies the match.
-    for (const match of readme.matchAll(/`(\/[a-z][a-z-]*)(?![a-z/-])/g)) if (match[1] !== undefined) commands.add(match[1].slice(1));
+    // A command is `/name` ending the code span (or followed by a space, as `/memo add`); a path
+    // like `/v1/models` or `/a/b` continues with a slash or a word character and is not one.
+    for (const match of readme.matchAll(/`(\/[a-z][a-z-]*)(?=[` ])/g)) if (match[1] !== undefined) commands.add(match[1].slice(1));
     for (const command of [...commands].sort()) {
       results.push(
         new RegExp(`\\b${command}\\b`).test(feishu)

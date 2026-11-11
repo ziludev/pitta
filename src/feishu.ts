@@ -240,6 +240,39 @@ export function parseContent(message: NonNullable<IncomingMessage["message"]>): 
   return { text: "", imageKeys: [] };
 }
 
+/** A quoted message, as the model needs it: who wrote it and what it said. */
+export type Quoted = { who: string; text: string };
+
+/**
+ * Reading a quoted message costs an API round trip, and people quote the same message while
+ * answering it. Five minutes is longer than any conversation turn.
+ */
+const quotedCache = new Map<string, { at: number; value: Quoted | undefined }>();
+const QUOTED_TTL_MS = 5 * 60_000;
+const QUOTED_CACHE_MAX = 200;
+
+/** The text of a quoted message, whatever kind it was: the model can act on words, not ids. */
+export function quoteText(
+  msgType: string,
+  content: string,
+  mentions: ReadonlyArray<{ key?: string; name?: string; id?: { open_id?: string } }> = [],
+): string {
+  if (msgType === "image") return "（一张图片）";
+  if (msgType === "audio") return "（一条语音）";
+  if (msgType === "file" || msgType === "media") return "（一个文件）";
+  if (msgType === "sticker") return "（一个表情）";
+  const parsed = parseContent({ message_type: msgType, content, mentions } as never);
+  const text = parsed.text.replace(/\s+/g, " ").trim();
+  if (text.length > 0) return text.slice(0, 1_200);
+  if (parsed.imageKeys.length > 0) return `（${parsed.imageKeys.length} 张图片）`;
+  return "（没有可读的文字）";
+}
+
+/** The block the model sees in front of the reply, so "这个" has something to point at. */
+export function quoteBlock(quoted: Quoted): string {
+  return `[引用 · ${quoted.who} 的消息]\n${quoted.text}\n[引用结束]\n\n`;
+}
+
 /**
  * Only the owner may authorize a chat, authorize a person, or answer an approval.
  * An empty allowlist is a misconfiguration, so it trusts nobody: the bridge refuses to start
@@ -1239,6 +1272,37 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     }
   }
 
+  /** One quoted message by id; undefined when it cannot be read (deleted, no scope, gone). */
+  async function readQuoted(parentId: string): Promise<Quoted | undefined> {
+    const hit = quotedCache.get(parentId);
+    if (hit !== undefined && Date.now() - hit.at < QUOTED_TTL_MS) return hit.value;
+    const response = await client.im.message
+      .get({ path: { message_id: parentId } })
+      .catch((error: unknown) => {
+        logError("feishu", "could not read the quoted message", error);
+        return undefined;
+      });
+    const item = response?.data?.items?.[0];
+    const value: Quoted | undefined =
+      item === undefined || item.deleted === true
+        ? undefined
+        : {
+            who: item.sender?.sender_type === "app" ? "bot" : `ou_${String(item.sender?.id ?? "?").slice(-6)}`,
+            text: quoteText(
+              item.msg_type ?? "",
+              item.body?.content ?? "",
+              // The API's mentions carry the open_id as a string; ours carry it one level down.
+              (item.mentions ?? []).map((mention) => ({ key: mention.key, name: mention.name, id: { open_id: mention.id } })),
+            ),
+          };
+    quotedCache.set(parentId, { at: Date.now(), value });
+    if (quotedCache.size > QUOTED_CACHE_MAX) {
+      const oldest = quotedCache.keys().next().value;
+      if (oldest !== undefined) quotedCache.delete(oldest);
+    }
+    return value;
+  }
+
   async function buildUserContent(
     message: NonNullable<IncomingMessage["message"]>,
     parsed: ParsedContent,
@@ -1246,15 +1310,20 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
   ): Promise<string | Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>> {
     /** Who is talking, on its own line, so a long turn does not read as the assistant's own. */
     const tag = (text: string): string => (speaker === undefined ? text : `${speaker} ${text}`);
+    // A reply carries the id of the message it answers, never its text: "这个怎么改" needs the quote.
+    const parentId = message.parent_id ?? "";
+    const quoted =
+      parentId.length > 0 && parentId !== message.message_id ? await readQuoted(parentId) : undefined;
+    const withQuote = (text: string): string => (quoted === undefined ? tag(text) : tag(`${quoteBlock(quoted)}${text}`));
     if (parsed.audioKey !== undefined) {
       const bytes = await downloadResource(message.message_id ?? "", parsed.audioKey, "file");
-      if (bytes === undefined) return tag(`${parsed.text}\n（语音下载失败）`.trim());
+      if (bytes === undefined) return withQuote(`${parsed.text}\n（语音下载失败）`.trim());
       const asr = await transcribeAudio(bytes, "opus");
-      if (!asr.ok) return tag(`${parsed.text}\n（语音转写失败：${asr.error}）`.trim());
-      if (asr.text.length === 0) return tag(`${parsed.text}\n（语音里没听出内容）`.trim());
-      return tag(`[语音转写] ${asr.text}${parsed.text.length > 0 ? `\n（随语音附带的文字）${parsed.text}` : ""}`);
+      if (!asr.ok) return withQuote(`${parsed.text}\n（语音转写失败：${asr.error}）`.trim());
+      if (asr.text.length === 0) return withQuote(`${parsed.text}\n（语音里没听出内容）`.trim());
+      return withQuote(`[语音转写] ${asr.text}${parsed.text.length > 0 ? `\n（随语音附带的文字）${parsed.text}` : ""}`);
     }
-    if (parsed.imageKeys.length === 0) return tag(parsed.text);
+    if (parsed.imageKeys.length === 0) return withQuote(parsed.text);
     const images: Array<{ type: "image"; data: string; mimeType: string }> = [];
     for (const key of parsed.imageKeys.slice(0, 3)) {
       const image = await downloadImage(message.message_id ?? "", key);
@@ -1262,14 +1331,14 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       else console.warn(`[feishu] image ${key} could not be downloaded`);
     }
     if (images.length === 0) {
-      return tag(`${parsed.text}\n（图片下载失败，只看到文字）`.trim());
+      return withQuote(`${parsed.text}\n（图片下载失败，只看到文字）`.trim());
     }
     // Anchor the model on the picture: without this it tends to keep talking about
     // whatever the previous turns were about and treat the image as decoration.
     const who = speaker === undefined ? "主人" : speaker;
     const hint = `${who} 发来 ${images.length} 张图片，先依据图片内容回答，图片是这条消息的主体`;
     const caption = parsed.text.length > 0 ? `${hint}\n${parsed.text}` : `${hint}\n看看这张图，告诉我重点。`;
-    return [{ type: "text" as const, text: caption }, ...images];
+    return [{ type: "text" as const, text: withQuote(caption) }, ...images];
   }
 
   const eventDispatcher = new Lark.EventDispatcher({}).register({
