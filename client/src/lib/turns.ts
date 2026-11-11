@@ -75,7 +75,9 @@ export function groupTurns(
   let current: Turn | undefined;
 
   for (const entry of entries) {
-    if (entry.kind === "pi.system") continue;
+    // Bookkeeping kinds (pi.system, pi.compaction, ...) are not speech: rendering them as an
+    // answer leaves an empty bubble.
+    if (entry.kind.startsWith("pi.") && !["pi.user", "pi.assistant", "pi.tool-result"].includes(entry.kind)) continue;
 
     // A note belongs to the turn it was written in; with no turn yet it opens one.
     if (entry.kind === "app.note" && current !== undefined) {

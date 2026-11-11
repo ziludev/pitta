@@ -702,6 +702,11 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       await setChatLevel(runtime.harness, context, chatId, "group");
       const conversation = await runtime.conversationFor(chatId);
       await setGuestPolicy(runtime.harness, context, conversation.id as unknown as number).catch(() => {});
+      // A shared group does not need the owner's 16k of headroom: compacting earlier keeps every
+      // group turn cheaper, and the transcript it summarizes is public to the group anyway.
+      await conversation
+        .configure({ compaction: { reserveTokens: 8_192 } }, context)
+        .catch((error: unknown) => logError("feishu", "could not set group compaction", error));
       void sendText(chatId, "已开通（guest 权限）：可以问我了。我看不到主人的私人记忆，也不会改动文件。").catch(
         () => {},
       );
@@ -964,6 +969,11 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         () => undefined,
       );
       await setGuestPolicy(runtime.harness, context, conversation.id as unknown as number).catch(() => {});
+      // A shared group does not need the owner's 16k of headroom: compacting earlier keeps every
+      // group turn cheaper, and the transcript it summarizes is public to the group anyway.
+      await conversation
+        .configure({ compaction: { reserveTokens: 8_192 } }, context)
+        .catch((error: unknown) => logError("feishu", "could not set group compaction", error));
       await conversation
         .configure({ instructions: groupInstructions(isOwner ? "owner" : "guest", topic) }, context)
         .catch((error: unknown) => logError("feishu", "could not set group instructions", error));
@@ -990,9 +1000,30 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       });
       return;
     }
-    if (/^\/(new|reset|新会话|清空)$/i.test(command)) {
-      await conversation.reset(undefined, context);
-      await sendText(chatId, "已开新会话。历史还在存储里，长期记忆也保留。");
+    // `/new 交接内容` starts the new context with that line as its user message, so the next turn
+    // picks up where the old one left off instead of starting blank.
+    const resetMatch = /^\/(?:new|reset|新会话|清空)(?:\s+([\s\S]*))?$/i.exec(command);
+    if (resetMatch !== null) {
+      const handoff = (resetMatch[1] ?? "").trim();
+      await conversation.reset(handoff.length === 0 ? undefined : handoff, context);
+      await sendText(
+        chatId,
+        handoff.length === 0
+          ? "已开新会话。历史还在存储里，长期记忆也保留。"
+          : `已开新会话，交接：「${handoff.slice(0, 80)}${handoff.length > 80 ? "…" : ""}」。下一句话我接着这个做。`,
+      );
+      return;
+    }
+    if (/^\/(compact|压缩)$/i.test(command) && isOwner) {
+      // A durable task: it may take a while, so the card is not held open for it.
+      const started = await conversation.compact(undefined, context).catch((error: unknown) => {
+        logError("feishu", "could not start compaction", error);
+        return undefined;
+      });
+      await sendText(
+        chatId,
+        started === undefined ? "压缩没起来，看日志。" : "已开始压缩这段对话（后台任务），好了这里会多一条记录。",
+      );
       return;
     }
     if (/^\/(stop|abort|停止|中断)$/i.test(command)) {

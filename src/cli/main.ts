@@ -308,6 +308,7 @@ ${c.bold("对话")}（走本机桥接，agent 在跑也能用）
 ${c.bold("权限")}
   durable access               每个会话的访问级别（closed / owner / group）
   durable audit [n]            最近 n 条权限决定（默认 30）
+  durable trace [n]            最近 n 次运行的 span（默认 15，看哪一步慢）
 
 ${c.bold("审批")}
   durable approvals            看待审批
@@ -361,6 +362,25 @@ async function audit(limit = 30): Promise<void> {
   for (const event of data.events) console.log(formatEvent(event));
 }
 
+async function trace(limit: number): Promise<void> {
+  const { readTraces } = await import("../telemetry.ts");
+  const rows = await readTraces(join(HOME, ".data", "agent.sqlite"), limit).catch((error: unknown) => {
+    console.error(c.red(`读不到 trace：${(error as Error).message}`));
+    return [];
+  });
+  if (rows.length === 0) {
+    console.log(c.dim("还没有记录任何 trace（首批 span 在 agent 重启后产生）"));
+    return;
+  }
+  for (const row of rows) {
+    const when = new Date(row.startedMs).toLocaleTimeString("zh-CN", { hour12: false });
+    const badge = row.errors > 0 ? c.red("error") : c.dim("ok   ");
+    console.log(
+      `${when}  ${badge}  ${String(row.ms).padStart(7)}ms  ${String(row.spans).padStart(3)} spans  ${row.name}`,
+    );
+  }
+}
+
 // ---- entry ------------------------------------------------------------------
 
 const [command, ...rest] = process.argv.slice(2);
@@ -387,6 +407,9 @@ try {
       break;
     case "audit":
       await audit(rest[0] === undefined ? 30 : Math.max(1, Number(rest[0]) || 30));
+      break;
+    case "trace":
+      await trace(rest[0] === undefined ? 15 : Math.max(1, Number(rest[0]) || 15));
       break;
     case "approvals":
       await approvals();

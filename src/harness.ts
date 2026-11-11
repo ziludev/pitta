@@ -19,6 +19,7 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { assertModelAvailable, createAgentModels, warnIfRoutingGroup } from "./models.ts";
 import { deferredExtension } from "./deferred.ts";
 import { codemodeExtension } from "./codemode.ts";
+import { openTelemetry } from "./telemetry.ts";
 import { ChatMemory, GlobalMemory, memoryExtension, type Note } from "./memory.ts";
 import type { ToolStep } from "./details.ts";
 import { reminderExtension } from "./reminders.ts";
@@ -197,10 +198,13 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   registry.install(defineExtension({ name: "usage-sampler", tasks: [UsageSampler] }));
   if (mcp.extension !== undefined) registry.install(mcp.extension);
 
+  // Spans into their own file: `durable trace` reads it read-only while the agent runs.
+  const telemetry = await openTelemetry(config.dbPath);
   const harness = await Harness.open(
     await openNodeSqliteStorage(config.dbPath),
     {
       models,
+      ...(telemetry === undefined ? {} : { telemetry }),
       registry,
       env: ({ cwd }) => new NodeExecutionEnv({ cwd: cwd ?? workspace }),
       settings: {
@@ -633,6 +637,8 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     close: async () => {
       await harness.close(context);
       await mcp.close();
+      // Drain and close the span store last: closing the harness settles the final spans.
+      await telemetry?.close().catch(() => {});
     },
     mcp: mcp as McpRuntime,
   };
