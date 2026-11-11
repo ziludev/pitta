@@ -346,7 +346,7 @@ export function SidePanel() {
         <TabsList
           ref={listRef}
           variant="line"
-          className="relative w-full justify-start overflow-hidden border-b border-border px-2 [&_[data-state=active]]:border-b-0"
+          className="relative w-full shrink-0 justify-between gap-0 overflow-x-auto border-b border-border px-1.5 [&_[data-state=active]]:border-b-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           <span
             aria-hidden
