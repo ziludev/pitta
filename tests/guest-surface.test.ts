@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { guestBlockReason } from "../src/approval.ts";
+import { guestBlockReason, outsideRoots } from "../src/approval.ts";
 import { isOwnerOperator } from "../src/feishu.ts";
+
+const WS = "/Users/example/learn/pi-durable-agent/workspace";
+const PROJECT = "/Users/example/work/example-service";
 
 /**
  * The guest surface is the part that has to hold when the prompt does not: a group member is
@@ -9,7 +12,8 @@ import { isOwnerOperator } from "../src/feishu.ts";
  * that used to go through.
  */
 
-const blocked = (tool: string, args: Record<string, unknown> = {}) => guestBlockReason(tool, args) !== undefined;
+const blocked = (tool: string, args: Record<string, unknown> = {}, roots: readonly string[] = [WS]) =>
+  guestBlockReason(tool, args, roots) !== undefined;
 
 test("a guest cannot run a shell, write, or borrow the owner's identity", () => {
   for (const tool of ["bash", "write", "edit", "feishu_agenda", "feishu_doc_read", "feishu_create_task", "delegate", "delegate_parallel", "build_feature", "mcp__jira__create_issue"]) {
@@ -40,6 +44,19 @@ test("a guest read cannot reach secrets, or anything outside the workspace", () 
   ]) {
     assert.equal(blocked("read", { path }), true, path);
   }
+});
+
+// A question about a real project has to read that project: the chat's own repo is a second
+// root, and the secrets rule still applies inside it.
+test("a guest reads the project the chat is about, but not a different one", () => {
+  const roots = [WS, PROJECT];
+  assert.equal(blocked("read", { path: `${PROJECT}/user-service/src/Main.java` }, roots), false);
+  assert.equal(blocked("read", { path: `${PROJECT}/.worktrees/conv-67/src/Main.java` }, roots), false);
+  assert.equal(blocked("read", { path: `${PROJECT}/.env` }, roots), true, "secrets stay denied inside the project");
+  assert.equal(blocked("read", { path: "/Users/example/work/other-repo/src/a.ts" }, roots), true);
+  assert.equal(blocked("read", { path: "/Users/example/work/example-service-secrets/a.ts" }, roots), true, "a prefix is not a root");
+  assert.equal(outsideRoots(PROJECT, roots), false);
+  assert.equal(outsideRoots(`${"../"}example-service`, [WS]), true);
 });
 
 test("an approval click counts only for a configured owner", () => {

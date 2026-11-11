@@ -1,9 +1,11 @@
 import { isAbsolute, relative, resolve } from "node:path";
-import { defineExtension, hook, ToolTask } from "@earendil-works/pi-durable";
+import { defineExtension, hook, ToolTask, type DocumentReader } from "@earendil-works/pi-durable";
+import type { Context } from "@earendil-works/chord/context";
 import { config } from "./config.ts";
 import { requestApproval, surfaceForConversation } from "./channel.ts";
 import { hasGrant } from "./grants.ts";
 import { ChatPolicy } from "./access.ts";
+import { ConversationProjectDoc, ProjectsDoc } from "./projects.ts";
 import { log } from "./log.ts";
 
 /**
@@ -87,17 +89,50 @@ const GUEST_DENIED_PATHS = [
 ];
 
 /** Why a guest call is refused, or undefined when it may run. */
-export function guestBlockReason(tool: string, args: Record<string, unknown>): string | undefined {
+export function guestBlockReason(
+  tool: string,
+  args: Record<string, unknown>,
+  roots: readonly string[] = [config.workspace],
+): string | undefined {
   if (!GUEST_TOOLS.has(tool)) {
     return `这个群是 guest 模式：不能用 ${tool}。需要改代码或跑命令，请主人在私聊里说。`;
   }
   if (tool === "read") {
     const path = typeof args["path"] === "string" ? args["path"] : "";
-    if (outsideWorkspace(path) || GUEST_DENIED_PATHS.some((pattern) => pattern.test(path))) {
-      return `这个群是 guest 模式：不能读 ${path}（工作区之外或敏感文件）。`;
+    if (outsideRoots(path, roots) || GUEST_DENIED_PATHS.some((pattern) => pattern.test(path))) {
+      return `这个群是 guest 模式：不能读 ${path}（可读范围之外或敏感文件）。`;
     }
   }
   return undefined;
+}
+
+/** True when `path` is not inside any of the roots. The first root resolves a relative path. */
+export function outsideRoots(path: string, roots: readonly string[]): boolean {
+  const absolute = isAbsolute(path) ? path : resolve(roots[0] ?? config.workspace, path);
+  return !roots.some((root) => {
+    const rel = relative(root, absolute);
+    return rel.length === 0 || (!rel.startsWith("..") && !isAbsolute(rel));
+  });
+}
+
+/**
+ * What a guest may read: the agent's own workspace, plus the repository this chat is about.
+ * Without the project root a question like "why does this check fail" could not read the code
+ * it is asking about — the two chats bound to ~/work/example-service were unreadable for guests.
+ */
+async function guestReadRoots(
+  read: DocumentReader,
+  conversationId: number,
+  context: Context,
+): Promise<string[]> {
+  const roots = [config.workspace];
+  const link = await read.snapshot(ConversationProjectDoc, context).catch(() => undefined);
+  const projectId = link?.byConversation[String(conversationId)];
+  if (projectId === undefined) return roots;
+  const projects = (await read.snapshot(ProjectsDoc, context).catch(() => undefined))?.projects ?? [];
+  const project = projects.find((candidate) => candidate.id === projectId);
+  if (project !== undefined) roots.push(project.path);
+  return roots;
 }
 
 /** Long enough to answer from a meeting; the run is blocked either way. */
@@ -114,7 +149,8 @@ export const guardExtension = defineExtension({
           .snapshot(ChatPolicy, api.conversationId as unknown as never, context)
           .catch(() => undefined);
         if (policy?.guest === true && policy.turn !== "owner") {
-          const blocked = guestBlockReason(call.name, args);
+          const roots = await guestReadRoots(api, api.conversationId as unknown as number, context);
+          const blocked = guestBlockReason(call.name, args, roots);
           if (blocked !== undefined) {
             log("approval", "guest tool blocked", { tool: call.name });
             return { block: blocked };

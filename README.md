@@ -93,7 +93,7 @@ CLI      ─┘
 - **额度**：`pi.usage` 汇总 → 每日上限（`AGENT_DAILY_BUDGET_USD`），超了拒绝新请求，跨天重置
 - **一个群一个级别**：`app.chat-access` 里只有三档——`closed`（不对任何人）/ `owner`（只对你）/ `group`（所有人，guest 待遇）。`.env` 里列的 chat 是 `owner`（只在没存过级别时生效）、`/allow` 和卡片打开的是 `group`。校验、guest 策略、工具面、`/allow` 全读这一个值（以前是 `.env` + `app.allowed-chats` + `app.guest-chats` 三套加一条派生规则）
 - **guest 群**：`/open`（或 `/allow`）把群开放给所有成员，该会话的记忆**只到本群为止**——不注入 `global_memory`，`remember` 只能写 chat 作用域，`recall` 搜不到你的全局/工作记忆，`forget` 也删不到（这三个是同一道门，`ChatPolicy.guest`）
-- **guest 的工具面是代码拦的，不是提示词**：非主人的回合只给 `read`（限工作区内、`.env`/`.data`/`.ssh`/`.git`/`*.pem`/`*secret*` 一律拒）+ `skill` + `recall` + `remind`；`bash`/`write`/`edit`/`feishu_*`/`mcp__*`/`delegate` 全部在 `beforeTool` 里挡掉并回一句「guest 模式不支持」。以前这些只是写在 instructions 里，群里任何人都能让它 `cat .env`
+- **guest 的工具面是代码拦的，不是提示词**：非主人的回合只给 `read`（限工作区 + **本会话所在项目**，`.env`/`.data`/`.ssh`/`.git`/`*.pem`/`*secret*` 一律拒）+ `skill` + `recall` + `remind`；`bash`/`write`/`edit`/`feishu_*`/`mcp__*`/`delegate` 全部在 `beforeTool` 里挡掉并回一句「guest 模式不支持」。以前这些只是写在 instructions 里，群里任何人都能让它 `cat .env`
 - **`/allow` 一步到位**：在群里发 `/allow` 不只是加白名单，而是直接把本群开成 guest 模式（和 `/open` 同一套保护，`/open` 多一条「只答本群主题」）。所以之后群里任何人 @bot 都能用，**不会再按人给你发授权卡**——授权这个群就是授权群里的人
 - **写权限看「谁在问」，记忆看「这个群」**：guest 群的每一条消息都会按发送者重设 instructions——你自己的回合是「按他说的改文件、推分支、触发部署都可以」，别人的回合才是只读。记忆则不管谁问都不放（共享群的 transcript 大家都看得到）
 - **`FEISHU_ALLOWED_SENDER_IDS` 是必填的**：它同时定义“谁是主人”和“谁能点审批”。为空时旧的逻辑是**人人都是主人**（能 `/allow`、能点审批、能拿到可写指令），现在启动时直接跳过飞书桥并打印原因（桌面端与 CLI 照常可用），`durable doctor` 也会报红
@@ -107,7 +107,7 @@ CLI      ─┘
 | 谁 | 能说话的条件 | 工具面（代码强制） | 记忆 |
 |---|---|---|---|
 | 你（`FEISHU_ALLOWED_SENDER_IDS`） | chat 在白名单（`.env` 或 `/allow`） | 全开；危险调用弹审批卡到你的私聊 | 全量 |
-| 群里的其他人 | 群已 `/allow`（guest 群） | `read`(限工作区、排敏感文件) + `skill` + `recall` + `remind` | 只本群 |
+| 群里的其他人 | 群已 `/allow`（guest 群） | `read`(限工作区+本会话项目、排敏感文件) + `skill` + `recall` + `remind` | 只本群 |
 | 单聊里的人（卡片授权后） | 那个会话是 `group` 级别 | 同上 | 只本群 |
 | 谁都没授权 | 会话级别 `closed` | 不回应，只给你发一张卡（一个按钮） | — |
 
