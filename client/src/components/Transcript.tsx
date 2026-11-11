@@ -106,6 +106,22 @@ function FeatureReport({ entry }: { entry: Entry }) {
   );
 }
 
+/**
+ * A line the agent wrote for the owner, not for the model: a restart, a correction, a run that
+ * continued itself past the step limit. It reads as a transcript mark, not as an answer.
+ */
+function NoteLine({ entry }: { entry: Entry }) {
+  const text = String((entry.data as { text?: string } | null)?.text ?? "");
+  if (text.length === 0) return null;
+  return (
+    <div className="flex items-center gap-2 py-0.5 text-[10.5px] text-muted-foreground/70" data-entry={entry.id}>
+      <span className="h-px flex-1 bg-border/50" />
+      <span className="shrink-0">{text}</span>
+      <span className="h-px flex-1 bg-border/50" />
+    </div>
+  );
+}
+
 function LiveBlock() {
   const { live } = useStore();
   if (live === undefined) return null;
@@ -271,6 +287,9 @@ export function Transcript() {
                   retryText={turn.user === undefined ? undefined : textOf(partsOf(turn.user.model))}
                 />
               </div>
+            ))}
+            {turn.notes.map((entry) => (
+              <NoteLine key={entry.id} entry={entry} />
             ))}
             <TurnDivider stats={turn.stats} />
           </div>

@@ -19,6 +19,8 @@ export type Turn = {
   user?: Entry;
   finals: Entry[];
   reports: Entry[];
+  /** Display-only lines written by the agent (restart, correction, continuation). */
+  notes: Entry[];
   internals: Entry[];
   steps: Step[];
   stats: TurnStats;
@@ -75,6 +77,12 @@ export function groupTurns(
   for (const entry of entries) {
     if (entry.kind === "pi.system") continue;
 
+    // A note belongs to the turn it was written in; with no turn yet it opens one.
+    if (entry.kind === "app.note" && current !== undefined) {
+      current.notes.push(entry);
+      continue;
+    }
+
     if (entry.kind === "pi.user" || entry.kind === "app.feature-report" || current === undefined) {
       current = {
         id: entry.id,
@@ -82,6 +90,7 @@ export function groupTurns(
         user: entry.kind === "pi.user" ? entry : undefined,
         finals: [],
         reports: entry.kind === "app.feature-report" ? [entry] : [],
+        notes: entry.kind === "app.note" ? [entry] : [],
         internals: [],
         steps: [],
         stats: { tools: 0, files: 0, added: 0, removed: 0, phases: { think: 0, tool: 0, error: 0, wait: 0 } },
