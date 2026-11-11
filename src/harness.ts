@@ -18,6 +18,7 @@ import { createToolSearchExtension } from "@earendil-works/pi-durable/tool-searc
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { assertModelAvailable, createAgentModels, warnIfRoutingGroup } from "./models.ts";
 import { deferredExtension } from "./deferred.ts";
+import { codemodeExtension } from "./codemode.ts";
 import { ChatMemory, GlobalMemory, memoryExtension, type Note } from "./memory.ts";
 import type { ToolStep } from "./details.ts";
 import { reminderExtension } from "./reminders.ts";
@@ -190,6 +191,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   // Deferred tools are installed but not offered; this is how the model finds them again.
   registry.install(createToolSearchExtension());
   registry.install(deferredExtension);
+  registry.install(codemodeExtension);
   registry.install(subagentExtension);
   registry.install(projectExtension);
   registry.install(defineExtension({ name: "usage-sampler", tasks: [UsageSampler] }));
