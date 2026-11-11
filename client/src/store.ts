@@ -33,6 +33,16 @@ export type LiveDoc = {
 
 export type Connection = "connecting" | "open" | "closed" | "failed";
 
+/**
+ * One id per user action, so a retried POST returns the submission it already created
+ * instead of writing a second one (pi-durable dedupes on requestId). `crypto.randomUUID`
+ * needs a secure context, which a custom webview scheme may not provide.
+ */
+const newRequestId = (): string =>
+  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `r-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
 type State = {
   lang: Lang;
   home: string;
@@ -374,7 +384,7 @@ export const useStore = create<State>((set, get) => ({
     if (text.trim().length === 0 && (images === undefined || images.length === 0)) return;
     await api("/api/submit", {
       method: "POST",
-      body: JSON.stringify({ conversationId: id, text, mode, images }),
+      body: JSON.stringify({ conversationId: id, text, mode, images, requestId: newRequestId() }),
     });
   },
 
@@ -426,6 +436,7 @@ export const useStore = create<State>((set, get) => ({
           files.map((file) => `- ${file}`).join("\n") +
           "\n请在当前 worktree 里解决冲突（可以 git merge 主线到本分支来就地解决），跑通验证，然后提交。",
         mode: "followUp",
+        requestId: newRequestId(),
       }),
     });
   },
@@ -701,6 +712,7 @@ export const useStore = create<State>((set, get) => ({
         conversationId: current,
         text: `工作区改动上的评审意见，请逐条处理：\n\n${body}`,
         mode: "followUp",
+        requestId: newRequestId(),
       }),
     });
     set({ review: [] });

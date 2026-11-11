@@ -514,6 +514,12 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
 
   // The extensions reach back through these two hooks.
   setNotifier(async (surfaceId, text) => {
+    // Only a Feishu chat can receive a message here; other surfaces (cli, client) are
+    // handled by their own notifier, and asking Feishu for one returns 230001.
+    if (!surfaceId.startsWith("oc_") && !surfaceId.startsWith("on_")) {
+      log("feishu", "notifier skipped a surface that is not a chat", { surfaceId });
+      return;
+    }
     await sendText(surfaceId, text);
   });
   setApprovalDecider(async (request) => {

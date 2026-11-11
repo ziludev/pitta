@@ -25,13 +25,21 @@ export const Reminder = defineTask<ReminderInput, { phase: "sleep" } | { phase: 
       runtime.sleepUntil(task.input.at, { phase: "deliver" }, context),
     deliver: async (task, runtime, context) => {
       const surfaceId = surfaceForConversation(task.conversationId) ?? task.input.surfaceId;
-      // A surface that is not a chat (cli, a closed client chat) cannot receive the
-      // message; that is not a reason to fault the task and lose the reminder.
-      await notify(surfaceId, `⏰ 提醒：${task.input.text}`).catch((error) =>
-        logError("reminders", `could not deliver reminder to ${surfaceId}`, error),
-      );
+      // A surface that is not a chat (cli, a closed client chat) cannot receive the message.
+      // A reminder that cannot be delivered must not fault the task: a fault retries the
+      // phase, and a phase that keeps throwing loses the reminder without a word.
+      let delivered = false;
+      try {
+        await notify(surfaceId, `⏰ 提醒：${task.input.text}`);
+        delivered = true;
+      } catch (error) {
+        logError("reminders", `could not deliver reminder to ${surfaceId}`, error);
+      }
       await runtime.commit(
-        () => ({ status: "terminal", outcome: { status: "completed", result: "delivered" } }),
+        () => ({
+          status: "terminal",
+          outcome: { status: "completed", result: delivered ? "delivered" : "undeliverable" },
+        }),
         context,
       );
     },

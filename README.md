@@ -190,6 +190,7 @@ durable approvals       # 待审批；durable approve <id> / deny <id>
 - plist 是模板（`launchd/*.plist.tmpl`），`install` 时渲染实路径，换机器不用手改
 - 备份：`sqlite3 .backup` 热备 → `journal_mode=DELETE` 收成单文件 → 完整性校验 → 保留 14 份；恢复会先停进程、等它真正退出
 - **一份 storage 只能一个进程写**：`openRuntime()` 会写 `.data/agent.owner`（pid），第二个进程直接报错而不是把运行中的会话搞坏
+- **写坏了会自己重开**：storage 一旦报 `Session failed after a storage error`（比如撞上重复 id），session 就永久废了——只有重开进程能救。所以 bridge 遇到这种错误会直接 `exit`，让 launchd 起新进程；10 分钟内不重复触发（标记在 `.data/storage-selfheal`），避免真的坏库变成重启死循环
 - 日志：`logs/agent.log`、`logs/agent.err.log`、`logs/backup.log`；`[report] <时间戳> <kind>` 是 hook/tool/listener 的失败（不会抛进 harness，只能在这看）
 - `doctor` 的判据是**相对量**：重启次数与上次体检比（`+N since last check`），错误只看近两天；旧日志里没有时间戳的行单独计数，不会永远冒充"新故障"
 

@@ -12,8 +12,8 @@ import { listApprovals, resolveApproval } from "./approvals.ts";
 import { surfaceMeta, updateSurfaceMeta } from "./surface-meta.ts";
 import { removeWorktree, worktreePaths } from "./worktree.ts";
 import { branches, commitDiff, commitLog, compareUrl, pushBranch, remoteInfo } from "./git-info.ts";
-import { readFile, stat } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
+import { readFile, stat, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { ChatMemory, GlobalMemory, WorkMemory } from "./memory.ts";
 
 /**
@@ -30,6 +30,31 @@ function bearer(req: IncomingMessage): string {
   if (typeof header === "string" && header.startsWith("Bearer ")) return header.slice(7);
   const alt = req.headers["x-agent-token"];
   return typeof alt === "string" ? alt : "";
+}
+
+/**
+ * pi-durable answers a failed storage write by marking the session dead: every request after
+ * it fails the same way, and only a reopen repairs it. The client cannot do that, so the
+ * bridge asks the process to be replaced. The marker keeps a genuinely broken database from
+ * turning into a restart loop nobody reads.
+ */
+const SELF_HEAL_MARKER = join(dirname(config.dbPath), "storage-selfheal");
+const SELF_HEAL_COOLDOWN_MS = 10 * 60_000;
+
+function isDeadSession(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /storage error|already belongs to conversation/i.test(message);
+}
+
+async function shouldReopenSession(): Promise<boolean> {
+  try {
+    const info = await stat(SELF_HEAL_MARKER);
+    if (Date.now() - info.mtimeMs < SELF_HEAL_COOLDOWN_MS) return false;
+  } catch {
+    // No marker yet: this is the first dead session in a while.
+  }
+  await writeFile(SELF_HEAL_MARKER, new Date().toISOString()).catch(() => {});
+  return true;
 }
 
 function tokenMatches(given: string): boolean {
@@ -439,7 +464,13 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
           images.length === 0
             ? text
             : [{ type: "text" as const, text: text.length > 0 ? text : "看看这几张图。" }, ...images];
-        const submission = await conversation.submit({ type: "input", content, whenBusy }, context);
+        // The client sends one id per user action: a retried POST then returns the submission it
+        // already created instead of writing a second one (pi-durable dedupes on requestId).
+        const requestId = typeof body["requestId"] === "string" ? body["requestId"].trim().slice(0, 64) : "";
+        const submission = await conversation.submit(
+          { type: "input", content, whenBusy, ...(requestId.length > 0 ? { requestId } : {}) },
+          context,
+        );
         // The CLI has no reliable way to know when a run ended otherwise; let it wait
         // here rather than poll the view for a busy/idle transition it can miss.
         if (body["wait"] === true) {
@@ -695,8 +726,15 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
 
       return send(res, 404, { error: "not found" });
     } catch (error) {
-      logError("http", `${req.method} ${req.url} failed`, error);
-      return send(res, 500, { error: (error as Error).message });
+      const dead = isDeadSession(error);
+      logError("http", `${req.method} ${req.url} failed${dead ? " (session is dead)" : ""}`, error);
+      if (dead && (await shouldReopenSession())) {
+        // pi-durable marks a session failed for good: every later request fails the same way
+        // until the storage is reopened, so a restart is the repair rather than a dead client.
+        logError("http", "reopening the session by exiting; launchd starts a new process", undefined);
+        setTimeout(() => process.exit(1), 250);
+      }
+      return send(res, dead ? 503 : 500, { error: (error as Error).message, sessionDead: dead });
     }
   });
 
