@@ -214,9 +214,9 @@ export function Transcript() {
           ↓ {unseen} {tr(lang, "newMessages")}
         </button>
       ) : null}
-    {/* What this chat has cost so far: the ledger total, not just the loaded window. */}
+    {/* What this chat has cost so far: the ledger total, not just the loaded window. A receipt,
+        not a sentence: work on the left, what it cost on the right. */}
     {usage.cost > 0 ? (
-      {/* A receipt, not a sentence: work on the left, what it cost on the right. */}
       <div className="flex shrink-0 items-baseline gap-2 border-b border-border/50 px-5 py-1 text-[10px] tabular-nums">
         <span className="text-muted-foreground/70">
           {usage.turns} {tr(lang, "turns")}

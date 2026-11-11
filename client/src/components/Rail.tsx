@@ -116,9 +116,7 @@ function SessionRow({
   return (
     <div
       ref={setNodeRef}
-      className={`group flex items-center gap-1 overflow-hidden rounded-md py-1 pr-1.5 text-[11.5px] whitespace-nowrap transition-[transform,box-shadow,background-color] ${
-        topic ? "pl-5" : "pl-2"
-      } ${
+      className={`group/row relative flex items-center overflow-hidden rounded-md py-1 pr-1.5 text-[11.5px] whitespace-nowrap transition-[transform,box-shadow,background-color] ${
         active
           ? "bg-accent/15 text-foreground"
           : "hover:-translate-y-[2px] hover:bg-accent/10 hover:shadow-[0_6px_14px_-6px_rgba(0,0,0,0.45)]"
@@ -131,15 +129,17 @@ function SessionRow({
         transitionTimingFunction: cssEase(easeOutCubic),
       }}
     >
+      {/* The handle, the pin and the menu appear on hover: reserving their width kept the title
+          down to half the rail, which read as a list of cut-off sentences. */}
       <button
         {...attributes}
         {...listeners}
-        className="cursor-grab text-muted-foreground/40 opacity-0 transition group-hover:opacity-100"
+        className="flex w-0 shrink-0 cursor-grab items-center justify-center overflow-hidden text-muted-foreground/40 transition-all group-hover/row:w-3.5"
         aria-label="drag"
       >
         <GripVertical className="size-3" />
       </button>
-      <button onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-left">
+      <button onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-1.5 pl-2 pr-1 text-left">
         {topic ? (
           <CornerDownRight className="size-2.5 shrink-0 text-muted-foreground/50" />
         ) : kind === "client" ? (
@@ -155,20 +155,21 @@ function SessionRow({
             {money(surface.cost)}
           </span>
         ) : null}
-        <span className="shrink-0 text-[10px] text-muted-foreground/50 tabular-nums opacity-0 group-hover:opacity-100">
-          #{surface.conversationId}
-        </span>
       </button>
-      <ChatMenu conversationId={surface.conversationId} title={label} archived={archived} />
-      <button
-        onClick={onTogglePin}
-        title={pinTitle}
-        className={`shrink-0 transition ${
-          pinned ? "text-primary" : "text-muted-foreground/40 opacity-0 group-hover:opacity-100"
-        }`}
-      >
-        {pinned ? <Pin className="size-3" /> : <PinOff className="size-3" />}
-      </button>
+      <div className="absolute top-1/2 right-1 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-background/95 px-1 opacity-0 shadow-sm transition group-hover/row:opacity-100">
+        <span className="text-[9.5px] text-muted-foreground/60 tabular-nums">#{surface.conversationId}</span>
+        <ChatMenu conversationId={surface.conversationId} title={label} archived={archived} />
+        <button
+          onClick={onTogglePin}
+          title={pinTitle}
+          className={`shrink-0 transition ${pinned ? "text-primary" : "text-muted-foreground/50 hover:text-foreground"}`}
+        >
+          {pinned ? <Pin className="size-3" /> : <PinOff className="size-3" />}
+        </button>
+      </div>
+      {pinned ? (
+        <Pin className="pointer-events-none absolute top-1 right-1 size-2.5 text-primary/70 group-hover/row:opacity-0" />
+      ) : null}
     </div>
   );
 }
