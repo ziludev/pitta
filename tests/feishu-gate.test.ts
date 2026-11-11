@@ -1,17 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { levelOf, type ChatLevel } from "../src/access.ts";
 import { rejectionReason, type Gate } from "../src/feishu.ts";
 
 /**
- * The gate that dropped a colleague's DM twice: first because their chat id was unknown,
- * then because only the owner was an allowed sender. Both had to be authorized from a
- * card, so the two allowlists are exercised separately here.
+ * One level per chat decides who gets an answer: `closed` answers nobody, `owner` answers only
+ * the owner, `group` answers everyone (as a guest unless it is the owner). Before, the same
+ * question was answered by two allowlists and a derived rule, and the first version let an
+ * authorized group card every member separately.
  */
-const policy: Gate = {
-  allowedChatIds: ["oc_owner"],
-  allowedSenderIds: ["ou_owner"],
-  mentionsOnly: true,
-};
+const policy: Gate = { mentionsOnly: true };
 
 function event(chat: string, sender: string, options: { chatType?: string; mentions?: unknown[] } = {}) {
   return {
@@ -28,65 +26,46 @@ function event(chat: string, sender: string, options: { chatType?: string; menti
 }
 
 const parsed = { text: "在吗", imageKeys: [], audioKey: undefined } as never;
+const group = (chat: string, sender: string) =>
+  event(chat, sender, { chatType: "group", mentions: [{ key: "@_user_1" }] });
 
-test("an unknown p2p chat is rejected even when the sender is the owner", () => {
-  assert.equal(rejectionReason(event("oc_new", "ou_owner"), parsed, [], [], [], policy), "chat-not-allowed");
+test("a chat nobody opened answers nobody, even the owner", () => {
+  assert.equal(rejectionReason(event("oc_new", "ou_owner"), parsed, "closed", true, policy), "chat-not-allowed");
+  assert.equal(rejectionReason(event("oc_new", "ou_stranger"), parsed, "closed", false, policy), "chat-not-allowed");
 });
 
-test("a p2p chat authorized from Feishu still needs an authorized sender", () => {
-  const gate = rejectionReason(event("oc_colleague", "ou_colleague"), parsed, ["oc_colleague"], [], [], policy);
-  assert.equal(gate, "sender-not-allowed");
+test("a chat pinned to the owner answers only the owner", () => {
+  assert.equal(rejectionReason(event("oc_owner", "ou_owner"), parsed, "owner", true, policy), undefined);
+  assert.equal(rejectionReason(group("oc_owner", "ou_colleague"), parsed, "owner", false, policy), "owner-only");
 });
 
-// Authorizing a group is authorizing the people in it: /allow opens it as a guest chat, so a
-// new member needs no per-person card. A group listed only in .env keeps the sender gate,
-// because there the allowlist is the owner's explicit rule rather than a default.
-test("a group authorized from Feishu is a guest chat, so no sender gate", () => {
-  const group = event("oc_colleague", "ou_colleague", { chatType: "group", mentions: [{ key: "@_user_1" }] });
-  assert.equal(rejectionReason(group, parsed, ["oc_colleague"], [], [], policy), undefined);
-});
-
-test("a group listed in .env still needs an authorized sender", () => {
-  const strict: Gate = { allowedChatIds: ["oc_group"], allowedSenderIds: ["ou_owner"], mentionsOnly: true };
-  const group = event("oc_group", "ou_colleague", { chatType: "group", mentions: [{ key: "@_user_1" }] });
-  assert.equal(rejectionReason(group, parsed, [], [], [], strict), "sender-not-allowed");
+test("an opened group answers every member, no per-person authorization", () => {
+  assert.equal(rejectionReason(group("oc_group", "ou_colleague"), parsed, "group", false, policy), undefined);
+  assert.equal(rejectionReason(group("oc_group", "ou_owner"), parsed, "group", true, policy), undefined);
+  assert.equal(rejectionReason(event("oc_group", "ou_colleague"), parsed, "group", false, policy), undefined);
 });
 
 test("a guest group still requires the @", () => {
-  const group = event("oc_colleague", "ou_colleague", { chatType: "group" });
-  assert.equal(rejectionReason(group, parsed, ["oc_colleague"], [], [], policy), "group-message-without-mention");
-});
-
-test("authorizing the sender opens the gate", () => {
-  const gate = rejectionReason(
-    event("oc_colleague", "ou_colleague"),
-    parsed,
-    ["oc_colleague"],
-    [],
-    ["ou_colleague"],
-    policy,
-  );
-  assert.equal(gate, undefined);
-});
-
-test("a guest chat is not gated by sender", () => {
-  const gate = rejectionReason(event("oc_guest", "ou_anyone"), parsed, ["oc_guest"], ["oc_guest"], [], policy);
-  assert.equal(gate, undefined);
-});
-
-test("mentions-only still requires an @ in groups", () => {
-  const without = event("oc_owner", "ou_owner", { chatType: "group" });
-  assert.equal(rejectionReason(without, parsed, [], [], [], policy), "group-message-without-mention");
-  const withMention = event("oc_owner", "ou_owner", { chatType: "group", mentions: [{ key: "@_user_1" }] });
-  assert.equal(rejectionReason(withMention, parsed, [], [], [], policy), undefined);
+  const without = event("oc_group", "ou_colleague", { chatType: "group" });
+  assert.equal(rejectionReason(without, parsed, "group", false, policy), "group-message-without-mention");
 });
 
 test("empty content and unsupported types are named separately", () => {
   const empty = { text: "", imageKeys: [] } as never;
-  assert.equal(rejectionReason(event("oc_owner", "ou_owner"), empty, [], [], [], policy), "empty-content");
+  assert.equal(rejectionReason(event("oc_owner", "ou_owner"), empty, "owner", true, policy), "empty-content");
   const voice = event("oc_owner", "ou_owner");
   (voice as { message: { message_type: string } }).message.message_type = "sticker";
-  assert.match(rejectionReason(voice, parsed, [], [], [], policy) ?? "", /unsupported-message-type/);
+  assert.match(rejectionReason(voice, parsed, "owner", true, policy) ?? "", /unsupported-message-type/);
+});
+
+test("levelOf: a stored level wins, `.env` is the fallback, everything else is closed", () => {
+  const access: Record<string, ChatLevel> = { oc_group: "group", oc_pinned: "owner" };
+  assert.equal(levelOf("oc_group", access, ["oc_env"]), "group");
+  assert.equal(levelOf("oc_pinned", access, ["oc_env"]), "owner");
+  assert.equal(levelOf("oc_env", access, ["oc_env"]), "owner");
+  assert.equal(levelOf("oc_unknown", access, ["oc_env"]), "closed");
+  // `.env` must not win over an explicit level: a group opened with /allow stays a group.
+  assert.equal(levelOf("oc_env", { ...access, oc_env: "group" }, ["oc_env"]), "group");
 });
 
 // The owner asking in his own group is still the owner: /allow opened the group to other

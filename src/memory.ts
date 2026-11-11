@@ -2,7 +2,7 @@ import { defineDoc, defineExtension, defineTool, section } from "@earendil-works
 import { obj, opt, str } from "@earendil-works/pi-schema";
 import type { Harness } from "@earendil-works/pi-durable";
 import type { Context } from "@earendil-works/chord/context";
-import { ChatPolicy } from "./guest.ts";
+import { ChatPolicy } from "./access.ts";
 
 export type Note = { at: string; text: string };
 

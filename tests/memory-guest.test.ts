@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ChatMemory, GlobalMemory, WorkMemory, memoryTools, type Note } from "../src/memory.ts";
-import { ChatPolicy } from "../src/guest.ts";
+import { ChatPolicy } from "../src/access.ts";
 
 /**
  * A guest conversation is a shared group opened with /allow or /open. It must not see the

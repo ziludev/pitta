@@ -3,7 +3,7 @@ import { defineExtension, hook, ToolTask } from "@earendil-works/pi-durable";
 import { config } from "./config.ts";
 import { requestApproval, surfaceForConversation } from "./channel.ts";
 import { hasGrant } from "./grants.ts";
-import { ChatPolicy } from "./guest.ts";
+import { ChatPolicy } from "./access.ts";
 import { log } from "./log.ts";
 
 /**

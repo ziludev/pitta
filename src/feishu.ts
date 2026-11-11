@@ -11,16 +11,21 @@ import { transcribeAudio } from "./asr.ts";
 import { attachSubmission, clearCardPending, leftoverCards, markCardPending, noteCardAttempt } from "./cards.ts";
 import { readTurnDetails, saveTurnDetails, type TurnDetails } from "./details.ts";
 import {
-  allowChat,
-  allowSender,
-  extraChats,
-  extraSenders,
+  adoptChatLevels,
+  chatAccess,
+  chatTopicOf,
+  isGuestLevel,
+  levelOf,
   ownerChatId,
   rememberOwnerChat,
-} from "./allowed.ts";
+  setChatLevel,
+  setChatTopic,
+  setChatTurn,
+  setGuestPolicy,
+  type ChatLevel,
+} from "./access.ts";
 import { dropApproval, registerApproval, resolveApproval } from "./approvals.ts";
 import { addChatNote, chatNotes, clearChatNotes, removeChatNote } from "./memory.ts";
-import { chatTopicOf, guestChatIds, markGuestChat, setChatTopic, setChatTurn, setGuestPolicy } from "./guest.ts";
 
 type IncomingMessage = {
   sender?: { sender_id?: { open_id?: string } };
@@ -245,29 +250,8 @@ export function isOwnerOperator(openId: string, owners: readonly string[] = conf
 
 /** The gate in front of every inbound message; explicit for tests, config by default. */
 export type Gate = {
-  allowedChatIds: readonly string[];
-  allowedSenderIds: readonly string[];
   mentionsOnly: boolean;
 };
-
-/**
- * Chats where anyone may talk to the bot.
- *
- * A group the owner authorized from inside Feishu (`/allow`) counts as one: authorizing the
- * chat is authorizing the people in it, so no per-sender card is raised there. Two cases stay
- * exact, because each has one intended person or an owner who asked for a stricter rule:
- * a p2p chat (its id already identifies the one person), and a chat listed in `.env`, where
- * the sender allowlist is the owner's explicit decision rather than a default.
- */
-export function isGuestChatOf(
-  chatId: string,
-  chatType: string | undefined,
-  allowedFromFeishu: readonly string[],
-  guestChats: readonly string[],
-): boolean {
-  if (guestChats.includes(chatId)) return true;
-  return chatType !== "p2p" && allowedFromFeishu.includes(chatId);
-}
 
 /**
  * Every group turn carries who is speaking, in the message itself. A claim in the instructions
@@ -325,17 +309,11 @@ export function groupInstructions(who: "owner" | "guest", topic?: string): strin
 export function rejectionReason(
   event: IncomingMessage,
   parsedContent: ParsedContent,
-  extraAllowed: readonly string[] = [],
-  guestChats: readonly string[] = [],
-  extraAllowedSenders: readonly string[] = [],
+  level: ChatLevel = "closed",
+  isOwner = false,
   policy: Gate = config.feishu,
 ): string | undefined {
   const message = event.message;
-  const chatId = message?.chat_id ?? "";
-  const senderId = event.sender?.sender_id?.open_id ?? "";
-  const { allowedChatIds, allowedSenderIds, mentionsOnly } = policy;
-  const allowedChats = [...allowedChatIds, ...extraAllowed];
-  const allowedSenders = [...allowedSenderIds, ...extraAllowedSenders];
   const content = parsedContent;
   const supported =
     message?.message_type === "text" ||
@@ -346,12 +324,11 @@ export function rejectionReason(
   if (content.text.length === 0 && content.imageKeys.length === 0 && content.audioKey === undefined) {
     return "empty-content";
   }
-  if (allowedChats.length > 0 && !allowedChats.includes(chatId)) return "chat-not-allowed";
-  const guestChat = isGuestChatOf(chatId, message?.chat_type, extraAllowed, guestChats);
-  if (!guestChat && allowedSenders.length > 0 && !allowedSenders.includes(senderId)) {
-    return "sender-not-allowed";
-  }
-  if (mentionsOnly && message?.chat_type === "group" && (message.mentions ?? []).length === 0) {
+  // One level decides everything: closed answers nobody, owner only the owner, group everyone
+  // (with the guest surface for whoever is not the owner).
+  if (level === "closed") return "chat-not-allowed";
+  if (level === "owner" && !isOwner) return "owner-only";
+  if (policy.mentionsOnly && message?.chat_type === "group" && (message.mentions ?? []).length === 0) {
     return "group-message-without-mention";
   }
   return undefined;
@@ -421,6 +398,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
   // authorize anybody, which is worse than not starting.
   requireFeishuOwner();
   feishuStarted = true;
+  // One-time adoption: chats from `.env`, and chats the previous model stored in its two docs.
+  // Until this runs, `.env` is the only source, so a fresh process still answers its own chats.
+  await adoptChatLevels(runtime.harness, context, config.feishu.allowedChatIds);
   const client = new Lark.Client({ appId, appSecret });
 
   // Who we are, so an @ of the bot can be dropped from the text instead of leaving "@".
@@ -654,55 +634,26 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     const receivedAt = Date.now();
     const value = payload.action?.value ?? {};
 
-    if (value["kind"] === "allow-chat") {
+    if (value["kind"] === "open-chat") {
       const operator = payload.operator?.open_id ?? "";
       if (!isOwnerOperator(operator)) {
         return { toast: { type: "warning", content: "只有主人可以授权" } };
       }
       const chatId = typeof value["chatId"] === "string" ? value["chatId"] : "";
       if (chatId.length === 0) return { toast: { type: "error", content: "缺少会话 id" } };
-      await allowChat(runtime.harness, context, chatId);
-      const messageId = payload.context?.open_message_id;
-      if (messageId !== undefined) {
-        void patchCard(messageId, `✅ 已授权 ${chatId}`, "对方现在可以正常使用了").catch(() => {});
-      }
-      return { toast: { type: "success", content: "已授权" } };
-    }
-
-    if (value["kind"] === "allow-sender") {
-      const operator = payload.operator?.open_id ?? "";
-      if (!isOwnerOperator(operator)) {
-        return { toast: { type: "warning", content: "只有主人可以授权" } };
-      }
-      const chatId = typeof value["chatId"] === "string" ? value["chatId"] : "";
-      const senderId = typeof value["senderId"] === "string" ? value["senderId"] : "";
-      if (chatId.length === 0 || senderId.length === 0) return { toast: { type: "error", content: "缺少会话或用户 id" } };
-      await allowChat(runtime.harness, context, chatId);
-      await allowSender(runtime.harness, context, senderId);
-      // Not the owner: no memory of them, and no writes. Same policy as an opened group.
+      // One button, one level: the person or the group gets guest access, and the guest policy
+      // keeps the owner's memory out of it. It used to take two cards to reach this point.
+      await setChatLevel(runtime.harness, context, chatId, "group");
       const conversation = await runtime.conversationFor(chatId);
       await setGuestPolicy(runtime.harness, context, conversation.id as unknown as number).catch(() => {});
-      await conversation
-        .configure(
-          {
-            instructions:
-              "这个会话的用户不是主人，是主人授权的同事。\n" +
-              "- 不要透露主人的个人信息、记忆、日程、其他会话内容；不要写任何记忆。\n" +
-              "- 工具只读使用：可以查证、跑只读命令，不要改文件、不要 git push、不要装东西。",
-          },
-          context,
-        )
-        .catch(() => {});
-      void sendText(chatId, "已开通（共享权限）：可以问我了。我看不到主人的私人记忆，也不会改动文件。").catch(
+      void sendText(chatId, "已开通（guest 权限）：可以问我了。我看不到主人的私人记忆，也不会改动文件。").catch(
         () => {},
       );
       const messageId = payload.context?.open_message_id;
       if (messageId !== undefined) {
-        void patchCard(messageId, `✅ 已允许 ${senderId.slice(-6)} 使用`, "guest 权限：只读工具、不写记忆").catch(
-          () => {},
-        );
+        void patchCard(messageId, `✅ 已开放 ${chatId.slice(-6)}`, "guest 权限：只读工具、不写记忆").catch(() => {});
       }
-      return { toast: { type: "success", content: "已允许，并通知了对方" } };
+      return { toast: { type: "success", content: "已开放，并通知了对方" } };
     }
 
     if (value["kind"] === "detail") {
@@ -770,26 +721,19 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
   }
 
   /**
-   * Someone the allowlist does not know is talking to the bot. Silence would look like a
-   * broken bot, so the owner gets the ask with a one-click authorize button.
+   * Someone the bot has never met is talking to it. Silence would look like a broken bot, so
+   * the owner gets one card with one button: open this chat with guest access.
    */
   async function notifyOwnerOfStranger(
     event: IncomingMessage,
     message: NonNullable<IncomingMessage["message"]>,
     text: string,
-    reason: string,
-    isGuestChat: boolean,
   ): Promise<void> {
     const ownerChat = await ownerChatId(runtime.harness, context).catch(() => undefined);
     if (ownerChat === undefined) return;
     const senderId = event.sender?.sender_id?.open_id ?? "?";
-    const where =
-      message.chat_type === "p2p"
-        ? "私聊"
-        : isGuestChat
-          ? "已开放的群（但发送者不在白名单）"
-          : "群聊";
-    const headline = isGuestChat ? "有人给 bot 发消息，但不在白名单" : "有未授权的会话找 bot";
+    const where = message.chat_type === "p2p" ? "私聊" : "群聊";
+    const headline = message.chat_type === "p2p" ? "有人私聊 bot" : "有未授权的群在 @ bot";
     const body = text.replace(/[\n`]/g, " ").slice(0, 200);
     const cardBody =
       `**${headline}**\n` +
@@ -797,16 +741,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       `- 会话：\`${message.chat_id}\`\n` +
       `- 发送者：\`${senderId}\`\n` +
       `- 内容：${body.length > 0 ? body : "（非文字消息）"}\n`;
-    const buttons =
-      reason === "chat-not-allowed"
-        ? [{ label: "授权此会话", value: { kind: "allow-chat", chatId: message.chat_id }, type: "primary" as const }]
-        : [
-            {
-              label: "允许此人使用（guest 权限）",
-              value: { kind: "allow-sender", chatId: message.chat_id, senderId },
-              type: "primary" as const,
-            },
-          ];
+    const buttons = [
+      { label: "开放此会话（guest 权限）", value: { kind: "open-chat", chatId: message.chat_id }, type: "primary" as const },
+    ];
     try {
       await client.im.message.create({
         params: { receive_id_type: "chat_id" },
@@ -816,11 +753,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
           content: JSON.stringify(card(cardBody, "对方没有收到回复", buttons)),
         },
       });
-      log("feishu", "stranger reported to owner", {
-        chat: message.chat_id,
-        chatType: message.chat_type,
-        reason,
-      });
+      log("feishu", "stranger reported to owner", { chat: message.chat_id, chatType: message.chat_type });
     } catch (error) {
       logError("feishu", "could not report stranger to owner", error);
     }
@@ -828,7 +761,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
 
   /** Every step a shared group needs: remember it is open, and give its conversation the rules. */
   async function openGroup(chatId: string, instructions: string): Promise<void> {
-    await markGuestChat(runtime.harness, context, chatId);
+    // One level replaces the old pair of lists: the chat is a group, which is also what the gate,
+    // the guest policy and the tool surface read.
+    await setChatLevel(runtime.harness, context, chatId, "group");
     const conv = await runtime.conversationFor(chatId);
     await setGuestPolicy(runtime.harness, context, conv.id as unknown as number);
     await conv.configure({ instructions }, context);
@@ -844,33 +779,43 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     const senderId = event.sender?.sender_id?.open_id ?? "";
     // The bridge refuses to start without an owner, so an empty list here means nobody is one.
     const isOwner = owner.length > 0 && owner.includes(senderId);
-    const extraAllowed = await extraChats(runtime.harness, context).catch(() => [] as string[]);
-    const extraAllowedSenders = await extraSenders(runtime.harness, context).catch(() => [] as string[]);
-    const guests = await guestChatIds(runtime.harness, context).catch(() => [] as string[]);
-    const reason = rejectionReason(event, parsed, extraAllowed, guests, extraAllowedSenders);
-    const isGuestChat = isGuestChatOf(message.chat_id, message.chat_type, extraAllowed, guests);
-    // Where to send "someone is asking" — the stranger's chat cannot be the address.
+    const access = await chatAccess(runtime.harness, context).catch(() => ({}) as Record<string, ChatLevel>);
+    const level = levelOf(message.chat_id, access, config.feishu.allowedChatIds);
+    const isGuestChat = isGuestLevel(level);
+    const reason = rejectionReason(event, parsed, level, isOwner);
+    // Where to send "someone is asking" — the stranger's chat cannot be the address. The owner's
+    // own DM is level owner from its first message, so a card always has somewhere to go.
     if (isOwner && message.chat_type === "p2p") {
       void rememberOwnerChat(runtime.harness, context, message.chat_id).catch(() => {});
+      if (level !== "owner") {
+        void setChatLevel(runtime.harness, context, message.chat_id, "owner").catch(() => {});
+      }
     }
-    // A stranger in an unauthorized chat gets no answer, so the owner must hear about it.
-    if (!isOwner && (reason === "chat-not-allowed" || reason === "sender-not-allowed")) {
-      await notifyOwnerOfStranger(event, message, text, reason, isGuestChat);
+    // A chat the bot has never been opened in gets one card to the owner, with one button.
+    if (level === "closed" && !isOwner) {
+      await notifyOwnerOfStranger(event, message, text);
+    }
+    // A chat pinned to the owner: say so once, instead of carding every message.
+    if (reason === "owner-only") {
+      await sendText(message.chat_id, "这个会话只对主人开放。发一句 /allow 可以让这里所有人都能用。").catch(
+        () => {},
+      );
     }
 
     // Self-service onboarding: the owner authorizes a new group from the group. A group is
     // shared, so /allow opens it as a guest chat in one step — its members then need no
     // per-person card, and none of them sees the owner's memory.
     if (text.trim() === "/allow" && isOwner) {
-      await allowChat(runtime.harness, context, message.chat_id);
       if (message.chat_type === "p2p") {
+        // A p2p chat has exactly one other person in it, so opening it opens it to them.
+        await setChatLevel(runtime.harness, context, message.chat_id, "owner");
         await sendText(message.chat_id, "已把本会话加入白名单。");
         return;
       }
       await openGroup(message.chat_id, groupInstructions("guest"));
       await sendText(
         message.chat_id,
-        "已把本群加入白名单，按 guest 模式开放：群里谁 @我 都能用；看不到你的个人记忆。你自己问的时候照常能改文件、推分支。",
+        "已把本群开放给所有人（guest 模式）：群里谁 @我 都能用；看不到你的个人记忆。你自己问的时候照常能改文件、推分支。",
       );
       return;
     }
@@ -880,7 +825,6 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       return;
     }
     if (text.trim() === "/open" && isOwner) {
-      await allowChat(runtime.harness, context, message.chat_id);
       const topic = "只回答与本群主题相关的问题（Android 客户端）。";
       const conversation = await runtime.conversationFor(message.chat_id);
       await setChatTopic(runtime.harness, context, conversation.id as unknown as number, topic);
@@ -888,9 +832,8 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       await sendText(message.chat_id, "已把本群开放给所有成员（guest 模式）：共享群只答本群主题，不会透露主人信息。");
       return;
     }
-    if (reason === "sender-not-allowed" && isGuestChat) {
-      // Should not happen; logged for diagnosis.
-      console.log(`[feishu] guest chat rejected sender ${senderId}`);
+    if (isGuestChat && !isOwner) {
+      log("feishu", "guest turn", { chatId: message.chat_id, sender: senderId.slice(-6) });
     }
     if (reason === "chat-not-allowed" && isOwner) {
       // Log the text: if /allow did not match, seeing what arrived is the whole diagnosis.
@@ -937,25 +880,20 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       threadKey === undefined
         ? await runtime.conversationFor(chatId)
         : await runtime.conversationForThread(chatId, { threadKey, parentMessageId });
-    if (isGuestChat && !guests.includes(chatId)) {
-      // Authorized before /allow learned to open a group: heal it once, so the recorded guest
-      // mark and the per-turn instructions land on the chat instead of being re-derived.
-      await openGroup(chatId, groupInstructions("guest")).catch((error: unknown) =>
-        logError("feishu", "could not heal guest chat", error),
-      );
-    }
     if (isGuestChat) {
       // Memory stays off for the whole conversation (a group is shared), but the write rule is
-      // per turn: the owner asking in his own group is still the owner.
+      // per turn: the owner asking in his own group is still the owner. This also replaces the
+      // old "heal an opened chat" step: every turn reapplies the policy, so there is nothing
+      // stale to repair.
       const topic = await chatTopicOf(runtime.harness, context, conversation.id as unknown as number).catch(
         () => undefined,
       );
       await setGuestPolicy(runtime.harness, context, conversation.id as unknown as number).catch(() => {});
-      // The guard hook reads this to pick the tool surface; a prompt alone cannot keep a group
-      // member out of `cat .env`.
       await conversation
         .configure({ instructions: groupInstructions(isOwner ? "owner" : "guest", topic) }, context)
         .catch((error: unknown) => logError("feishu", "could not set group instructions", error));
+      // The guard hook reads this to pick the tool surface; a prompt alone cannot keep a group
+      // member out of `cat .env`.
       await setChatTurn(runtime.harness, context, conversation.id as unknown as number, isOwner ? "owner" : "guest").catch(
         (error: unknown) => logError("feishu", "could not mark the turn", error),
       );
