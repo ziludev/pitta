@@ -127,7 +127,7 @@ function parseSuggestions(raw: string): Suggestion[] {
  */
 export async function curateMemory(
   harness: Harness,
-  models: ReturnType<typeof import("./models.ts").createAgentModels>,
+  models: Awaited<ReturnType<typeof import("./models.ts").createAgentModels>>,
   context: Context,
   options: { hours?: number } = {},
 ): Promise<CurateResult> {

@@ -167,7 +167,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   // Fail loudly instead of corrupting a running session.
   acquireStorageLock(config.dbPath);
 
-  const models = createAgentModels();
+  const models = await createAgentModels();
   assertModelAvailable(models);
   warnIfRoutingGroup();
 
