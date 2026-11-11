@@ -15,8 +15,12 @@ export const GuestChats = defineDoc<{ ids: string[] }>({
   checkpointWhen: () => false,
 });
 
-/** Per-conversation policy: a guest conversation never sees global memory. */
-export const ChatPolicy = defineDoc<{ guest: boolean }>({
+/**
+ * Per-conversation policy: a guest conversation never sees global memory. `topic` is the extra
+ * rule the owner wrote with /open; it is re-applied as instructions on every turn, because the
+ * write rule changes per turn and configure replaces the whole text.
+ */
+export const ChatPolicy = defineDoc<{ guest: boolean; topic?: string }>({
   kind: "app.chat-policy",
   version: 1,
   scope: "conversation",
@@ -47,6 +51,29 @@ export async function setGuestPolicy(
     const doc = await tx.doc(ChatPolicy, conversationId as never);
     doc.guest = true;
   }, context);
+}
+
+/** The /open rule for one conversation, kept beside the guest flag so every turn re-applies it. */
+export async function setChatTopic(
+  harness: Harness,
+  context: Context,
+  conversationId: number,
+  topic: string | undefined,
+): Promise<void> {
+  await harness.commit(async (tx) => {
+    const doc = await tx.doc(ChatPolicy, conversationId as never);
+    if (topic === undefined) delete doc.topic;
+    else doc.topic = topic;
+  }, context);
+}
+
+export async function chatTopicOf(
+  harness: Harness,
+  context: Context,
+  conversationId: number,
+): Promise<string | undefined> {
+  const policy = await harness.snapshot(ChatPolicy, conversationId as never, context).catch(() => undefined);
+  return policy?.topic;
 }
 
 export async function isGuestConversation(

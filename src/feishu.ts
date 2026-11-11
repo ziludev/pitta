@@ -20,7 +20,7 @@ import {
 } from "./allowed.ts";
 import { dropApproval, registerApproval, resolveApproval } from "./approvals.ts";
 import { addChatNote, chatNotes, clearChatNotes, removeChatNote } from "./memory.ts";
-import { guestChatIds, markGuestChat, setGuestPolicy } from "./guest.ts";
+import { chatTopicOf, guestChatIds, markGuestChat, setChatTopic, setGuestPolicy } from "./guest.ts";
 
 type IncomingMessage = {
   sender?: { sender_id?: { open_id?: string } };
@@ -260,12 +260,22 @@ export function isGuestChatOf(
   return chatType !== "p2p" && allowedFromFeishu.includes(chatId);
 }
 
-/** What a shared group turns off: the owner's memory, memory writes, and file changes. */
-const GUEST_INSTRUCTIONS =
-  "这是一个共享群（群里有其他人）。\n" +
-  "- 不要透露主人（Alex）的个人信息、记忆、日程、其他会话内容。\n" +
-  "- 不要写任何记忆。\n" +
-  "- 工作目录与工具保持只读使用（read/bash 可查证，不要改文件、不要 git push）。";
+/**
+ * What a shared group is told. The memory rule is the same for everyone — a group conversation
+ * never sees the owner's memory. Who may change files is decided per turn: the owner asking in
+ * his own group is still the owner, and refusing him made /allow useless for real work.
+ */
+export function groupInstructions(who: "owner" | "guest", topic?: string): string {
+  const lines = [
+    "这是一个共享群（群里有其他人）。",
+    "- 不要透露主人（Alex）的个人信息、记忆、日程、其他会话内容。",
+    who === "owner"
+      ? "- 本轮是主人本人提问：按他说的改文件、跑命令、推分支、触发部署都可以。"
+      : "- 本轮不是主人：只读（read/bash 可查证），不要改文件、不要推分支、不要触发部署、不要写记忆。",
+  ];
+  if (topic !== undefined) lines.push(`- ${topic}`);
+  return lines.join("\n");
+}
 
 export function rejectionReason(
   event: IncomingMessage,
@@ -801,10 +811,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         await sendText(message.chat_id, "已把本会话加入白名单。");
         return;
       }
-      await openGroup(message.chat_id, GUEST_INSTRUCTIONS);
+      await openGroup(message.chat_id, groupInstructions("guest"));
       await sendText(
         message.chat_id,
-        "已把本群加入白名单，按 guest 模式开放：群里谁 @我 都能用；看不到你的个人记忆，也不会改文件。",
+        "已把本群加入白名单，按 guest 模式开放：群里谁 @我 都能用；看不到你的个人记忆。你自己问的时候照常能改文件、推分支。",
       );
       return;
     }
@@ -815,7 +825,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     }
     if (text.trim() === "/open" && isOwner) {
       await allowChat(runtime.harness, context, message.chat_id);
-      await openGroup(message.chat_id, `${GUEST_INSTRUCTIONS}\n- 只回答与本群主题相关的问题（Android 客户端）。`);
+      const topic = "只回答与本群主题相关的问题（Android 客户端）。";
+      const conversation = await runtime.conversationFor(message.chat_id);
+      await setChatTopic(runtime.harness, context, conversation.id as unknown as number, topic);
+      await openGroup(message.chat_id, groupInstructions("guest", topic));
       await sendText(message.chat_id, "已把本群开放给所有成员（guest 模式）：共享群只答本群主题，不会透露主人信息。");
       return;
     }
@@ -869,14 +882,22 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         ? await runtime.conversationFor(chatId)
         : await runtime.conversationForThread(chatId, { threadKey, parentMessageId });
     if (isGuestChat && !guests.includes(chatId)) {
-      // Authorized before /allow learned to open a group: heal it once, so the read-only
-      // rules and the recorded guest mark land on the chat instead of being re-derived.
-      await openGroup(chatId, GUEST_INSTRUCTIONS).catch((error: unknown) =>
+      // Authorized before /allow learned to open a group: heal it once, so the recorded guest
+      // mark and the per-turn instructions land on the chat instead of being re-derived.
+      await openGroup(chatId, groupInstructions("guest")).catch((error: unknown) =>
         logError("feishu", "could not heal guest chat", error),
       );
     }
     if (isGuestChat) {
+      // Memory stays off for the whole conversation (a group is shared), but the write rule is
+      // per turn: the owner asking in his own group is still the owner.
+      const topic = await chatTopicOf(runtime.harness, context, conversation.id as unknown as number).catch(
+        () => undefined,
+      );
       await setGuestPolicy(runtime.harness, context, conversation.id as unknown as number).catch(() => {});
+      await conversation
+        .configure({ instructions: groupInstructions(isOwner ? "owner" : "guest", topic) }, context)
+        .catch((error: unknown) => logError("feishu", "could not set group instructions", error));
     }
     // Commands must survive a mention that could not be resolved to the bot: "@agent /stop"
     // and a leftover "@ /stop" both have to reach the /stop branch.

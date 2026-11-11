@@ -89,6 +89,21 @@ test("empty content and unsupported types are named separately", () => {
   assert.match(rejectionReason(voice, parsed, [], [], [], policy) ?? "", /unsupported-message-type/);
 });
 
+// The owner asking in his own group is still the owner: /allow opened the group to other
+// people, it did not demote him. Memory stays off for the conversation either way.
+test("a shared group tells the owner he may change files, and a guest that he may not", async () => {
+  const { groupInstructions } = await import("../src/feishu.ts");
+  const owner = groupInstructions("owner");
+  const guest = groupInstructions("guest");
+
+  assert.match(owner, /改文件/);
+  assert.doesNotMatch(owner, /只读/);
+  assert.match(guest, /只读/);
+  assert.doesNotMatch(guest, /按他说的改文件/);
+  for (const text of [owner, guest]) assert.match(text, /不要透露主人/, "memory rule is the same for both");
+  assert.match(groupInstructions("guest", "只回答本群主题"), /只回答本群主题/, "/open keeps its topic rule");
+});
+
 // Threading rule, which has flip-flopped: an @ in a group is one person's question, so
 // the answer goes into a topic instead of pushing the timeline aside for everyone.
 test("an @ in a group answers in a topic, a plain message answers inline", async () => {
