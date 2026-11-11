@@ -1,5 +1,7 @@
-import { defineDoc, type Harness } from "@earendil-works/pi-durable";
+import { defineDoc, type DocumentReader, type Harness } from "@earendil-works/pi-durable";
 import type { Context } from "@earendil-works/chord/context";
+import { config } from "./config.ts";
+import { ConversationProjectDoc, ProjectsDoc } from "./projects.ts";
 import { log } from "./log.ts";
 
 /**
@@ -32,6 +34,28 @@ export function levelOf(chatId: string, access: Record<string, ChatLevel>, envCh
 
 export function isGuestLevel(level: ChatLevel): boolean {
   return level === "group";
+}
+
+/**
+ * What a guest may read: the agent's own workspace, plus the repository this conversation is
+ * about. Without the project root a question like "why does this check fail" could not read the
+ * code it asks about — the chats bound to ~/work/example-service were unreadable for guests.
+ *
+ * Shared by the guard hook and the read-only tools, so "where am I allowed to look" has one answer.
+ */
+export async function readRoots(
+  read: DocumentReader,
+  conversationId: number,
+  context: Context,
+): Promise<string[]> {
+  const roots = [config.workspace];
+  const link = await read.snapshot(ConversationProjectDoc, context).catch(() => undefined);
+  const projectId = link?.byConversation?.[String(conversationId)];
+  if (projectId === undefined) return roots;
+  const projects = (await read.snapshot(ProjectsDoc, context).catch(() => undefined))?.projects ?? [];
+  const project = projects.find((candidate) => candidate.id === projectId);
+  if (project !== undefined) roots.push(project.path);
+  return roots;
 }
 
 export async function chatAccess(harness: Harness, context: Context): Promise<Record<string, ChatLevel>> {

@@ -27,6 +27,9 @@ test("a guest can read project code, search the group's memory, read a skill, se
   assert.equal(blocked("skill", { name: "lark-doc" }), false);
   assert.equal(blocked("recall", { query: "本群代号" }), false);
   assert.equal(blocked("remind", { text: "喝水", in_minutes: 30 }), false);
+  // The read-only pair that replaced "just allow bash": search the project, query the logs.
+  assert.equal(blocked("project_search", { pattern: "license" }), false);
+  assert.equal(blocked("logs_query", { query: '"2100083235"' }), false);
 });
 
 test("a guest read cannot reach secrets, or anything outside the workspace", () => {

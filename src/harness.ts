@@ -20,6 +20,7 @@ import { ChatMemory, GlobalMemory, memoryExtension, type Note } from "./memory.t
 import type { ToolStep } from "./details.ts";
 import { reminderExtension } from "./reminders.ts";
 import { guardExtension } from "./approval.ts";
+import { diagnosticsExtension } from "./diagnostics.ts";
 import { larkExtension } from "./lark-tools.ts";
 import { skillsExtension } from "./skills.ts";
 import { subagentExtension } from "./subagents.ts";
@@ -183,6 +184,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   registry.install(memoryExtension);
   registry.install(reminderExtension);
   registry.install(guardExtension);
+  registry.install(diagnosticsExtension);
   registry.install(subagentExtension);
   registry.install(projectExtension);
   registry.install(defineExtension({ name: "usage-sampler", tasks: [UsageSampler] }));

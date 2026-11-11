@@ -1,11 +1,9 @@
 import { isAbsolute, relative, resolve } from "node:path";
-import { defineExtension, hook, ToolTask, type DocumentReader } from "@earendil-works/pi-durable";
-import type { Context } from "@earendil-works/chord/context";
+import { defineExtension, hook, ToolTask } from "@earendil-works/pi-durable";
 import { config } from "./config.ts";
 import { requestApproval, surfaceForConversation } from "./channel.ts";
 import { hasGrant } from "./grants.ts";
-import { ChatPolicy } from "./access.ts";
-import { ConversationProjectDoc, ProjectsDoc } from "./projects.ts";
+import { ChatPolicy, readRoots } from "./access.ts";
 import { log } from "./log.ts";
 
 /**
@@ -74,7 +72,7 @@ export function approvalReason(tool: string, args: Record<string, unknown>): App
  * tool runs, because a prompt does not stop `cat .env`. Read is allowed so the bot can still
  * help with code questions in a group; the shell is not, because it can reach anything.
  */
-const GUEST_TOOLS = new Set(["read", "skill", "recall", "remind"]);
+const GUEST_TOOLS = new Set(["read", "skill", "recall", "remind", "logs_query", "project_search"]);
 
 /** Even inside the workspace, a guest read must never return these. */
 const GUEST_DENIED_PATHS = [
@@ -115,26 +113,6 @@ export function outsideRoots(path: string, roots: readonly string[]): boolean {
   });
 }
 
-/**
- * What a guest may read: the agent's own workspace, plus the repository this chat is about.
- * Without the project root a question like "why does this check fail" could not read the code
- * it is asking about — the two chats bound to ~/work/example-service were unreadable for guests.
- */
-async function guestReadRoots(
-  read: DocumentReader,
-  conversationId: number,
-  context: Context,
-): Promise<string[]> {
-  const roots = [config.workspace];
-  const link = await read.snapshot(ConversationProjectDoc, context).catch(() => undefined);
-  const projectId = link?.byConversation[String(conversationId)];
-  if (projectId === undefined) return roots;
-  const projects = (await read.snapshot(ProjectsDoc, context).catch(() => undefined))?.projects ?? [];
-  const project = projects.find((candidate) => candidate.id === projectId);
-  if (project !== undefined) roots.push(project.path);
-  return roots;
-}
-
 /** Long enough to answer from a meeting; the run is blocked either way. */
 const APPROVAL_TIMEOUT_MS = 600_000;
 
@@ -149,7 +127,7 @@ export const guardExtension = defineExtension({
           .snapshot(ChatPolicy, api.conversationId as unknown as never, context)
           .catch(() => undefined);
         if (policy?.guest === true && policy.turn !== "owner") {
-          const roots = await guestReadRoots(api, api.conversationId as unknown as number, context);
+          const roots = await readRoots(api, api.conversationId as unknown as number, context);
           const blocked = guestBlockReason(call.name, args, roots);
           if (blocked !== undefined) {
             log("approval", "guest tool blocked", { tool: call.name });
