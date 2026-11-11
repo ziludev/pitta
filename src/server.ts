@@ -10,6 +10,8 @@ import { collectChanges, commitChanges, ensureRepo } from "./changes.ts";
 import { mergeWorktree } from "./worktree.ts";
 import { listApprovals, resolveApproval } from "./approvals.ts";
 import { surfaceMeta, updateSurfaceMeta } from "./surface-meta.ts";
+import { chatAccess, ownerChatId } from "./access.ts";
+import { recent } from "./audit.ts";
 import { removeWorktree, worktreePaths } from "./worktree.ts";
 import { branches, commitDiff, commitLog, compareUrl, pushBranch, remoteInfo } from "./git-info.ts";
 import { readFile, stat, writeFile } from "node:fs/promises";
@@ -722,6 +724,32 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
             title: taskTitle(task.record.kind, task.record.input),
           })),
         });
+      }
+
+      if (req.method === "GET" && path === "/api/access") {
+        // Who may use which chat, as the agent actually resolved it: one row per chat, with the
+        // conversation it maps to and the title a person would recognise.
+        const access = await chatAccess(runtime.harness, context);
+        const mapping = await runtime.harness.snapshot(ChatsToken, context).catch(() => undefined);
+        const meta: Record<string, { title?: string }> = await surfaceMeta(runtime.harness, context).catch(() => ({}));
+        const chats = Object.entries(access)
+          .map(([chatId, level]) => ({
+            chatId,
+            level,
+            conversationId: mapping?.chats[chatId],
+            title: meta[chatId]?.title,
+          }))
+          .sort((left, right) => left.level.localeCompare(right.level) || left.chatId.localeCompare(right.chatId));
+        return send(res, 200, {
+          chats,
+          envChats: config.feishu.allowedChatIds,
+          ownerChat: await ownerChatId(runtime.harness, context).catch(() => undefined),
+        });
+      }
+
+      if (req.method === "GET" && path === "/api/audit") {
+        const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit") ?? 30) || 30));
+        return send(res, 200, { events: await recent(runtime.harness, context, limit) });
       }
 
       return send(res, 404, { error: "not found" });

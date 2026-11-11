@@ -1,4 +1,5 @@
 import type { Harness } from "@earendil-works/pi-durable";
+import type { Context } from "@earendil-works/chord/context";
 
 /**
  * The harness handle, for tools that need session-level operations the tool API
@@ -12,6 +13,17 @@ export function setHarnessRef(next: Harness): void {
 
 export function getHarness(): Harness | undefined {
   return harness;
+}
+
+/** The session context, so a hook can write a session doc (audit) without owning a turn. */
+let sessionContext: Context | undefined;
+
+export function setSessionContext(next: Context): void {
+  sessionContext = next;
+}
+
+export function getSessionContext(): Context | undefined {
+  return sessionContext;
 }
 
 /** The session runtime (projects, git, conversations), for tools that need host services. */

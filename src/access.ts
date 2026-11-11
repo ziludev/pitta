@@ -3,6 +3,7 @@ import type { Context } from "@earendil-works/chord/context";
 import { config } from "./config.ts";
 import { ConversationProjectDoc, ProjectsDoc } from "./projects.ts";
 import { log } from "./log.ts";
+import { record } from "./audit.ts";
 
 /**
  * One state decides who may use a Feishu chat and at what level.
@@ -72,6 +73,7 @@ export async function setChatLevel(
     (await tx.doc(ChatAccess)).chats[chatId] = level;
   }, context);
   log("access", "chat level set", { chatId, level });
+  await record(harness, context, { kind: "access", chat: chatId, level, detail: "level set" });
 }
 
 /** Docs from before the single state; read once, then nothing writes them again. */
@@ -124,6 +126,11 @@ export async function adoptChatLevels(
       }
     }, context);
     log("access", "adopted chat levels", { groups, owners });
+    // One line, not one per chat: the interesting fact is that an upgrade opened these at all.
+    await record(harness, context, {
+      kind: "access",
+      detail: `adopted ${groups.length} group(s) and ${owners.length} owner chat(s)`,
+    });
   }
   return next;
 }

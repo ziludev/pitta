@@ -55,7 +55,7 @@ import {
   type RemoveProjectResult,
   type Project,
 } from "./projects.ts";
-import { setHarnessRef } from "./runtime-ref.ts";
+import { setHarnessRef, setSessionContext } from "./runtime-ref.ts";
 import { forkAt, lookupMessage, lookupThread, recordMessage, recordThread, threadIndex } from "./threads.ts";
 import { config } from "./config.ts";
 
@@ -212,6 +212,7 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
   );
   harness.resume();
   setHarnessRef(harness);
+  setSessionContext(context);
   // Session grants are read by the guard on every tool call: load them once at boot.
   await loadGrants(harness, context).catch((error) => logError("approval", "could not load grants", error));
 

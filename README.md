@@ -87,6 +87,7 @@ CLI      ─┘
 
 - **群里也能用 `/allow`**：飞书把 @ 渲染成 `@_user_1` 记号，之前替换成 `@` 后 `/allow` 变成 `@ /allow`，所有斜杠命令在群里都失效（单聊没 @ 所以看不出来）。现在先取到 bot 自己的 open_id，@ 它时整段去掉；找不到身份时命令匹配也会剥掉开头的 @ 前缀
 - **本会话内全部允许**：卡片和客户端都有这个按钮。它按**风险类**（`rm` / `force-push` / `write-outside` / `chmod-777`…）在**当前会话**内记住，存在 `app.session-grants`，重启后仍有效；别的会话、别的风险类照样会问。风险类 key 有单测钉住，"同一个炸点不会被反复问，也不会一次放行所有危险操作"
+- **有审计**：拒绝（guest 越界用工具）、级别变更、审批结果、两个只读查询各记一条，存在 `app.audit`（环形 300 条），`durable audit` 直接看；`durable doctor` 会打印每个会话的级别
 - **审批**：`guard` hook 拦危险调用（`rm -rf`、`git push --force`、`sudo`、写工作区外…），**卡片发到你的私聊**（不再发在群里，群里只会看到“等主人确认”）；decision 存 durable memo，重启不重问。只有 `FEISHU_ALLOWED_SENDER_IDS` 里的 open_id 能点
 - **同一份待审批**同时出现在飞书卡片和客户端（底部琥珀条），任一处都可决定；**fail closed**（没有审批通道时默认拒绝）
 - **审批等待**会记录时长并计入该轮时间线
@@ -178,6 +179,8 @@ durable ask "…"         # 一次性提问（流式）
 durable chat            # 多轮 REPL（/new /stop /exit）
 durable sessions        # 会话列表（id / 来源 / 项目 / 标题）
 durable approvals       # 待审批；durable approve <id> / deny <id>
+durable access          # 每个会话的访问级别（closed / owner / group）+ 审批卡发往哪里
+durable audit [n]       # 最近 n 条权限决定：谁、哪个会话、什么级别、拦了什么、谁批的
 ```
 
 命令名是 `durable` 而不是 `agent`：`agent` 已被 grok 的 CLI 占用。
@@ -238,6 +241,7 @@ src/
   asr.ts           本地 whisper 转写（ffmpeg + whisper）
   access.ts        一个 chat 一个级别（closed/owner/group）+ guest 策略 + 主人私聊；guest.ts / allowed.ts 已合并进来
   diagnostics.ts   给 guest 用的两个只读工具：project_search（rg 限项目）、logs_query（SLS，prod 需主人本人）
+  audit.ts         权限决定的环形审计（app.audit）：拒绝/级别变更/审批/查询
   surface-meta.ts / threads.ts / cards.ts / details.ts
   live.ts / log.ts / similar.ts / channel.ts / runtime-ref.ts / storage-lock.ts / models.ts
 

@@ -5,6 +5,8 @@ import { requestApproval, surfaceForConversation } from "./channel.ts";
 import { hasGrant } from "./grants.ts";
 import { ChatPolicy, readRoots } from "./access.ts";
 import { log } from "./log.ts";
+import { record } from "./audit.ts";
+import { getHarness, getSessionContext } from "./runtime-ref.ts";
 
 /**
  * Commands that can destroy work or reach outside the sandbox. Kept short on purpose.
@@ -131,6 +133,11 @@ export const guardExtension = defineExtension({
           const blocked = guestBlockReason(call.name, args, roots);
           if (blocked !== undefined) {
             log("approval", "guest tool blocked", { tool: call.name });
+            const auditHarness = getHarness();
+            const auditContext = getSessionContext();
+            if (auditHarness !== undefined && auditContext !== undefined) {
+              void record(auditHarness, auditContext, { kind: "deny", tool: call.name, detail: "guest surface" });
+            }
             return { block: blocked };
           }
           return undefined;

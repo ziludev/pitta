@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import WebSocket from "ws";
 import { checkFeishu, type Check } from "./feishu-check.ts";
+import { formatEvent, type AuditEvent } from "../audit.ts";
 
 const HOME = process.env.PI_DURABLE_HOME ?? join(homedir(), "learn", "pi-durable-agent");
 const ENV_FILE = join(HOME, ".env");
@@ -80,6 +81,13 @@ async function doctor(): Promise<void> {
     const mark = check.level === "ok" ? c.green("✓") : check.level === "warn" ? c.yellow("!") : c.red("✗");
     console.log(`  ${mark} ${check.label}${check.hint === undefined ? "" : c.dim(`  → ${check.hint}`)}`);
   }
+  console.log(c.bold("\n权限"));
+  try {
+    printAccess(await api<AccessView>("/api/access"));
+  } catch {
+    console.log(c.dim("  agent 没在跑：启动后 `durable access` 查看每个会话的级别"));
+  }
+
   const bad = checks.filter((check) => check.level === "bad").length;
   console.log(bad === 0 ? c.green("\n飞书侧没问题，可以启动了：./scripts/agentctl install\n") : c.red(`\n飞书侧还有 ${bad} 项要修\n`));
 }
@@ -297,6 +305,10 @@ ${c.bold("对话")}（走本机桥接，agent 在跑也能用）
   durable chat                 交互式多轮（/new /stop /exit）
   durable sessions             列出会话
 
+${c.bold("权限")}
+  durable access               每个会话的访问级别（closed / owner / group）
+  durable audit [n]            最近 n 条权限决定（默认 30）
+
 ${c.bold("审批")}
   durable approvals            看待审批
   durable approve <id> | deny <id>
@@ -304,6 +316,49 @@ ${c.bold("审批")}
 ${c.bold("运维")}
   ./scripts/agentctl install|start|stop|restart|status|logs|doctor|backup|restore
 `);
+}
+
+type AccessRow = { chatId: string; level: string; conversationId?: number; title?: string };
+type AccessView = { chats: AccessRow[]; envChats: string[]; ownerChat?: string };
+
+function levelMark(level: string): string {
+  if (level === "group") return c.yellow("group ");
+  if (level === "owner") return c.green("owner ");
+  return c.dim("closed");
+}
+
+function printAccess(data: AccessView): void {
+  if (data.chats.length === 0) {
+    console.log(c.dim("  （还没有任何会话级别；有人找 bot 时会给你发一张开放卡）"));
+    return;
+  }
+  for (const row of data.chats) {
+    const title = row.title === undefined || row.title.length === 0 ? "" : `  ${row.title}`;
+    const conv = row.conversationId === undefined ? "" : c.dim(`  conv ${row.conversationId}`);
+    console.log(`  ${levelMark(row.level)}  …${row.chatId.slice(-8)}${title}${conv}`);
+  }
+  const env = data.envChats.length === 0 ? "无" : data.envChats.map((id) => `…${id.slice(-8)}`).join(", ");
+  console.log(c.dim(`\n  .env 里列的 chat（默认 owner 级别）：${env}`));
+  console.log(
+    c.dim(
+      `  审批卡发往：${
+        data.ownerChat === undefined ? "未记录（先在私聊里给 bot 发一句）" : `…${data.ownerChat.slice(-8)}`
+      }`,
+    ),
+  );
+}
+
+async function access(): Promise<void> {
+  printAccess(await api<AccessView>("/api/access"));
+}
+
+async function audit(limit = 30): Promise<void> {
+  const data = await api<{ events: AuditEvent[] }>(`/api/audit?limit=${limit}`);
+  if (data.events.length === 0) {
+    console.log(c.dim("还没记录任何决定。"));
+    return;
+  }
+  for (const event of data.events) console.log(formatEvent(event));
 }
 
 // ---- entry ------------------------------------------------------------------
@@ -326,6 +381,12 @@ try {
       break;
     case "sessions":
       await sessions();
+      break;
+    case "access":
+      await access();
+      break;
+    case "audit":
+      await audit(rest[0] === undefined ? 30 : Math.max(1, Number(rest[0]) || 30));
       break;
     case "approvals":
       await approvals();

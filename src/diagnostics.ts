@@ -6,6 +6,7 @@ import { num, obj, opt, str } from "@earendil-works/pi-schema";
 import { ChatPolicy, readRoots } from "./access.ts";
 import { config } from "./config.ts";
 import { log, logError } from "./log.ts";
+import { record } from "./audit.ts";
 import { listSkills } from "./skills.ts";
 
 /**
@@ -116,6 +117,11 @@ const logsQuery = defineTool({
       String(parsed.limit),
     ];
     log("logs", "sls query", { env: parsed.env, logstore: parsed.logstore, minutes: parsed.minutes, query: parsed.query });
+    await record(api, context, {
+      kind: "query",
+      tool: "logs_query",
+      detail: `env=${parsed.env} logstore=${parsed.logstore} ${parsed.minutes}m ${parsed.query}`,
+    });
     try {
       const { stdout } = await run("bash", argv, {
         timeout: TIMEOUT_MS,
@@ -158,6 +164,7 @@ const projectSearch = defineTool({
         { timeout: TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 },
       );
       log("search", "project search", { pattern, root: root.path, chars: stdout.length });
+      await record(api, context, { kind: "query", tool: "project_search", detail: `${pattern} @ ${basename(root.path)}` });
       return { output: [{ type: "text" as const, text: clip(stdout.length === 0 ? `没有匹配「${pattern}」。` : stdout) }] };
     } catch (error) {
       const failed = error as { code?: number; stderr?: string; message?: string };

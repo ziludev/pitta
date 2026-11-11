@@ -7,6 +7,7 @@ import { context, type AgentRuntime } from "./harness.ts";
 import { watchLive, type LiveSnapshot } from "./live.ts";
 import { setApprovalDecider, setNotifier, type ApprovalRequest } from "./channel.ts";
 import { log, logError } from "./log.ts";
+import { recent, record } from "./audit.ts";
 import { transcribeAudio } from "./asr.ts";
 import { attachSubmission, clearCardPending, leftoverCards, markCardPending, noteCardAttempt } from "./cards.ts";
 import { readTurnDetails, saveTurnDetails, type TurnDetails } from "./details.ts";
@@ -717,6 +718,13 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       );
     }
     log("feishu", "approval answered", { approved, callId: callId.slice(-12), ms: Date.now() - receivedAt });
+    void record(runtime.harness, context, {
+      kind: "approve",
+      who: operator.slice(-6),
+      tool: entry.request.tool,
+      chat: entry.chatId,
+      detail: approved ? "approved" : "denied",
+    });
     return { toast: { type: "success", content: approved ? "已允许，继续执行" : "已拒绝" } };
   }
 
@@ -754,6 +762,12 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         },
       });
       log("feishu", "stranger reported to owner", { chat: message.chat_id, chatType: message.chat_type });
+      void record(runtime.harness, context, {
+        kind: "report",
+        who: senderId.slice(-6),
+        chat: message.chat_id,
+        detail: message.chat_type === "p2p" ? "p2p stranger" : "unopened group",
+      });
     } catch (error) {
       logError("feishu", "could not report stranger to owner", error);
     }
