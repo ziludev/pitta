@@ -378,6 +378,31 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
    * reason send the answer as a plain message so it is never lost behind a
    * stranded "thinking" card.
    */
+  /**
+   * A card patch raises no Feishu notification: someone who read "处理中" and put the
+   * phone down would never learn the run finished. One short message does.
+   */
+  async function pingDone(
+    chatId: string,
+    messageId: string,
+    markdown: string,
+    options: { thread?: boolean },
+  ): Promise<void> {
+    try {
+      await client.im.message.reply({
+        path: { message_id: messageId },
+        data: {
+          msg_type: "text",
+          content: JSON.stringify({ text: markdown }),
+          ...(options.thread === true ? { reply_in_thread: true } : {}),
+        },
+      });
+      log("feishu", "done ping sent", { chatId, chars: markdown.length });
+    } catch (error) {
+      logError("feishu", "could not send done ping", error);
+    }
+  }
+
   async function deliverAnswer(
     chatId: string,
     cardId: string,
@@ -1055,10 +1080,24 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
           }
         }
         await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", meta, buttons);
+        if (seconds >= config.feishu.donePingSeconds) {
+          const summary = answer.replace(/\s+/g, " ").trim().slice(0, 60);
+          await pingDone(
+            chatId,
+            message.message_id,
+            `✅ 答完了 · ${seconds}s${summary.length > 0 ? `\n${summary}${answer.trim().length > 60 ? "…" : ""}` : ""}`,
+            { thread: replyOptions.thread === true },
+          );
+        }
       } else {
         const reasonText = settled.reason ?? "unanswered";
         const detail = settled.detail === undefined ? "" : `\n\n${String(settled.detail)}`;
         await deliverAnswer(chatId, cardId, `⚠️ 这次没有答出来：${reasonText}${detail}`, `⏹️ ${seconds}s`);
+        if (seconds >= config.feishu.donePingSeconds) {
+          await pingDone(chatId, message.message_id, `⚠️ 这条没答出来（${reasonText}）· ${seconds}s`, {
+            thread: replyOptions.thread === true,
+          });
+        }
       }
     } catch (error) {
       logError("feishu", "turn failed", error);

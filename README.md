@@ -29,6 +29,7 @@ CLI      ─┘
 | CLI | `durable ask "…"` / `durable chat`（REPL）、`durable sessions` |
 | 输入 | 文字、图片（飞书 image/post 消息；客户端粘贴截图）、语音（本地 whisper） |
 | 中断 | `/stop`、客户端停止按钮；后台任务不受影响 |
+| 完成提醒 | 答案只是**原地更新卡片**，飞书不会为"更新"推送通知。所以一轮超过 45 秒时，收尾会额外发一条短消息（`✅ 答完了 · 53s` + 结论前 60 字），这样锁屏也能收到；话题里的提问，这条也发在同一个话题里。`FEISHU_DONE_PING_SECONDS` 可调，设 0 关闭 |
 
 ### 运行时间线（参考 Detent UI / ThinkRail 的表达）
 

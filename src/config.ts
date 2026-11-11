@@ -77,6 +77,12 @@ export const config = {
      * choice when answers should be visible without a click.
      */
     replyInThread: (process.env.FEISHU_REPLY_IN_THREAD ?? "auto") as "auto" | "always" | "never",
+    /**
+     * A finished answer only patches the existing card, and Feishu does not notify on a
+     * patch — so after a long run the owner may never learn it finished. Past this many
+     * seconds, send one short message so Feishu raises a real notification. 0 disables.
+     */
+    donePingSeconds: Number(process.env.FEISHU_DONE_PING_SECONDS ?? "45"),
     /** Mention the asker in the reply, so it is clear who is being answered. */
     mentionSender: bool("FEISHU_MENTION_SENDER", true),
   },
