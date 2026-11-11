@@ -118,7 +118,7 @@ function SessionRow({
       ref={setNodeRef}
       className={`group/row relative flex items-center overflow-hidden rounded-md py-1 pr-1.5 text-[11.5px] whitespace-nowrap transition-[transform,box-shadow,background-color] ${
         active
-          ? "bg-accent/15 text-foreground"
+          ? "bg-accent/25 font-medium text-foreground"
           : "hover:-translate-y-[2px] hover:bg-accent/10 hover:shadow-[0_6px_14px_-6px_rgba(0,0,0,0.45)]"
       } ${isDragging ? "opacity-60" : ""}`}
       style={{
@@ -131,6 +131,9 @@ function SessionRow({
     >
       {/* The handle, the pin and the menu appear on hover: reserving their width kept the title
           down to half the rail, which read as a list of cut-off sentences. */}
+      {active ? (
+        <span aria-hidden className="absolute top-1/2 left-0 h-3.5 w-[2px] -translate-y-1/2 rounded-full bg-primary" />
+      ) : null}
       <button
         {...attributes}
         {...listeners}
