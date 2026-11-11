@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MessageSquarePlus, Send, Trash2 } from "lucide-react";
 import { AnimateService, motion } from "motion/react";
-import { Brain, Check, GitCommitHorizontal, GitCompareArrows, RefreshCw, Signal, Wand2 } from "lucide-react";
+import { Brain, Check, GitCommitHorizontal, GitCompareArrows, RefreshCw, ShieldCheck, Signal, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,7 @@ import { fileStatusLabel, tr } from "@/i18n";
 import { cssEase, easeInOutCubic, easeOutCubic, hoverLift, tabs } from "@/lib/motion";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Spinner } from "@/components/ui/spinner";
+import { AccessPanel } from "@/components/AccessPanel";
 import { CommitDialog } from "@/components/CommitDialog";
 import { Commits } from "@/components/Commits";
 import { TurnDurations } from "@/components/TurnDurations";
@@ -306,8 +307,10 @@ function Memory() {
 
 export function SidePanel() {
   const { lang, tab, setTab, memory } = useStore();
-  const [value, setValue] = useState<"changes" | "usage" | "memory">(
-    tab === "memory" ? "memory" : (new URLSearchParams(location.search).get("tab") as "changes" | "usage" | null) ?? "changes",
+  const [value, setValue] = useState<"changes" | "usage" | "memory" | "access">(
+    tab === "memory" || tab === "access"
+      ? tab
+      : (new URLSearchParams(location.search).get("tab") as "changes" | "usage" | null) ?? "changes",
   );
   const listRef = useRef<HTMLDivElement>(null);
   const [underline, setUnderline] = useState({ left: 0, width: 0 });
@@ -335,8 +338,8 @@ export function SidePanel() {
       <Tabs
         value={value}
         onValueChange={(next) => {
-          setValue(next as "changes" | "usage" | "memory");
-          setTab(next as "changes" | "memory");
+          setValue(next as "changes" | "usage" | "memory" | "access");
+          setTab(next as "changes" | "memory" | "access");
         }}
         className="min-h-0 flex-1 gap-0"
       >
@@ -371,6 +374,10 @@ export function SidePanel() {
             {tr(lang, "memory")}
             <span className="text-[10px] text-muted-foreground tabular-nums">{memoryCount}</span>
           </TabsTrigger>
+          <TabsTrigger value="access" className="gap-1.5 text-[11px]">
+            <ShieldCheck className="size-3" />
+            {tr(lang, "access")}
+          </TabsTrigger>
         </TabsList>
         <AnimateService mode="wait" initial={false}>
           <motion.div
@@ -393,6 +400,9 @@ export function SidePanel() {
             </TabsContent>
             <TabsContent value="memory" className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <Memory />
+            </TabsContent>
+            <TabsContent value="access" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <AccessPanel />
             </TabsContent>
           </motion.div>
         </AnimateService>

@@ -126,6 +126,24 @@ export type PendingApproval = {
   createdAt: number;
 };
 
+export type AccessLevel = "closed" | "owner" | "group";
+export type AccessRow = {
+  chatId: string;
+  level: AccessLevel;
+  conversationId?: number;
+  title?: string;
+};
+export type AccessView = { chats: AccessRow[]; envChats: string[]; ownerChat?: string };
+export type AuditEvent = {
+  at: number;
+  kind: "access" | "deny" | "approve" | "query" | "report";
+  who?: string;
+  chat?: string;
+  level?: AccessLevel;
+  tool?: string;
+  detail?: string;
+};
+
 export type MemorySuggestion = { text: string; scope: "global" | "work" | "chat"; reason?: string };
 export type UsageDay = { date: string; cost: number; tokens: number };
 

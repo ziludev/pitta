@@ -5,6 +5,7 @@ import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { num, obj, opt, str } from "@earendil-works/pi-schema";
 import { ChatPolicy, readRoots } from "./access.ts";
 import { config } from "./config.ts";
+import { requestApproval, surfaceForConversation } from "./channel.ts";
 import { log, logError } from "./log.ts";
 import { record } from "./audit.ts";
 import { listSkills } from "./skills.ts";
@@ -50,12 +51,13 @@ export function parseLogsQuery(args: Record<string, unknown>): LogsQuery | strin
   return { env: env as Environment, logstore, query, minutes, limit };
 }
 
-/** Production logs are the owner's call: a guest turn gets told so instead of the data. */
-export function logsRefusedFor(env: Environment, guestTurn: boolean): string | undefined {
-  if (env === "prod" && guestTurn) {
-    return "生产日志只允许主人本人发起。要查 prod，让主人在私聊里问，或在群里由主人自己发。";
-  }
-  return undefined;
+/**
+ * Production logs are the owner's call. A guest turn is not refused outright — it asks, and the
+ * card goes to the owner's DM, so a colleague diagnosing a prod problem does not have to
+ * interrupt the conversation to get a human to type the query.
+ */
+export function logsNeedApproval(env: Environment, guestTurn: boolean): boolean {
+  return env === "prod" && guestTurn;
 }
 
 /** Where `project_search` may look: the same roots a guest read uses. */
@@ -100,8 +102,22 @@ const logsQuery = defineTool({
     if (typeof parsed === "string") return { output: [{ type: "text" as const, text: parsed }] };
     const policy = await api.snapshot(ChatPolicy, api.conversationId, context).catch(() => undefined);
     const guestTurn = policy?.guest === true && policy.turn !== "owner";
-    const refused = logsRefusedFor(parsed.env, guestTurn);
-    if (refused !== undefined) return { output: [{ type: "text" as const, text: refused }] };
+    if (logsNeedApproval(parsed.env, guestTurn)) {
+      const conversationId = api.conversationId as unknown as number;
+      const approved = await requestApproval({
+        callId: `logs:${String(conversationId)}:${String(Date.now())}`,
+        conversationId,
+        tool: "logs_query",
+        summary: `env=prod logstore=${parsed.logstore} 近 ${parsed.minutes} 分钟 query=${parsed.query}`,
+        reason: "群里有人要查生产日志",
+        surfaceId: surfaceForConversation(conversationId) ?? "",
+        timeoutMs: 600_000,
+      });
+      if (!approved) {
+        return { output: [{ type: "text" as const, text: "主人没有批准这次生产日志查询。" }] };
+      }
+      log("logs", "prod query approved by the owner", { logstore: parsed.logstore, minutes: parsed.minutes });
+    }
 
     const script = await slsScript();
     if (script === undefined) {

@@ -8,6 +8,8 @@ import {
   type Changes,
   type Entry,
   type Note,
+  type AccessView,
+  type AuditEvent,
   type Surface,
   type Task,
 } from "@/lib/api";
@@ -57,11 +59,13 @@ type State = {
   entries: Entry[];
   live?: LiveDoc;
   memory: { global: Note[]; work: Note[]; chat: Note[] };
+  access: AccessView | null;
+  audit: AuditEvent[];
   changes?: Changes;
   changesLoading: boolean;
   order: number[];
   pinned: number[];
-  tab: "changes" | "memory";
+  tab: "changes" | "memory" | "access";
   focusEntry?: number;
   /** Middle pane: the transcript, or one workspace file. */
   view: { kind: "transcript" } | { kind: "file"; path: string };
@@ -101,6 +105,7 @@ type State = {
   select(conversationId: number): Promise<void>;
   refreshSurfaces(): Promise<void>;
   loadMemory(): Promise<void>;
+  loadAccess(): Promise<void>;
   loadChanges(): Promise<void>;
   submit(
     text: string,
@@ -117,7 +122,7 @@ type State = {
   setLang(lang: Lang): void;
   setOrder(order: number[]): void;
   togglePin(conversationId: number): void;
-  setTab(tab: "changes" | "memory"): void;
+  setTab(tab: "changes" | "memory" | "access"): void;
   openFile(path: string): void;
   closeFile(): void;
   setFilter(filter: string): void;
@@ -198,13 +203,15 @@ export const useStore = create<State>((set, get) => ({
   tasks: [],
   entries: [],
   memory: { global: [], work: [], chat: [] },
+  access: null,
+  audit: [],
   changesLoading: false,
   order: savedOrder(),
   pinned: savedPinned(),
-  tab: (["changes", "usage", "memory"] as const).includes(
+  tab: (["changes", "usage", "memory", "access"] as const).includes(
     new URLSearchParams(location.search).get("tab") as never,
   )
-    ? (new URLSearchParams(location.search).get("tab") as "changes" | "memory")
+    ? (new URLSearchParams(location.search).get("tab") as "changes" | "memory" | "access")
     : "changes",
   focusEntry: Number(new URLSearchParams(location.search).get("entry") ?? "") || undefined,
   view: new URLSearchParams(location.search).get("file")
@@ -365,6 +372,15 @@ export const useStore = create<State>((set, get) => ({
       `/api/memory${id === undefined ? "" : `?chat=${id}`}`,
     );
     set({ memory });
+  },
+
+  async loadAccess() {
+    // The level table is session-wide, not per conversation: one call answers "who may use what".
+    const [access, audit] = await Promise.all([
+      api<AccessView>("/api/access"),
+      api<{ events: AuditEvent[] }>("/api/audit?limit=40"),
+    ]);
+    set({ access, audit: audit.events });
   },
 
   async loadChanges() {
