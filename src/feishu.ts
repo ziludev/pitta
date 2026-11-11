@@ -34,7 +34,7 @@ type IncomingMessage = {
     root_id?: string;
     /** 话题 groups give every message a thread id. */
     thread_id?: string;
-    mentions?: Array<{ key?: string; name?: string }>;
+    mentions?: Array<{ key?: string; name?: string; id?: { open_id?: string } }>;
   };
 };
 
@@ -164,13 +164,30 @@ function renderLive(live: LiveSnapshot): string {
 type PostElement = { tag?: string; text?: string; image_key?: string };
 export type ParsedContent = { text: string; imageKeys: string[]; audioKey?: string };
 
-function stripMentions(message: NonNullable<IncomingMessage["message"]>, text: string): string {
-  // Feishu renders mentions as "@_user_1"; drop them so the model sees a clean sentence.
+/** The bot's own open_id, learned at startup, so an @ of itself can be dropped entirely. */
+let botOpenId: string | undefined;
+
+/**
+ * Feishu renders mentions as "@_user_1" tokens. Addressing the bot is not part of the
+ * sentence — leaving "@" behind meant "/help" arrived as "@ /help", so no command ever
+ * matched in a group. Mentions of other people keep a readable "@name". Pure, for tests.
+ */
+export function stripMentionsWith(
+  text: string,
+  mentions: ReadonlyArray<{ key?: string; name?: string; id?: { open_id?: string } }>,
+  bot: string | undefined,
+): string {
   let out = text;
-  for (const mention of message.mentions ?? []) {
-    if (mention.key) out = out.split(mention.key).join("@");
+  for (const mention of mentions) {
+    if (mention.key === undefined) continue;
+    const isBot = bot !== undefined && mention.id?.open_id === bot;
+    out = out.split(mention.key).join(isBot ? "" : `@${mention.name ?? ""}`);
   }
   return out.trim();
+}
+
+function stripMentions(message: NonNullable<IncomingMessage["message"]>, text: string): string {
+  return stripMentionsWith(text, message.mentions ?? [], botOpenId);
 }
 
 /**
@@ -319,6 +336,16 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
   const { appId, appSecret } = requireFeishuCredentials();
   feishuStarted = true;
   const client = new Lark.Client({ appId, appSecret });
+
+  // Who we are, so an @ of the bot can be dropped from the text instead of leaving "@".
+  await client
+    .request({ method: "GET", url: "/open-apis/bot/v3/info" })
+    .then((response: { bot?: { open_id?: string } }) => {
+      botOpenId = response?.bot?.open_id;
+      log("feishu", "bot identity", { openId: botOpenId ?? "unknown" });
+    })
+    .catch((error: unknown) => logError("feishu", "could not read bot identity", error));
+
   const handled = new Set<string>();
   const pendingApprovals = new Map<string, PendingApproval>();
 
@@ -772,7 +799,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     if (isGuestChat) {
       await setGuestPolicy(runtime.harness, context, conversation.id as unknown as number).catch(() => {});
     }
-    const command = text.trim();
+    // Commands must survive a mention that could not be resolved to the bot: "@agent /stop"
+    // and a leftover "@ /stop" both have to reach the /stop branch.
+    const command = text.trim().replace(/^@\S*\s*/, "");
 
     if (/^\/(help|帮助)$/i.test(command)) {
       await replyCard(message.message_id, HELP, "💡 命令一览", {
