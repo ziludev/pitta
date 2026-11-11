@@ -118,6 +118,26 @@ test("each group message carries who is speaking", async () => {
   assert.doesNotMatch(speakerTag(false, "ou_9d6f1a2b3c4d"), /主人/);
 });
 
+// What the model actually said in the group, and what must not be mistaken for a refusal.
+test("a read-only refusal is recognised, a normal answer is not", async () => {
+  const { looksLikeReadOnlyRefusal } = await import("../src/feishu.ts");
+  const refusals = [
+    "这轮我在这个共享群里是只读的（不改工作区文件、不推分支），所以没法直接写进去。",
+    "这个群在会话初始化时就把写权限关闭了，并非我不愿意执行；即便你本人要求，我这轮也只能只读。",
+    "还是不能改：这个群会话被设成只读，我不能改文件，即使是你本人在这里发也一样。",
+    "当前这个群会话的权限被固定为只读，写文件会被拦截，我没法绕过。",
+    "你可以这样做：把下面这段粘贴到终端运行。",
+  ];
+  for (const text of refusals) assert.equal(looksLikeReadOnlyRefusal(text), true, text.slice(0, 30));
+
+  const answers = [
+    "改好了：a.txt 里的 foo 已经换成 bar。",
+    "已经改完并提交：commit 4f2a1c，MR 链接贴在下面。",
+    "worker 日志不再报 missing required param businessId，重提一次后 user_license_verify 变成 VERIFIED。",
+  ];
+  for (const text of answers) assert.equal(looksLikeReadOnlyRefusal(text), false, text.slice(0, 30));
+});
+
 // Threading rule, which has flip-flopped: an @ in a group is one person's question, so
 // the answer goes into a topic instead of pushing the timeline aside for everyone.
 test("an @ in a group answers in a topic, a plain message answers inline", async () => {

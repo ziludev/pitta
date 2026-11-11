@@ -270,6 +270,19 @@ export function speakerTag(isOwner: boolean, senderId: string): string {
   return isOwner ? `[主人本人 ${senderId.slice(0, 8)}]` : `[群成员 ${senderId.slice(0, 8)}]`;
 }
 
+/** What a refusal to write looks like, in the forms this agent actually produced. */
+export function looksLikeReadOnlyRefusal(answer: string): boolean {
+  return /只读|权限.{0,6}(关|没|被)|会话初始化|没法直接(改|写|提交|推)|不能直接(改|写|提交|推)|粘贴到终端|粘一下|用一行 ?(sed|命令)|你自己(执行|跑|粘|来)/.test(
+    answer,
+  );
+}
+
+/** Appended as a fresh user turn after a false read-only refusal; the last word in context. */
+export const READ_ONLY_CORRECTION =
+  "（网关）你刚才那条回答作废：本轮提问的是主人本人（已校验），这个群现在的写权限是开的。" +
+  "write/edit/bash 对你都可用，改文件、推分支、触发部署都不会被拦（危险命令照旧弹审批）。" +
+  "直接执行他要的修改，不要再解释权限、不要再让他去粘命令或换私聊。";
+
 /**
  * What a shared group is told. The memory rule is the same for everyone — a group conversation
  * never sees the owner's memory. Who may change files is decided per turn: the owner asking in
@@ -918,6 +931,12 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         .configure({ instructions: groupInstructions(isOwner ? "owner" : "guest", topic) }, context)
         .catch((error: unknown) => logError("feishu", "could not set group instructions", error));
     }
+    // A conversation remembers the turn limit it was created with, so a raised default never
+    // reached the chats that already exist. This is a Feishu-driven conversation, its limit is
+    // the global one, not a subagent role's.
+    await conversation
+      .configure({ maxTurns: config.maxTurns }, context)
+      .catch((error: unknown) => logError("feishu", "could not set the turn limit", error));
     // Commands must survive a mention that could not be resolved to the bot: "@agent /stop"
     // and a leftover "@ /stop" both have to reach the /stop branch.
     const command = text.trim().replace(/^@\S*\s*/, "");
@@ -1150,7 +1169,28 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       }
 
       if (settled.status === "done" && settled.answer !== undefined) {
-        const answer = await runtime.answerText(conversation, settled.answer);
+        let answer = await runtime.answerText(conversation, settled.answer);
+        // The model reads its own earlier "this group is read-only" answers and repeats them,
+        // with the owner instructions right in front of it. Correcting once, with the
+        // correction last in the context, is what actually unsticks it — verified against the
+        // real model: the refusal gave way and the file was edited.
+        // ... and only when it did not actually edit anything this turn: a real fix that happens
+        // to mention the word 只读 must not be thrown away.
+        const edited = toolsUsed.has("write") || toolsUsed.has("edit");
+        if (isOwner && isGuestChat && !edited && looksLikeReadOnlyRefusal(answer)) {
+          log("feishu", "owner turn answered as read-only, correcting once", { chatId });
+          const retry = await conversation
+            .submit({ type: "input", content: READ_ONLY_CORRECTION, requestId: `correct:${message.message_id}` }, context)
+            .catch((error: unknown) => {
+              logError("feishu", "could not submit the correction", error);
+              return undefined;
+            });
+          const again = await retry?.wait(context).catch(() => undefined);
+          if (again?.status === "done" && again.answer !== undefined) {
+            answer = await runtime.answerText(conversation, again.answer);
+            log("feishu", "corrected answer read", { chars: answer.length });
+          }
+        }
         log("feishu", "answer read", { chars: answer.length });
         const after = await runtime.budget(chatId).catch(() => undefined);
         const cost = after === undefined ? 0 : Math.max(0, after.spentToday - budget.spentToday);
