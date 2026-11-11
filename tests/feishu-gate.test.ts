@@ -126,6 +126,7 @@ test("a read-only refusal is recognised, a normal answer is not", async () => {
     "这个群在会话初始化时就把写权限关闭了，并非我不愿意执行；即便你本人要求，我这轮也只能只读。",
     "还是不能改：这个群会话被设成只读，我不能改文件，即使是你本人在这里发也一样。",
     "当前这个群会话的权限被固定为只读，写文件会被拦截，我没法绕过。",
+    "bash 在这个群仍然被拦着，因为群是 guest 模式，我无法执行命令。",
     "你可以这样做：把下面这段粘贴到终端运行。",
   ];
   for (const text of refusals) assert.equal(looksLikeReadOnlyRefusal(text), true, text.slice(0, 30));
@@ -134,6 +135,8 @@ test("a read-only refusal is recognised, a normal answer is not", async () => {
     "改好了：a.txt 里的 foo 已经换成 bar。",
     "已经改完并提交：commit 4f2a1c，MR 链接贴在下面。",
     "worker 日志不再报 missing required param businessId，重提一次后 user_license_verify 变成 VERIFIED。",
+    // A real approval card is not a false refusal: the tool really is waiting for a human.
+    "rm -rf 这条被拦下来等你确认了，允许后我继续。",
   ];
   for (const text of answers) assert.equal(looksLikeReadOnlyRefusal(text), false, text.slice(0, 30));
 });

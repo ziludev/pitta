@@ -20,7 +20,7 @@ export const GuestChats = defineDoc<{ ids: string[] }>({
  * rule the owner wrote with /open; it is re-applied as instructions on every turn, because the
  * write rule changes per turn and configure replaces the whole text.
  */
-export const ChatPolicy = defineDoc<{ guest: boolean; topic?: string }>({
+export const ChatPolicy = defineDoc<{ guest: boolean; topic?: string; turn?: "owner" | "guest" }>({
   kind: "app.chat-policy",
   version: 1,
   scope: "conversation",
@@ -50,6 +50,22 @@ export async function setGuestPolicy(
   await harness.commit(async (tx) => {
     const doc = await tx.doc(ChatPolicy, conversationId as never);
     doc.guest = true;
+  }, context);
+}
+
+/**
+ * Marks whose turn the conversation is about to run, so the guard hook can decide the tool
+ * surface without trusting a prompt. Absent means guest: a resumed turn defaults to the safe side.
+ */
+export async function setChatTurn(
+  harness: Harness,
+  context: Context,
+  conversationId: number,
+  turn: "owner" | "guest",
+): Promise<void> {
+  await harness.commit(async (tx) => {
+    const doc = await tx.doc(ChatPolicy, conversationId as never);
+    doc.turn = turn;
   }, context);
 }
 

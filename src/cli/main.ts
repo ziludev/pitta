@@ -68,7 +68,14 @@ async function doctor(): Promise<void> {
   });
 
   console.log(c.bold("\n飞书"));
-  const checks: Check[] = await checkFeishu(values["FEISHU_APP_ID"] ?? "", values["FEISHU_APP_SECRET"] ?? "");
+  const checks: Check[] = await checkFeishu(
+    values["FEISHU_APP_ID"] ?? "",
+    values["FEISHU_APP_SECRET"] ?? "",
+    (values["FEISHU_ALLOWED_SENDER_IDS"] ?? "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter((id) => id.length > 0),
+  );
   for (const check of checks) {
     const mark = check.level === "ok" ? c.green("✓") : check.level === "warn" ? c.yellow("!") : c.red("✗");
     console.log(`  ${mark} ${check.label}${check.hint === undefined ? "" : c.dim(`  → ${check.hint}`)}`);
@@ -89,7 +96,8 @@ async function setup(): Promise<void> {
   console.log(c.bold("\n飞书自建应用（开发者后台 → 凭证与基础信息）"));
   const appId = await ask("App ID", values["FEISHU_APP_ID"]);
   const appSecret = await ask("App Secret", values["FEISHU_APP_SECRET"], true);
-  console.log(c.dim("  允许的会话/用户可以先留空，启动后按日志里的 id 再填；群里也可以发 /allow 自授权"));
+  console.log(c.dim("  允许的会话可以先留空，启动后按日志里的 id 再填；群里也可以发 /allow 自授权"));
+  console.log(c.dim("  允许的 open_id 必须填：留空等于把群里每个人都当成主人"));
   const chats = await ask("允许的 chat_id（逗号分隔）", values["FEISHU_ALLOWED_CHAT_IDS"]);
   const senders = await ask("允许的 open_id（逗号分隔）", values["FEISHU_ALLOWED_SENDER_IDS"]);
   rl.close();
@@ -106,7 +114,14 @@ async function setup(): Promise<void> {
   console.log(c.green(`\n已写入 ${ENV_FILE}`));
 
   console.log(c.bold("\n检查"));
-  const checks = await checkFeishu(appId, appSecret);
+  const checks = await checkFeishu(
+    appId,
+    appSecret,
+    senders
+      .split(",")
+      .map((id) => id.trim())
+      .filter((id) => id.length > 0),
+  );
   for (const check of checks) {
     const mark = check.level === "ok" ? c.green("✓") : check.level === "warn" ? c.yellow("!") : c.red("✗");
     console.log(`  ${mark} ${check.label}${check.hint === undefined ? "" : c.dim(`  → ${check.hint}`)}`);

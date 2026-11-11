@@ -87,19 +87,28 @@ CLI      ─┘
 
 - **群里也能用 `/allow`**：飞书把 @ 渲染成 `@_user_1` 记号，之前替换成 `@` 后 `/allow` 变成 `@ /allow`，所有斜杠命令在群里都失效（单聊没 @ 所以看不出来）。现在先取到 bot 自己的 open_id，@ 它时整段去掉；找不到身份时命令匹配也会剥掉开头的 @ 前缀
 - **本会话内全部允许**：卡片和客户端都有这个按钮。它按**风险类**（`rm` / `force-push` / `write-outside` / `chmod-777`…）在**当前会话**内记住，存在 `app.session-grants`，重启后仍有效；别的会话、别的风险类照样会问。风险类 key 有单测钉住，"同一个炸点不会被反复问，也不会一次放行所有危险操作"
-- **审批**：`guard` hook 拦危险调用（`rm -rf`、`git push --force`、`sudo`、写工作区外…），发带按钮的卡片；decision 存 durable memo，重启不重问
+- **审批**：`guard` hook 拦危险调用（`rm -rf`、`git push --force`、`sudo`、写工作区外…），**卡片发到你的私聊**（不再发在群里，群里只会看到“等主人确认”）；decision 存 durable memo，重启不重问。只有 `FEISHU_ALLOWED_SENDER_IDS` 里的 open_id 能点
 - **同一份待审批**同时出现在飞书卡片和客户端（底部琥珀条），任一处都可决定；**fail closed**（没有审批通道时默认拒绝）
 - **审批等待**会记录时长并计入该轮时间线
 - **额度**：`pi.usage` 汇总 → 每日上限（`AGENT_DAILY_BUDGET_USD`），超了拒绝新请求，跨天重置
 - **guest 群**：`/open` 把群开放给所有成员，但该会话的记忆**只到本群为止**——不注入 `global_memory`，`remember` 只能写 chat 作用域，`recall` 搜不到你的全局/工作记忆，`forget` 也删不到（这三个是同一道门，`ChatPolicy.guest`）
+- **guest 的工具面是代码拦的，不是提示词**：非主人的回合只给 `read`（限工作区内、`.env`/`.data`/`.ssh`/`.git`/`*.pem`/`*secret*` 一律拒）+ `skill` + `recall` + `remind`；`bash`/`write`/`edit`/`feishu_*`/`mcp__*`/`delegate` 全部在 `beforeTool` 里挡掉并回一句「guest 模式不支持」。以前这些只是写在 instructions 里，群里任何人都能让它 `cat .env`
 - **`/allow` 一步到位**：在群里发 `/allow` 不只是加白名单，而是直接把本群开成 guest 模式（和 `/open` 同一套保护，`/open` 多一条「只答本群主题」）。所以之后群里任何人 @bot 都能用，**不会再按人给你发授权卡**——授权这个群就是授权群里的人
 - **写权限看「谁在问」，记忆看「这个群」**：guest 群的每一条消息都会按发送者重设 instructions——你自己的回合是「按他说的改文件、推分支、触发部署都可以」，别人的回合才是只读。记忆则不管谁问都不放（共享群的 transcript 大家都看得到）
-- **每条群消息自带说话人**：`[主人本人 ou_abcde] …` / `[群成员 ou_9d6f1] …`。模型不信 prompt 里那句「我是主人」，但会认消息上的标注
+- **`FEISHU_ALLOWED_SENDER_IDS` 是必填的**：它同时定义“谁是主人”和“谁能点审批”。为空时旧的逻辑是**人人都是主人**（能 `/allow`、能点审批、能拿到可写指令），现在启动时直接跳过飞书桥并打印原因（桌面端与 CLI 照常可用），`durable doctor` 也会报红
+- **每一条消息都自带说话人**：`[主人本人 ou_abcde] …` / `[群成员 ou_9d6f1] …`。模型不信 prompt 里那句「我是主人」，但会认消息上的标注；工具面也按这个标注走（`ChatPolicy.turn`）
 - **还是会拒绝时自动纠一次**：同一个群被旧规则拒绝过好几轮后，光改 instructions 不够（模型会顺着自己之前的拒绝往下说）。这时网关会自动补一句「你刚才那条作废、写权限是开的」再问一遍（只在主人回合、且这轮确实没写过文件时触发，一条消息只补一次）
 - **陌生人不会被静默丢掉**：白名单之外的消息不会回对方，但会给你发卡片（来源、会话 id、发送者 open_id、前 200 字）。这条只对「单聊」和「`.env` 里列的群」成立：p2p 的 chat id 本身只对应一个人，`.env` 里的群是你显式写下的收紧规则
   - 会话不在名单 → 「授权此会话」（写 `app.allowed-chats`，群里点它就等于 `/allow`）
-  - 群在 `.env` / 单聊在、但发送者不在 `FEISHU_ALLOWED_SENDER_IDS` → 「允许此人使用（guest 权限）」（写 `app.allowed-senders`，并把该会话设为 guest：不注入你的记忆、不写记忆、只读工具，同时回对方一句"已开通"）
+  - 群在 `.env` / 单聊在、但发送者不在 `FEISHU_ALLOWED_SENDER_IDS` → 「允许此人使用（guest 权限）」（写 `app.allowed-senders`，并把该会话设为 guest：拿 guest 工具面、不写记忆，同时回对方一句"已开通"）
   - 你自己的 p2p 会话 id 是第一次发消息时记下的（`app/owner-chat`），因为陌生人的会话 id 事先不可能知道
+
+| 谁 | 能说话的条件 | 工具面（代码强制） | 记忆 |
+|---|---|---|---|
+| 你（`FEISHU_ALLOWED_SENDER_IDS`） | chat 在白名单（`.env` 或 `/allow`） | 全开；危险调用弹审批卡到你的私聊 | 全量 |
+| 群里的其他人 | 群已 `/allow`（guest 群） | `read`(限工作区、排敏感文件) + `skill` + `recall` + `remind` | 只本群 |
+| 单聊里的人（卡片授权后） | `app.allowed-senders` | 同上 | 只本群 |
+| 谁都没名单里 | — | 不回应，只给你发一张说明卡片 | — |
 
 ### 主动性
 

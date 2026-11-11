@@ -3,6 +3,8 @@ import { defineExtension, hook, ToolTask } from "@earendil-works/pi-durable";
 import { config } from "./config.ts";
 import { requestApproval, surfaceForConversation } from "./channel.ts";
 import { hasGrant } from "./grants.ts";
+import { ChatPolicy } from "./guest.ts";
+import { log } from "./log.ts";
 
 /**
  * Commands that can destroy work or reach outside the sandbox. Kept short on purpose.
@@ -63,6 +65,41 @@ export function approvalReason(tool: string, args: Record<string, unknown>): App
   return undefined;
 }
 
+/**
+ * What a guest may call. A guest is anyone in a shared group who is not the owner.
+ *
+ * Read-only used to be a sentence in the instructions; it is now a decision here, before the
+ * tool runs, because a prompt does not stop `cat .env`. Read is allowed so the bot can still
+ * help with code questions in a group; the shell is not, because it can reach anything.
+ */
+const GUEST_TOOLS = new Set(["read", "skill", "recall", "remind"]);
+
+/** Even inside the workspace, a guest read must never return these. */
+const GUEST_DENIED_PATHS = [
+  /(^|\/)\.env([./]|$)/,
+  /\.sqlite$/,
+  /\.pem$/,
+  /(^|\/)id_[A-Za-z0-9]+$/,
+  /secret/i,
+  /(^|\/)\.data(\/|$)/,
+  /(^|\/)\.ssh(\/|$)/,
+  /(^|\/)\.git(\/|$)/,
+];
+
+/** Why a guest call is refused, or undefined when it may run. */
+export function guestBlockReason(tool: string, args: Record<string, unknown>): string | undefined {
+  if (!GUEST_TOOLS.has(tool)) {
+    return `这个群是 guest 模式：不能用 ${tool}。需要改代码或跑命令，请主人在私聊里说。`;
+  }
+  if (tool === "read") {
+    const path = typeof args["path"] === "string" ? args["path"] : "";
+    if (outsideWorkspace(path) || GUEST_DENIED_PATHS.some((pattern) => pattern.test(path))) {
+      return `这个群是 guest 模式：不能读 ${path}（工作区之外或敏感文件）。`;
+    }
+  }
+  return undefined;
+}
+
 /** Long enough to answer from a meeting; the run is blocked either way. */
 const APPROVAL_TIMEOUT_MS = 600_000;
 
@@ -72,6 +109,18 @@ export const guardExtension = defineExtension({
     hook(ToolTask, {
       beforeTool: async (call, api, context) => {
         const args = (call.arguments ?? {}) as Record<string, unknown>;
+        // A guest turn gets a smaller tool surface, decided here rather than in the prompt.
+        const policy = await api
+          .snapshot(ChatPolicy, api.conversationId as unknown as never, context)
+          .catch(() => undefined);
+        if (policy?.guest === true && policy.turn !== "owner") {
+          const blocked = guestBlockReason(call.name, args);
+          if (blocked !== undefined) {
+            log("approval", "guest tool blocked", { tool: call.name });
+            return { block: blocked };
+          }
+          return undefined;
+        }
         const need = approvalReason(call.name, args);
         if (need === undefined) return undefined;
         const { reason, key } = need;

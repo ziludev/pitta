@@ -151,3 +151,18 @@ export function requireFeishuCredentials(): { appId: string; appSecret: string }
   }
   return { appId, appSecret };
 }
+
+/**
+ * The owner is not optional: without one every sender counts as the owner, which is how an
+ * empty allowlist turned into "anyone in the group may rewrite your repo".
+ */
+export function requireFeishuOwner(): string[] {
+  const owners = config.feishu.allowedSenderIds;
+  if (owners.length === 0) {
+    throw new Error(
+      "FEISHU_ALLOWED_SENDER_IDS is empty: your own open_id must be listed, or every group member counts as you. " +
+        "Run `durable doctor` to see what is missing.",
+    );
+  }
+  return owners;
+}

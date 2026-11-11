@@ -2,7 +2,7 @@ import { readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as Lark from "@larksuiteoapi/node-sdk";
-import { config, requireFeishuCredentials } from "./config.ts";
+import { config, requireFeishuCredentials, requireFeishuOwner } from "./config.ts";
 import { context, type AgentRuntime } from "./harness.ts";
 import { watchLive, type LiveSnapshot } from "./live.ts";
 import { setApprovalDecider, setNotifier, type ApprovalRequest } from "./channel.ts";
@@ -20,7 +20,7 @@ import {
 } from "./allowed.ts";
 import { dropApproval, registerApproval, resolveApproval } from "./approvals.ts";
 import { addChatNote, chatNotes, clearChatNotes, removeChatNote } from "./memory.ts";
-import { chatTopicOf, guestChatIds, markGuestChat, setChatTopic, setGuestPolicy } from "./guest.ts";
+import { chatTopicOf, guestChatIds, markGuestChat, setChatTopic, setChatTurn, setGuestPolicy } from "./guest.ts";
 
 type IncomingMessage = {
   sender?: { sender_id?: { open_id?: string } };
@@ -234,6 +234,15 @@ export function parseContent(message: NonNullable<IncomingMessage["message"]>): 
   return { text: "", imageKeys: [] };
 }
 
+/**
+ * Only the owner may authorize a chat, authorize a person, or answer an approval.
+ * An empty allowlist is a misconfiguration, so it trusts nobody: the bridge refuses to start
+ * without one, and this stays safe if that check is ever bypassed.
+ */
+export function isOwnerOperator(openId: string, owners: readonly string[] = config.feishu.allowedSenderIds): boolean {
+  return owners.length > 0 && openId.length > 0 && owners.includes(openId);
+}
+
 /** The gate in front of every inbound message; explicit for tests, config by default. */
 export type Gate = {
   allowedChatIds: readonly string[];
@@ -272,7 +281,10 @@ export function speakerTag(isOwner: boolean, senderId: string): string {
 
 /** What a refusal to write looks like, in the forms this agent actually produced. */
 export function looksLikeReadOnlyRefusal(answer: string): boolean {
-  return /只读|权限.{0,6}(关|没|被)|会话初始化|没法直接(改|写|提交|推)|不能直接(改|写|提交|推)|粘贴到终端|粘一下|用一行 ?(sed|命令)|你自己(执行|跑|粘|来)/.test(
+  // A real approval card ("命令被拦下来等你确认") is not a false refusal: the tool IS blocked,
+  // just for a reason the correction would contradict.
+  if (/审批|批准|确认卡|等你确认|稍后确认/.test(answer)) return false;
+  return /只读|权限.{0,6}(关|没|被)|会话初始化|guest ?模式.{0,8}(禁|不|没|拦|只)|拦着|拦下|被拦|无法(执行|运行|改|写)|bash.{0,12}(用不|不能|被禁)|没法直接(改|写|提交|推)|不能直接(改|写|提交|推)|粘贴到终端|粘一下|用一行 ?(sed|命令)|你自己(执行|跑|粘|来)/.test(
     answer,
   );
 }
@@ -301,7 +313,8 @@ export function groupInstructions(who: "owner" | "guest", topic?: string): strin
     // The model reads its own earlier refusals in the transcript and repeats them, even when
     // the rule under them has changed. Say the old rule is dead instead of hoping.
     lines.push(
-      "- 旧规则已作废：本群以前确实被设成只读，那条不再适用。不要再回答「这轮是只读的」，" +
+      "- 工具面按说话人切换：guest 模式只管别人的回合。你自己的回合里 bash / write / edit / lark / mcp / delegate 全都能用。",
+      "- 旧规则已作废：本群以前确实被设成只读，那条不再适用。不要再回答「这轮是只读的」或「bash 在这个群里用不了」，" +
         "也不要让主人自己去粘命令或开新会话。",
     );
   }
@@ -404,6 +417,9 @@ export type FeishuBridge = { stop(): void };
 
 export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBridge> {
   const { appId, appSecret } = requireFeishuCredentials();
+  // Also here, not only at the entry point: a bridge without an owner answers nobody and would
+  // authorize anybody, which is worse than not starting.
+  requireFeishuOwner();
   feishuStarted = true;
   const client = new Lark.Client({ appId, appSecret });
 
@@ -565,12 +581,16 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     await sendText(surfaceId, text);
   });
   setApprovalDecider(async (request) => {
-    const sent = request.surfaceId.startsWith("oc_")
+    // The owner answers in their own DM. A card in the group would show everyone what is about
+    // to be deleted, and a group member could not answer it anyway.
+    const ownerChat = await ownerChatId(runtime.harness, context).catch(() => undefined);
+    const target = ownerChat ?? request.surfaceId;
+    const sent = target.startsWith("oc_")
       ? await client.im.message
           .create({
             params: { receive_id_type: "chat_id" },
             data: {
-              receive_id: request.surfaceId,
+              receive_id: target,
               msg_type: "interactive",
               content: JSON.stringify(approvalCard(request)),
             },
@@ -582,6 +602,14 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
             return undefined;
           })
       : undefined;
+    if (ownerChat === undefined) {
+      // The owner's DM is learned from their first message; until then the card has to go where
+      // the call came from, and the owner needs to know how to fix that.
+      await sendText(
+        request.surfaceId,
+        `⚠️ 需要主人确认才能继续（${request.tool}）。我还没记住主人的私聊会话：请主人在私聊里给我发一句任何话。`,
+      ).catch(() => {});
+    }
     const cardId = sent?.data?.message_id;
     log("feishu", "approval card sent", { cardId, callId: request.callId.slice(-12), tool: request.tool });
     return new Promise<boolean>((resolve) => {
@@ -628,8 +656,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
 
     if (value["kind"] === "allow-chat") {
       const operator = payload.operator?.open_id ?? "";
-      const { allowedSenderIds } = config.feishu;
-      if (allowedSenderIds.length > 0 && !allowedSenderIds.includes(operator)) {
+      if (!isOwnerOperator(operator)) {
         return { toast: { type: "warning", content: "只有主人可以授权" } };
       }
       const chatId = typeof value["chatId"] === "string" ? value["chatId"] : "";
@@ -644,8 +671,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
 
     if (value["kind"] === "allow-sender") {
       const operator = payload.operator?.open_id ?? "";
-      const { allowedSenderIds } = config.feishu;
-      if (allowedSenderIds.length > 0 && !allowedSenderIds.includes(operator)) {
+      if (!isOwnerOperator(operator)) {
         return { toast: { type: "warning", content: "只有主人可以授权" } };
       }
       const chatId = typeof value["chatId"] === "string" ? value["chatId"] : "";
@@ -713,10 +739,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     });
     if (entry === undefined) return { toast: { type: "info", content: "已处理" } };
 
-    const { allowedSenderIds } = config.feishu;
-    if (allowedSenderIds.length > 0 && !allowedSenderIds.includes(operator)) {
-      return { toast: { type: "warning", content: "只有主人可以确认" } };
-    }
+    if (!isOwnerOperator(operator)) return { toast: { type: "warning", content: "只有主人可以确认" } };
 
     pendingApprovals.delete(callId);
     clearTimeout(entry.timer);
@@ -819,7 +842,8 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     const text = parsed.text;
     const owner = config.feishu.allowedSenderIds;
     const senderId = event.sender?.sender_id?.open_id ?? "";
-    const isOwner = owner.length === 0 || owner.includes(senderId);
+    // The bridge refuses to start without an owner, so an empty list here means nobody is one.
+    const isOwner = owner.length > 0 && owner.includes(senderId);
     const extraAllowed = await extraChats(runtime.harness, context).catch(() => [] as string[]);
     const extraAllowedSenders = await extraSenders(runtime.harness, context).catch(() => [] as string[]);
     const guests = await guestChatIds(runtime.harness, context).catch(() => [] as string[]);
@@ -927,9 +951,14 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         () => undefined,
       );
       await setGuestPolicy(runtime.harness, context, conversation.id as unknown as number).catch(() => {});
+      // The guard hook reads this to pick the tool surface; a prompt alone cannot keep a group
+      // member out of `cat .env`.
       await conversation
         .configure({ instructions: groupInstructions(isOwner ? "owner" : "guest", topic) }, context)
         .catch((error: unknown) => logError("feishu", "could not set group instructions", error));
+      await setChatTurn(runtime.harness, context, conversation.id as unknown as number, isOwner ? "owner" : "guest").catch(
+        (error: unknown) => logError("feishu", "could not mark the turn", error),
+      );
     }
     // A conversation remembers the turn limit it was created with, so a raised default never
     // reached the chats that already exist. This is a Feishu-driven conversation, its limit is

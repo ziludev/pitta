@@ -7,10 +7,23 @@ export type Check = { ok: boolean; level: "ok" | "warn" | "bad"; label: string; 
  * bot, delivery mode, published version, subscribed events, scopes and send permission.
  * This is the part of onboarding that makes people give up.
  */
-export async function checkFeishu(appId: string, appSecret: string): Promise<Check[]> {
+export async function checkFeishu(appId: string, appSecret: string, ownerIds: string[] = []): Promise<Check[]> {
   const checks: Check[] = [];
+  // Checked first and without the network: it is the one setting where a blank value silently
+  // makes every group member count as the owner.
+  checks.push(
+    ownerIds.length > 0
+      ? { ok: true, level: "ok", label: `主人已配置：${ownerIds.length} 个 open_id` }
+      : {
+          ok: false,
+          level: "bad",
+          label: "FEISHU_ALLOWED_SENDER_IDS 为空",
+          hint: "填你自己的 open_id（群里 @ 我 后看日志里的 sender=ou_…），否则任何人都被当作主人",
+        },
+  );
   if (appId.length === 0 || appSecret.length === 0) {
-    return [{ ok: false, level: "bad", label: "FEISHU_APP_ID / FEISHU_APP_SECRET 未配置", hint: "agent setup" }];
+    checks.push({ ok: false, level: "bad", label: "FEISHU_APP_ID / FEISHU_APP_SECRET 未配置", hint: "agent setup" });
+    return checks;
   }
 
   const client = new Lark.Client({ appId, appSecret });
