@@ -12,7 +12,8 @@
     "ask": "node src/cli.ts",
     "typecheck": "tsc -p tsconfig.json",
     "card": "node src/feishu-selftest.ts",
-    "test": "node --test tests/*.test.ts"
+    "test": "node --test tests/*.test.ts",
+    "eval": "node evals/run.ts"
   },
   "dependencies": {
     "@earendil-works/chord": "1.5.0",

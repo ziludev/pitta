@@ -224,6 +224,8 @@ src/
   guest.ts / allowed.ts / surface-meta.ts / threads.ts / cards.ts / details.ts
   live.ts / log.ts / similar.ts / channel.ts / runtime-ref.ts / storage-lock.ts / models.ts
 
+evals/             离线评测台：guard（审批判定）+ contract（config↔.env.example↔README），`npm run eval`
+
 client/            MyGo 桌面 app
   main.go          Go 窗口 + 绑定（桥接地址/token、agentctl 控制、原生通知）
   src/components/  Transcript / TurnRail（步骤时间线）/ Composer / SideRail / SidePanel（改动·提交·用量·记忆）…
@@ -248,9 +250,25 @@ client/            MyGo 桌面 app
 
 ---
 
+## 测试与评测
+
+```bash
+npm test                      # 纯逻辑单测（node --test），秒级
+npm run eval                  # 离线评测：守卫判定 + 配置/文档契约，不需要模型
+npm run eval -- --strict      # 让「已知缺口」也算失败
+npm run eval -- --json        # 一个 envelope，给脚本读
+```
+
+- `tests/` 钉函数行为，`evals/` 钉**契约**：`approvalReason()` 对 58 条真实命令的判定，以及 `config.ts` / `.env.example` / `README` 三者还对不对得上
+- 最要紧的指标是**逃逸**：危险调用没人问就跑了。已知漏洞不装看不见——case 标 `gap: true`，输出里列出来、`--strict` 变红，修好后自动提示删掉那行
+- 第一次跑就抓到 9 处 `.env.example` 缺项（`FEISHU_DONE_PING_SECONDS`、`AGENT_HTTP_*`、`AGENT_WORKTREE` …）和 1 处默认值写错：例子还写着 `AGENT_MODEL=auto/*` 路由组，而代码注释明确说路由组会让同一个任务一天成一天败
+- 详见 `evals/README.md`
+
+---
+
 ## 已知限制
 
-- 测试覆盖的是纯逻辑（记忆去重、审批注册表、diff 采集、远端链接），不是端到端；`npm test` 秒级
+- 测试覆盖的是纯逻辑 + 契约（记忆去重、审批注册表、diff 采集、远端链接、危险命令判定、文档与配置对齐），不是端到端；`npm test` 和 `npm run eval` 都是秒级
 - Pi Durable 是 **experimental**，1.x 之间 API 会变；升级前先 `npm run typecheck`
 - SQLite 用 `synchronous=NORMAL`：进程崩不丢，掉电可能丢最后一个 commit
 - `bash` 理论上能 `cd` 出工作区；靠 guard hook 兜危险性，不是沙箱

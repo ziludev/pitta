@@ -10,14 +10,19 @@ import { hasGrant } from "./grants.ts";
  * this chat" covers the same kind of call and nothing else.
  */
 const RISKY: Array<{ pattern: RegExp; reason: string; key: string }> = [
-  { pattern: /\brm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+/, reason: "删除文件", key: "rm" },
+  // Long options and a flag after the path count too: `rm --recursive --force` and
+  // `rm x -rf` destroy the same files as `rm -rf x`.
+  { pattern: /\brm\s+([^|;&\n]*\s)?(-[a-zA-Z]*[rf]|--recursive\b|--force\b)/, reason: "删除文件", key: "rm" },
+  { pattern: /\bfind\b[^|;&\n]*\s-delete\b/, reason: "批量删除文件", key: "rm" },
   { pattern: /\bgit\s+push\b.*(--force|-f\b)/, reason: "强推远端", key: "force-push" },
+  // `git push origin +main` rewrites the remote branch without the word force.
+  { pattern: /\bgit\s+push\b[^|;&\n]*\s\+[A-Za-z0-9._/-]+/, reason: "强推远端", key: "force-push" },
   { pattern: /\bgit\s+reset\s+--hard\b/, reason: "丢弃本地改动", key: "reset-hard" },
-  { pattern: /\bgit\s+clean\s+-[a-zA-Z]*[fd]/, reason: "删除未跟踪文件", key: "git-clean" },
+  { pattern: /\bgit\s+clean\s+-(?![a-zA-Z]*n)[a-zA-Z]*[fd]/, reason: "删除未跟踪文件", key: "git-clean" },
   { pattern: /\bsudo\b/, reason: "提权执行", key: "sudo" },
   { pattern: /\b(mkfs|diskutil\s+erase|dd\s+if=)/, reason: "写磁盘", key: "disk" },
   { pattern: />\s*\/dev\/(sd|disk|rdisk)/, reason: "写裸设备", key: "raw-device" },
-  { pattern: /\bchmod\s+(-R\s+)?777\b/, reason: "放开文件权限", key: "chmod-777" },
+  { pattern: /\bchmod\s+(-R\s+)?(0?777|[ugoa]*\+rwx)\b/, reason: "放开文件权限", key: "chmod-777" },
   { pattern: /\b(curl|wget)\b[^|]*\|\s*(ba|z)?sh\b/, reason: "把网络内容直接交给 shell", key: "pipe-to-shell" },
   { pattern: /\bnpm\s+publish\b/, reason: "发布到 npm", key: "npm-publish" },
   { pattern: /\bgh\s+(pr|release)\b.*(merge|create|delete)\b/, reason: "操作 GitHub 远端", key: "gh-write" },
