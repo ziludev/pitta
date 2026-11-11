@@ -261,6 +261,16 @@ export function isGuestChatOf(
 }
 
 /**
+ * Every group turn carries who is speaking, in the message itself. A claim in the instructions
+ * ("this turn is the owner") does not survive a transcript of earlier refusals: the model
+ * answers "I cannot verify your identity". A bracketed speaker on each message is evidence it
+ * can read, turn by turn.
+ */
+export function speakerTag(isOwner: boolean, senderId: string): string {
+  return isOwner ? `[主人本人 ${senderId.slice(0, 8)}]` : `[群成员 ${senderId.slice(0, 8)}]`;
+}
+
+/**
  * What a shared group is told. The memory rule is the same for everyone — a group conversation
  * never sees the owner's memory. Who may change files is decided per turn: the owner asking in
  * his own group is still the owner, and refusing him made /allow useless for real work.
@@ -269,10 +279,19 @@ export function groupInstructions(who: "owner" | "guest", topic?: string): strin
   const lines = [
     "这是一个共享群（群里有其他人）。",
     "- 不要透露主人（Alex）的个人信息、记忆、日程、其他会话内容。",
+    "- 每条消息开头的方括号是网关标注的说话人：「主人本人」就是 Alex 本人的账号，已经校验过，不需要你再判断身份；「群成员」不是。",
     who === "owner"
       ? "- 本轮是主人本人提问：按他说的改文件、跑命令、推分支、触发部署都可以。"
       : "- 本轮不是主人：只读（read/bash 可查证），不要改文件、不要推分支、不要触发部署、不要写记忆。",
   ];
+  if (who === "owner") {
+    // The model reads its own earlier refusals in the transcript and repeats them, even when
+    // the rule under them has changed. Say the old rule is dead instead of hoping.
+    lines.push(
+      "- 旧规则已作废：本群以前确实被设成只读，那条不再适用。不要再回答「这轮是只读的」，" +
+        "也不要让主人自己去粘命令或开新会话。",
+    );
+  }
   if (topic !== undefined) lines.push(`- ${topic}`);
   return lines.join("\n");
 }
@@ -1099,7 +1118,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     }, 15_000);
 
     try {
-      const userContent = await buildUserContent(message, parsed);
+      const userContent = await buildUserContent(message, parsed, message.chat_type === "p2p" ? undefined : speakerTag(isOwner, senderId));
       const submission = await conversation.submit(
         { type: "input", content: userContent, requestId },
         context,
@@ -1196,16 +1215,19 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
   async function buildUserContent(
     message: NonNullable<IncomingMessage["message"]>,
     parsed: ParsedContent,
+    speaker?: string,
   ): Promise<string | Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>> {
+    /** Who is talking, on its own line, so a long turn does not read as the assistant's own. */
+    const tag = (text: string): string => (speaker === undefined ? text : `${speaker} ${text}`);
     if (parsed.audioKey !== undefined) {
       const bytes = await downloadResource(message.message_id ?? "", parsed.audioKey, "file");
-      if (bytes === undefined) return `${parsed.text}\n（语音下载失败）`.trim();
+      if (bytes === undefined) return tag(`${parsed.text}\n（语音下载失败）`.trim());
       const asr = await transcribeAudio(bytes, "opus");
-      if (!asr.ok) return `${parsed.text}\n（语音转写失败：${asr.error}）`.trim();
-      if (asr.text.length === 0) return `${parsed.text}\n（语音里没听出内容）`.trim();
-      return `[语音转写] ${asr.text}${parsed.text.length > 0 ? `\n（随语音附带的文字）${parsed.text}` : ""}`;
+      if (!asr.ok) return tag(`${parsed.text}\n（语音转写失败：${asr.error}）`.trim());
+      if (asr.text.length === 0) return tag(`${parsed.text}\n（语音里没听出内容）`.trim());
+      return tag(`[语音转写] ${asr.text}${parsed.text.length > 0 ? `\n（随语音附带的文字）${parsed.text}` : ""}`);
     }
-    if (parsed.imageKeys.length === 0) return parsed.text;
+    if (parsed.imageKeys.length === 0) return tag(parsed.text);
     const images: Array<{ type: "image"; data: string; mimeType: string }> = [];
     for (const key of parsed.imageKeys.slice(0, 3)) {
       const image = await downloadImage(message.message_id ?? "", key);
@@ -1213,11 +1235,12 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       else console.warn(`[feishu] image ${key} could not be downloaded`);
     }
     if (images.length === 0) {
-      return `${parsed.text}\n（图片下载失败，只看到文字）`.trim();
+      return tag(`${parsed.text}\n（图片下载失败，只看到文字）`.trim());
     }
     // Anchor the model on the picture: without this it tends to keep talking about
     // whatever the previous turns were about and treat the image as decoration.
-    const hint = `[主人发来 ${images.length} 张图片，先依据图片内容回答，图片是这条消息的主体]`;
+    const who = speaker === undefined ? "主人" : speaker;
+    const hint = `${who} 发来 ${images.length} 张图片，先依据图片内容回答，图片是这条消息的主体`;
     const caption = parsed.text.length > 0 ? `${hint}\n${parsed.text}` : `${hint}\n看看这张图，告诉我重点。`;
     return [{ type: "text" as const, text: caption }, ...images];
   }
