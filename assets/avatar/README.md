@@ -1,22 +1,21 @@
 # Agent avatar
 
 A [open-bot-avatar](https://github.com/DominikScholz/open-bot-avatar) definition: one silhouette plus
-where the eyes sit, which that renderer turns into a soft volume. Ours is the π as a little figure —
-a wide brim for a face, two legs under it. π is also a balance beam on two posts, which is what 知衡
-says: 衡, to weigh.
+where the eyes sit, and that renderer gives it a soft volume. Ours is the **π / pie pun** — a pie with
+one slice lifted out, the crimped crust all the way round the edge.
 
 | File | What it is |
 | --- | --- |
-| `pi-bot.json` | The definition (v1, `validateAvatar` clean). Paste it into the [editor](https://dominikscholz.github.io/open-bot-avatar/) to recolor, turn, animate, or export at any size. |
-| `pi-bot-mint.svg` / `.png` | Mint on nothing — the default. |
-| `pi-bot-blue.svg` / `.png` | Blue, for when the mint reads too soft. |
-| `pi-bot-ink.svg` / `.png` | Ink body with mint eyes, for light surfaces that need weight. |
+| `pie.json` | The definition (v1). Paste it into the [editor](https://dominikscholz.github.io/open-bot-avatar/) to recolor, turn, animate or export. |
+| `pie-gold.svg` / `.png` | Golden crust — the plain pie. |
+| `pie-berry.svg` / `.png` | Berry filling. |
 
-The PNGs are 512×512 with a transparent background, which is what the Feishu console wants for 头像
-（开发者后台 → 应用信息 → 头像). The background stays transparent on purpose: Feishu draws the avatar
-on both light and dark chrome, and a filled square would just become a second, wrong frame.
+512×512 PNGs with a transparent background, which is what the Feishu console wants (开发者后台 →
+应用信息 → 头像). Transparent on purpose: Feishu draws avatars on light and dark chrome alike, and a
+filled square just becomes a second frame.
 
-The eyes are meant to survive small sizes: at 32px they read as a hint, and the π is still the mark.
+The eyes sit on the remaining body, not in the gap — this spec requires them inside the silhouette with
+clearance (`eyes must sit inside the body`).
 
-Rendered with the upstream renderer (`renderAvatarSvg`, depth 5, size 512), so the files are what the
-editor would produce for the same definition.
+Not kept: two earlier drafts of the letter π drawn as a figure (a stroke glyph on a dark square, then a
+slab with a face). Both read as a logo or a crate rather than a character.
