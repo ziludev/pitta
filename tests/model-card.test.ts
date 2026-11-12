@@ -27,20 +27,19 @@ test("tokens read as a person would write them", () => {
   assert.equal(formatTokens(1_000_000), "1000.0k");
 });
 
-test("the card line carries time, tools, tokens, money and the model", () => {
+test("the card line carries tools, tokens, money and the model", () => {
   const line = turnMeta({
-    seconds: 138,
-    startedAt: "21:05",
     tools: 14,
     tokens: 12_345,
     costUsd: 0.0312,
     model: "deepseek-flash",
     thinking: "high",
   });
-  assert.equal(line, "✅ 138s（21:05 起） · 14 个工具 · 12.3k tokens · $0.0312 · deepseek-flash · thinking high");
+  // No duration: the "答完了" ping right below the card already carries it.
+  assert.equal(line, "✅ · 14 个工具 · 12.3k tokens · $0.0312 · deepseek-flash · thinking high");
 });
 
-test("a turn that spent nothing says only what happened", () => {
-  const line = turnMeta({ seconds: 3, startedAt: "09:01", tools: 0, tokens: 0, costUsd: 0, model: "", thinking: "" });
-  assert.equal(line, "✅ 3s（09:01 起）");
+test("a turn that spent nothing still shows the tick", () => {
+  const line = turnMeta({ tools: 0, tokens: 0, costUsd: 0, model: "", thinking: "" });
+  assert.equal(line, "✅");
 });

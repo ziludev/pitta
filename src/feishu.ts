@@ -268,17 +268,20 @@ export function formatTokens(tokens: number): string {
   return tokens >= 1_000 ? `${(tokens / 1000).toFixed(1)}k` : String(Math.round(tokens));
 }
 
-/** What a finished turn cost, in one line under the card: time, tools, tokens, money, model. */
+/**
+ * What a finished turn cost, in one line under the card: tools, tokens, money, model.
+ *
+ * No duration here: the "答完了" ping right below the card already says how long it took, and the
+ * same number twice in two adjacent messages is noise. The start time went with it.
+ */
 export function turnMeta(input: {
-  seconds: number;
-  startedAt: string;
   tools: number;
   tokens: number;
   costUsd: number;
   model: string;
   thinking: string;
 }): string {
-  const parts = [`✅ ${input.seconds}s（${input.startedAt} 起）`];
+  const parts = ["✅"];
   if (input.tools > 0) parts.push(`${input.tools} 个工具`);
   if (input.tokens > 0) parts.push(`${formatTokens(input.tokens)} tokens`);
   if (input.costUsd > 0.00005) parts.push(`$${input.costUsd.toFixed(4)}`);
@@ -1445,8 +1448,6 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         }
         const agentPlan = await conversation.agent(context).catch(() => undefined);
         const meta = turnMeta({
-          seconds,
-          startedAt: clock(startedAt),
           tools: toolsUsed.size,
           tokens: Math.max(0, tokensAfter.total - tokensBefore.total),
           costUsd: cost,
@@ -1492,9 +1493,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
           const after = await runtime.budget(chatId).catch(() => undefined);
           const cost = after === undefined ? 0 : Math.max(0, after.spentToday - budget.spentToday);
           const total = Math.round((Date.now() - startedAt) / 100) / 10;
-          const meta = `✅ ${total}s（${clock(startedAt)} 起）${
-            toolsUsed.size > 0 ? ` · ${toolsUsed.size} 个工具` : ""
-          }${cost > 0.00005 ? ` · $${cost.toFixed(4)}` : ""} · 到 ${config.maxTurns} 步后续跑 1 次`;
+          // Same rule as turnMeta: the ping below carries the duration, so this line does not.
+          const meta = `✅${toolsUsed.size > 0 ? ` · ${toolsUsed.size} 个工具` : ""}${
+            cost > 0.00005 ? ` · $${cost.toFixed(4)}` : ""
+          } · 到 ${config.maxTurns} 步后续跑 1 次`;
           await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", meta);
           if (total >= config.feishu.donePingSeconds) {
               await pingDone(
