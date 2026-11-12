@@ -11,7 +11,10 @@ a round crimped pie seen from above, two pill eyes on it.
 | `pie-berry.svg` / `.png` | Berry. |
 | `pie-teal.svg` / `.png` | Teal. |
 | `pie-ink.svg` / `.png` | Ink body with mint eyes, for light surfaces that want weight. |
-| `pie-idle.gif` | 3 s loop, 48 frames at 16 fps, 256 px: idle → thinking → happy. |
+| `pie-idle.gif` | One state on a loop, 1.6 s, 26 frames at 16 fps, 256 px. |
+| `pie-thinking.gif` | Same loop length, eyes shifted — use while a job runs. |
+| `pie-happy.gif` | Same loop length, happy arcs — use when it finished. |
+| `pie-states.gif` | All three in one loop (3 s, 48 frames), for a single place that has only one slot. |
 
 The crimped rim is what makes it a pie rather than a cookie or a blob, and it is the one cue worth
 keeping: the outline carries the recognition, since the renderer paints a single flat colour.
@@ -20,9 +23,8 @@ The PNGs are 512×512 with a transparent background, which is what the Feishu co
 （开发者后台 → 应用信息 → 头像). Transparent on purpose: Feishu draws avatars on light and dark chrome
 alike, and a filled square just becomes a second frame.
 
-The GIF animates the renderer's three moods — pills at rest, eyes shifting while thinking, then the
-happy arcs — by rendering frames with `time` and `motion` and blending over the first 0.4 s of each
-switch. The frames share one palette so the loop does not shimmer. GIF transparency is a single bit,
+The GIFs render the renderer's three moods frame by frame with `time` and `motion`; the combined one
+blends over the first 0.4 s of each switch. Frames share one palette so a loop does not shimmer. GIF transparency is a single bit,
 so the frames are composited on white: an anti-aliased edge would fringe against any other colour.
 
 `prompt.md` is the prompt this was designed with — the schema, the numeric limits and the craft rules,
