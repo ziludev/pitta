@@ -88,7 +88,7 @@ async function slsScript(): Promise<string | undefined> {
 const logsQuery = defineTool({
   name: "logs_query",
   description:
-    "查阿里云 SLS 日志（只读）。env 选 dev 或 prod，logstore 默认 app-<env>-stdout，query 用 SLS 查询语法（如 '\"2100083235\"' 或 'severity: ERROR and service: gateway'），minutes 是时间窗口（默认 60）。生产日志只有主人本人能查。",
+    "查阿里云 SLS 日志（只读）。env 选 dev 或 prod，logstore 默认 app-<env>-stdout，query 用 SLS 查询语法（如 '\"2100083235\"' 或 'severity: ERROR and service: gateway'），minutes 是时间窗口（默认 60）。生产日志只有 alex 本人能查。",
   parameters: obj({
     query: str({ description: "SLS 查询语句" }),
     env: opt(str({ description: "dev 或 prod，默认 dev" })),
@@ -114,7 +114,7 @@ const logsQuery = defineTool({
         timeoutMs: 600_000,
       });
       if (!approved) {
-        return { output: [{ type: "text" as const, text: "主人没有批准这次生产日志查询。" }] };
+        return { output: [{ type: "text" as const, text: "alex 没有批准这次生产日志查询。" }] };
       }
       log("logs", "prod query approved by the owner", { logstore: parsed.logstore, minutes: parsed.minutes });
     }

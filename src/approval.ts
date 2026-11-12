@@ -95,7 +95,7 @@ export function guestBlockReason(
   roots: readonly string[] = [config.workspace],
 ): string | undefined {
   if (!GUEST_TOOLS.has(tool)) {
-    return `这个群是 guest 模式：不能用 ${tool}。需要改代码或跑命令，请主人在私聊里说。`;
+    return `这个群是 guest 模式：不能用 ${tool}。需要改代码或跑命令，请 alex 在私聊里说。`;
   }
   if (tool === "read") {
     const path = typeof args["path"] === "string" ? args["path"] : "";
@@ -155,7 +155,7 @@ export const guardExtension = defineExtension({
         // A hook reruns after a crash: reuse the stored answer instead of asking twice.
         const decided = await api.memo<boolean>(memoKey, context);
         if (decided !== undefined) {
-          return decided ? undefined : { block: `主人拒绝了这次操作（${reason}）` };
+          return decided ? undefined : { block: `alex 拒绝了这次操作（${reason}）` };
         }
 
         const surfaceId = surfaceForConversation(api.conversationId) ?? "";

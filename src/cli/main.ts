@@ -105,7 +105,7 @@ async function setup(): Promise<void> {
   const appId = await ask("App ID", values["FEISHU_APP_ID"]);
   const appSecret = await ask("App Secret", values["FEISHU_APP_SECRET"], true);
   console.log(c.dim("  允许的会话可以先留空，启动后按日志里的 id 再填；群里也可以发 /allow 自授权"));
-  console.log(c.dim("  允许的 open_id 必须填：留空等于把群里每个人都当成主人"));
+  console.log(c.dim("  允许的 open_id 必须填：留空等于把群里每个人都当成 alex"));
   const chats = await ask("允许的 chat_id（逗号分隔）", values["FEISHU_ALLOWED_CHAT_IDS"]);
   const senders = await ask("允许的 open_id（逗号分隔）", values["FEISHU_ALLOWED_SENDER_IDS"]);
   rl.close();

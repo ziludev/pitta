@@ -10,6 +10,7 @@ import { setApprovalDecider, setNotifier, type ApprovalRequest } from "./channel
 import { log, logError } from "./log.ts";
 import { recent, record } from "./audit.ts";
 import { note } from "./notes.ts";
+import { agentName } from "./identity.ts";
 import { SurfaceMetaDoc, updateSurfaceMeta } from "./surface-meta.ts";
 import { transcribeAudio } from "./asr.ts";
 import { attachSubmission, clearCardPending, leftoverCards, markCardPending, noteCardAttempt } from "./cards.ts";
@@ -361,7 +362,7 @@ export type Gate = {
  * can read, turn by turn.
  */
 export function speakerTag(isOwner: boolean, senderId: string): string {
-  return isOwner ? `[主人本人 ${senderId.slice(0, 8)}]` : `[群成员 ${senderId.slice(0, 8)}]`;
+  return isOwner ? `[alex 本人 ${senderId.slice(0, 8)}]` : `[群成员 ${senderId.slice(0, 8)}]`;
 }
 
 /** What a refusal to write looks like, in the forms this agent actually produced. */
@@ -376,7 +377,7 @@ export function looksLikeReadOnlyRefusal(answer: string): boolean {
 
 /** Appended as a fresh user turn after a false read-only refusal; the last word in context. */
 export const READ_ONLY_CORRECTION =
-  "（网关）你刚才那条回答作废：本轮提问的是主人本人（已校验），这个群现在的写权限是开的。" +
+  "（网关）你刚才那条回答作废：本轮提问的是 alex 本人（已校验），这个群现在的写权限是开的。" +
   "write/edit/bash 对你都可用，改文件、推分支、触发部署都不会被拦（危险命令照旧弹审批）。" +
   "直接执行他要的修改，不要再解释权限、不要再让他去粘命令或换私聊。";
 
@@ -388,11 +389,11 @@ export const READ_ONLY_CORRECTION =
 export function groupInstructions(who: "owner" | "guest", topic?: string): string {
   const lines = [
     "这是一个共享群（群里有其他人）。",
-    "- 不要透露主人（Alex）的个人信息、记忆、日程、其他会话内容。",
-    "- 每条消息开头的方括号是网关标注的说话人：「主人本人」就是 Alex 本人的账号，已经校验过，不需要你再判断身份；「群成员」不是。",
+    "- 不要透露 alex 的个人信息、记忆、日程、其他会话内容。",
+    "- 每条消息开头的方括号是网关标注的说话人：「alex 本人」就是 Alex 本人的账号，已经校验过，不需要你再判断身份；「群成员」不是。",
     who === "owner"
-      ? "- 本轮是主人本人提问：按他说的改文件、跑命令、推分支、触发部署都可以。"
-      : "- 本轮不是主人：只读（read/bash 可查证），不要改文件、不要推分支、不要触发部署、不要写记忆。",
+      ? "- 本轮是 alex 本人提问：按他说的改文件、跑命令、推分支、触发部署都可以。"
+      : "- 本轮不是 alex：只读（read/bash 可查证），不要改文件、不要推分支、不要触发部署、不要写记忆。",
   ];
   if (who === "owner") {
     // The model reads its own earlier refusals in the transcript and repeats them, even when
@@ -400,7 +401,7 @@ export function groupInstructions(who: "owner" | "guest", topic?: string): strin
     lines.push(
       "- 工具面按说话人切换：guest 模式只管别人的回合。你自己的回合里 bash / write / edit / lark / mcp / delegate 全都能用。",
       "- 旧规则已作废：本群以前确实被设成只读，那条不再适用。不要再回答「这轮是只读的」或「bash 在这个群里用不了」，" +
-        "也不要让主人自己去粘命令或开新会话。",
+        "也不要让 alex 自己去粘命令或开新会话。",
     );
   }
   if (topic !== undefined) lines.push(`- ${topic}`);
@@ -688,7 +689,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       // the call came from, and the owner needs to know how to fix that.
       await sendText(
         request.surfaceId,
-        `⚠️ 需要主人确认才能继续（${request.tool}）。我还没记住主人的私聊会话：请主人在私聊里给我发一句任何话。`,
+        `⚠️ 需要 alex 确认才能继续（${request.tool}）。我还没记住 alex 的私聊会话：请 alex 在私聊里给我发一句任何话。`,
       ).catch(() => {});
     }
     const cardId = sent?.data?.message_id;
@@ -737,7 +738,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
 
     if (value["kind"] === "set-model") {
       const operator = payload.operator?.open_id ?? "";
-      if (!isOwnerOperator(operator)) return { toast: { type: "warning", content: "只有主人能换模型" } };
+      if (!isOwnerOperator(operator)) return { toast: { type: "warning", content: "只有 alex 能换模型" } };
       const target = Number(value["conversationId"]);
       const provider = typeof value["provider"] === "string" ? value["provider"] : "magpie";
       const modelId = typeof value["modelId"] === "string" ? value["modelId"] : "";
@@ -754,7 +755,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     if (value["kind"] === "open-chat") {
       const operator = payload.operator?.open_id ?? "";
       if (!isOwnerOperator(operator)) {
-        return { toast: { type: "warning", content: "只有主人可以授权" } };
+        return { toast: { type: "warning", content: "只有 alex 可以授权" } };
       }
       const chatId = typeof value["chatId"] === "string" ? value["chatId"] : "";
       if (chatId.length === 0) return { toast: { type: "error", content: "缺少会话 id" } };
@@ -768,7 +769,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       await conversation
         .configure({ compaction: { reserveTokens: 8_192 } }, context)
         .catch((error: unknown) => logError("feishu", "could not set group compaction", error));
-      void sendText(chatId, "已开通（guest 权限）：可以问我了。我看不到主人的私人记忆，也不会改动文件。").catch(
+      void sendText(chatId, "已开通（guest 权限）：可以问我了。我看不到 alex 的私人记忆，也不会改动文件。").catch(
         () => {},
       );
       const messageId = payload.context?.open_message_id;
@@ -812,7 +813,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     });
     if (entry === undefined) return { toast: { type: "info", content: "已处理" } };
 
-    if (!isOwnerOperator(operator)) return { toast: { type: "warning", content: "只有主人可以确认" } };
+    if (!isOwnerOperator(operator)) return { toast: { type: "warning", content: "只有 alex 可以确认" } };
 
     pendingApprovals.delete(callId);
     clearTimeout(entry.timer);
@@ -936,7 +937,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     }
     // A chat pinned to the owner: say so once, instead of carding every message.
     if (reason === "owner-only") {
-      await sendText(message.chat_id, "这个会话只对主人开放。发一句 /allow 可以让这里所有人都能用。").catch(
+      await sendText(message.chat_id, "这个会话只对 alex 开放。发一句 /allow 可以让这里所有人都能用。").catch(
         () => {},
       );
     }
@@ -960,7 +961,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     }
     if (text.trim() === "/allow") {
       // Only the owner authorizes a chat; a closed group is told why, an open one stays quiet.
-      if (reason !== undefined) await sendText(message.chat_id, "只有主人能授权本群。").catch(() => {});
+      if (reason !== undefined) await sendText(message.chat_id, "只有 alex 能授权本群。").catch(() => {});
       return;
     }
     if (text.trim() === "/close" && isOwner) {
@@ -974,7 +975,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       const conversation = await runtime.conversationFor(message.chat_id);
       await setChatTopic(runtime.harness, context, conversation.id as unknown as number, topic);
       await openGroup(message.chat_id, groupInstructions("guest", topic));
-      await sendText(message.chat_id, "已把本群开放给所有成员（guest 模式）：共享群只答本群主题，不会透露主人信息。");
+      await sendText(message.chat_id, "已把本群开放给所有成员（guest 模式）：共享群只答本群主题，不会透露 alex 的信息。");
       return;
     }
     if (isGuestChat && !isOwner) {
@@ -1099,7 +1100,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     const modelAsk = /^\/(?:model|模型)(?:\s+([\s\S]*))?$/i.exec(command);
     if (modelAsk !== null) {
       if (!isOwner) {
-        await sendText(chatId, "只有主人能换模型。").catch(() => {});
+        await sendText(chatId, "只有 alex 能换模型。").catch(() => {});
         return;
       }
       const agent = await conversation.agent(context).catch(() => undefined);
@@ -1279,6 +1280,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       // The model belongs on this line: in a topic fork it can differ from the chat's, and
       // `fork: "asOf"` keeps it that way, so "which model answered here" needs an answer.
       const chatMeta = (await runtime.harness.snapshot(SurfaceMetaDoc, context).catch(() => undefined))?.surfaces[chatId];
+      const selfName = await agentName(runtime.harness, context).catch(() => undefined);
       const plan = await conversation.agent(context).catch(() => undefined);
       const model = plan?.model === undefined ? `${config.model.provider}/${config.model.modelId}` : `${plan.model.provider}/${plan.model.modelId}`;
       const thinking = plan?.thinkingLevel ?? config.thinkingLevel;
@@ -1294,6 +1296,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
                 }${chatMeta.members === undefined ? "" : ` · ${chatMeta.members} 人`}`,
               ]),
           `conversation: ${conversation.id}${threadKey === undefined ? "" : `\nthread: ${threadKey}（已 fork）`}`,
+          ...(selfName === undefined ? [] : [`agent: ${selfName}`]),
           `model: ${model} · thinking ${thinking}`,
           `project: ${(await runtime.projects()).find((project) => project.id === currentProjectId)?.name ?? "workspace"}`,
         ].join("\n"),
@@ -1667,7 +1670,7 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
     }
     // Anchor the model on the picture: without this it tends to keep talking about
     // whatever the previous turns were about and treat the image as decoration.
-    const who = speaker === undefined ? "主人" : speaker;
+    const who = speaker === undefined ? "alex" : speaker;
     const hint = `${who} 发来 ${images.length} 张图片，先依据图片内容回答，图片是这条消息的主体`;
     const caption = parsed.text.length > 0 ? `${hint}\n${parsed.text}` : `${hint}\n看看这张图，告诉我重点。`;
     return [{ type: "text" as const, text: withQuote(caption) }, ...images];

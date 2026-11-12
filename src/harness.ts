@@ -20,6 +20,7 @@ import { assertModelAvailable, createAgentModels, warnIfRoutingGroup } from "./m
 import { deferredExtension } from "./deferred.ts";
 import { codemodeExtension } from "./codemode.ts";
 import { openTelemetry } from "./telemetry.ts";
+import { agentName, chooseName } from "./identity.ts";
 import { titleExtension } from "./title.ts";
 import { contextGuardExtension } from "./context-guard.ts";
 import { ChatMemory, GlobalMemory, memoryExtension, type Note } from "./memory.ts";
@@ -235,6 +236,8 @@ export async function openRuntime(options: { workspace?: string } = {}): Promise
     context,
   );
   harness.resume();
+  // One cheap call, once in the life of the storage: the agent picks the name it answers to.
+  await chooseName(harness, models, context).catch((error: unknown) => logError("identity", "name choice failed", error));
   setHarnessRef(harness);
   setSessionContext(context);
   // Session grants are read by the guard on every tool call: load them once at boot.

@@ -68,9 +68,9 @@ test("levelOf: a stored level wins, `.env` is the fallback, everything else is c
   assert.equal(levelOf("oc_env", { ...access, oc_env: "group" }, ["oc_env"]), "group");
 });
 
-// The owner asking in his own group is still the owner: /allow opened the group to other
-// people, it did not demote him. Memory stays off for the conversation either way.
-test("a shared group tells the owner he may change files, and a guest that he may not", async () => {
+// alex asking in his own group is still the owner: /allow opened the group to other people, it did
+// not demote him. Memory stays off for the conversation either way.
+test("a shared group tells alex he may change files, and a guest that he may not", async () => {
   const { groupInstructions } = await import("../src/feishu.ts");
   const owner = groupInstructions("owner");
   const guest = groupInstructions("guest");
@@ -81,7 +81,7 @@ test("a shared group tells the owner he may change files, and a guest that he ma
   assert.match(guest, /只读/);
   assert.doesNotMatch(guest, /按他说的改文件/);
   assert.doesNotMatch(guest, /旧规则已作废/);
-  for (const text of [owner, guest]) assert.match(text, /不要透露主人/, "memory rule is the same for both");
+  for (const text of [owner, guest]) assert.match(text, /不要透露 alex/, "memory rule is the same for both");
   assert.match(groupInstructions("guest", "只回答本群主题"), /只回答本群主题/, "/open keeps its topic rule");
   assert.match(groupInstructions("owner"), /方括号是网关标注的说话人/, "the bracket convention is explained");
 });
@@ -92,9 +92,9 @@ test("a shared group tells the owner he may change files, and a guest that he ma
 test("each group message carries who is speaking", async () => {
   const { speakerTag } = await import("../src/feishu.ts");
   const owner = "ou_0123456789abcdef0123456789abcdef";
-  assert.match(speakerTag(true, owner), /^\[主人本人 ou_abcde\]/);
+  assert.match(speakerTag(true, owner), /^\[alex 本人 ou_abcde\]/);
   assert.match(speakerTag(false, "ou_9d6f1a2b3c4d"), /^\[群成员 ou_9d6f1\]/);
-  assert.doesNotMatch(speakerTag(false, "ou_9d6f1a2b3c4d"), /主人/);
+  assert.doesNotMatch(speakerTag(false, "ou_9d6f1a2b3c4d"), /alex/);
 });
 
 // What the model actually said in the group, and what must not be mistaken for a refusal.

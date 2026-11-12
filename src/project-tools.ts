@@ -14,7 +14,7 @@ const openProject = defineTool({
   name: "open_project",
   deferred: true,
   description:
-    "切换工作仓库。当主人让你改/查另一个 git 仓库（如「看看 example-service 的日志」「修一下 flicker」）时先调用它：会切到该仓库并为本会话建独立 worktree 与分支，之后 bash/read/write 都作用在新仓库里，对话上下文保留。不带 project 则列出可用项目。",
+    "切换工作仓库。当 alex 让你改/查另一个 git 仓库（如「看看 example-service 的日志」「修一下 flicker」）时先调用它：会切到该仓库并为本会话建独立 worktree 与分支，之后 bash/read/write 都作用在新仓库里，对话上下文保留。不带 project 则列出可用项目。",
   parameters: obj({
     project: opt(str({ description: "项目名、id 或路径片段" })),
     base: opt(str({ description: "从这个分支开 worktree，默认仓库的当前分支" })),

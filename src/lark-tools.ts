@@ -80,7 +80,7 @@ function summarize(data: unknown): string {
 const agenda = defineTool({
   name: "feishu_agenda",
   deferred: true,
-  description: "看主人的飞书日历日程（默认今天，可指定往后几天）。用来回答'我今天有什么会'、安排时间。",
+  description: "看 alex 的飞书日历日程（默认今天，可指定往后几天）。用来回答'我今天有什么会'、安排时间。",
   parameters: obj({
     days: opt(num({ description: "从今天算起看几天，默认 1" })),
     start: opt(str({ description: "开始时间 ISO 8601，默认今天 00:00" })),
@@ -102,7 +102,7 @@ const agenda = defineTool({
 const tasks = defineTool({
   name: "feishu_tasks",
   deferred: true,
-  description: "列出主人飞书里 assigned 给自己的任务（未完成的）。用来回答'我还欠什么'。",
+  description: "列出 alex 飞书里 assigned 给自己的任务（未完成的）。用来回答'我还欠什么'。",
   parameters: obj({}),
   replay: "safe",
   execute: async () => {
@@ -117,7 +117,7 @@ const tasks = defineTool({
 const createTask = defineTool({
   name: "feishu_create_task",
   deferred: true,
-  description: "在飞书任务里给主人新建一条待办。会写到主人的真实任务列表里（需要审批）。",
+  description: "在飞书任务里给 alex 新建一条待办。会写到 alex 的真实任务列表里（需要审批）。",
   parameters: obj({
     summary: str({ description: "任务标题" }),
     due: opt(str({ description: "截止时间 ISO 8601，可选" })),

@@ -58,7 +58,7 @@ function formatLocal(at: number): string {
 const remind = defineTool({
   name: "remind",
   description:
-    "设置一次性提醒，到点主动给主人发消息。用 in_minutes 表示几分钟后，或用 at 表示绝对时间（ISO 8601，如 2026-11-10T09:00:00+08:00）。",
+    "设置一次性提醒，到点主动给 alex 发消息。用 in_minutes 表示几分钟后，或用 at 表示绝对时间（ISO 8601，如 2026-11-10T09:00:00+08:00）。",
   parameters: obj({
     text: str({ description: "提醒内容" }),
     in_minutes: opt(num({ description: "多少分钟后提醒" })),
