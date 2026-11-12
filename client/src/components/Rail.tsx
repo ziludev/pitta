@@ -15,7 +15,10 @@ import {
   Plus,
   RotateCw,
 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { BotAvatar } from "@/components/BotAvatar";
+import type { AvatarMood } from "@/lib/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -268,6 +271,24 @@ export function Rail() {
     (task) => task.kind.startsWith("app.") && task.kind !== "app.usage-sampler",
   );
 
+  // The face follows the work: thinking while a turn or a task runs, one happy beat when it stops.
+  const running = busy || liveTasks.length > 0;
+  const [mood, setMood] = useState<AvatarMood>("idle");
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (running) {
+      wasRunning.current = true;
+      setMood("thinking");
+      return;
+    }
+    // Never ran since the rail mounted: stay idle rather than celebrating nothing.
+    if (!wasRunning.current) return;
+    wasRunning.current = false;
+    setMood("happy");
+    const timer = setTimeout(() => setMood("idle"), 2_500);
+    return () => clearTimeout(timer);
+  }, [running]);
+
   function onDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (over === null || active.id === over.id) return;
@@ -300,9 +321,14 @@ export function Rail() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-card/40">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        <div>
-          <div className="text-sm font-semibold tracking-tight">Agent</div>
-          <div className={`text-[11px] ${busy ? "text-primary" : "text-muted-foreground"}`}>{status}</div>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <BotAvatar mood={mood} />
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold tracking-tight">Agent</div>
+            <div className={`truncate text-[11px] ${busy ? "text-primary" : "text-muted-foreground"}`}>
+              {status}
+            </div>
+          </div>
         </div>
         <div className="flex items-center gap-0.5">
           <ThemeToggle />

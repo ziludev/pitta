@@ -27,6 +27,11 @@ The GIFs render the renderer's three moods frame by frame with `time` and `motio
 blends over the first 0.4 s of each switch. Frames share one palette so a loop does not shimmer. GIF transparency is a single bit,
 so the frames are composited on white: an anti-aliased edge would fringe against any other colour.
 
+The desktop client renders the same definition live: `client/src/lib/avatar.ts` holds a copy of
+`pie.json`, and `client/src/components/BotAvatar.tsx` mounts the renderer's canvas — thinking while a
+turn or a task runs, one happy beat when it stops, idle otherwise. Two copies of the geometry is one
+too many, but the client cannot read this folder at build time; if the shape changes, change both.
+
 `prompt.md` is the prompt this was designed with — the schema, the numeric limits and the craft rules,
 self-contained, so another model can produce more candidates.
 
