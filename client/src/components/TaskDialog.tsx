@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { tr } from "@/i18n";
+import { Markdown } from "@/lib/markdown";
 import { useStore } from "@/store";
 
 /**
@@ -50,7 +51,7 @@ export function TaskDialog() {
   const open = taskDetail !== null;
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? undefined : closeTask())}>
-      <DialogContent className="sm:max-w-[520px]">
+      <DialogContent className="overflow-hidden sm:max-w-[520px]">
         {taskDetail === null ? null : (
           <>
             <DialogHeader>
@@ -76,13 +77,19 @@ export function TaskDialog() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-2 text-[12px]">
-              <div className="rounded-lg border border-border/60 bg-muted/20 p-2.5 leading-relaxed">
-                {taskDetail.title === undefined || taskDetail.title.length === 0 ? "（没有说明）" : taskDetail.title}
+            <div className="min-w-0 space-y-2 text-[12px]">
+              <div className="rounded-lg border border-border/60 bg-muted/20 p-2.5 leading-relaxed break-words">
+                {taskDetail.title === undefined || taskDetail.title.length === 0 ? (
+                  "（没有说明）"
+                ) : (
+                  <Markdown text={taskDetail.title} />
+                )}
               </div>
               {askedOf(taskDetail.input).length > 0 ? (
-                <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border/40 p-2.5 text-[11px] leading-relaxed text-muted-foreground">
-                  {askedOf(taskDetail.input).slice(0, 2_000)}
+                // Long paths and URLs must wrap: `overflow-y-auto` alone let them escape the
+                // rounded box (the "header bleeding through" was text outside its own frame).
+                <div className="max-h-44 overflow-y-auto overflow-x-hidden rounded-lg border border-border/40 p-2.5 text-[11px] leading-relaxed break-words text-muted-foreground [overflow-wrap:anywhere] [scrollbar-width:thin]">
+                  <Markdown text={askedOf(taskDetail.input).slice(0, 2_000)} />
                 </div>
               ) : null}
               {taskDetail.outcome === null ? null : (

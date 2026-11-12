@@ -14,6 +14,7 @@ import {
   type Surface,
   type Task,
 } from "@/lib/api";
+import { toast } from "sonner";
 import { initialLang, type Lang } from "@/i18n";
 import { setErrorSink } from "@/lib/api";
 import type {
@@ -337,7 +338,14 @@ export const useStore = create<State>((set, get) => ({
     socket?.close();
     set({ current: conversationId, connection: "connecting", entries: [], live: undefined });
     const projectId = get().surfaces.find((surface) => surface.conversationId === conversationId)?.projectId;
-    if (projectId !== undefined && projectId !== get().currentProject) get().setProject(projectId);
+    if (projectId !== undefined && projectId !== get().currentProject) {
+      // Opening a chat from another project moves the rail there; without saying so the list
+      // looks like it lost its conversations.
+      const name = get().projects.find((project) => project.id === projectId)?.name ?? projectId;
+      const count = get().surfaces.filter((surface) => (surface.projectId ?? "workspace") === projectId).length;
+      toast(`已切到项目 ${name}（${count} 个会话）`);
+      get().setProject(projectId);
+    }
     const data = await api<{
       entries: Entry[];
       model?: ModelRef;
