@@ -10,6 +10,7 @@ import {
   type Note,
   type AccessView,
   type AuditEvent,
+  type TaskDetail,
   type Surface,
   type Task,
 } from "@/lib/api";
@@ -61,6 +62,8 @@ type State = {
   memory: { global: Note[]; work: Note[]; chat: Note[] };
   access: AccessView | null;
   audit: AuditEvent[];
+  /** The task a person opened from 运行中, and its detail. */
+  taskDetail: TaskDetail | null;
   changes?: Changes;
   changesLoading: boolean;
   order: number[];
@@ -106,6 +109,9 @@ type State = {
   refreshSurfaces(): Promise<void>;
   loadMemory(): Promise<void>;
   loadAccess(): Promise<void>;
+  openTask(id: number): Promise<void>;
+  closeTask(): void;
+  cancelTask(id: number): Promise<void>;
   loadChanges(): Promise<void>;
   submit(
     text: string,
@@ -205,6 +211,7 @@ export const useStore = create<State>((set, get) => ({
   memory: { global: [], work: [], chat: [] },
   access: null,
   audit: [],
+  taskDetail: null,
   changesLoading: false,
   order: savedOrder(),
   pinned: savedPinned(),
@@ -372,6 +379,24 @@ export const useStore = create<State>((set, get) => ({
       `/api/memory${id === undefined ? "" : `?chat=${id}`}`,
     );
     set({ memory });
+  },
+
+  async openTask(id) {
+    const detail = await api<TaskDetail>(`/api/task?id=${id}`).catch(() => null);
+    set({ taskDetail: detail });
+  },
+
+  closeTask: () => set({ taskDetail: null }),
+
+  async cancelTask(id) {
+    await api("/api/task/cancel", { method: "POST", body: JSON.stringify({ id }) });
+    // The row disappears on the next state push; refresh the detail so the dialog says so now.
+    await get()
+      .openTask(id)
+      .catch(() => {});
+    void get()
+      .refreshSurfaces()
+      .catch(() => {});
   },
 
   async loadAccess() {

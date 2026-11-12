@@ -12,6 +12,7 @@ import { Rail } from "@/components/Rail";
 import { SidePanel } from "@/components/SidePanel";
 import { Transcript } from "@/components/Transcript";
 import { FileViewer } from "@/components/FileViewer";
+import { TaskDialog } from "@/components/TaskDialog";
 import { tr } from "@/i18n";
 import { MotionConfig } from "motion/react";
 import { ThemeProvider } from "next-themes";
@@ -102,6 +103,7 @@ export function App() {
         </PanelGroup>
         {/* #056: the toast lives 3.2s; its time bar drains over the spec's 1.8s. */}
         <ErrorPanel />
+        <TaskDialog />
         <Toaster position="bottom-left" duration={3200} visibleToasts={3} gap={8} />
       </div>
       </TooltipProvider>

@@ -148,6 +148,21 @@ export type AuditEvent = {
   detail?: string;
 };
 
+export type TaskDetail = {
+  id: number;
+  kind: string;
+  conversationId: number;
+  owner: number | null;
+  background: boolean;
+  abortRequested: boolean;
+  status: string;
+  phase: string | null;
+  until: number | null;
+  title?: string;
+  input: unknown;
+  outcome: unknown;
+};
+
 export type MemorySuggestion = { text: string; scope: "global" | "work" | "chat"; reason?: string };
 export type UsageDay = { date: string; cost: number; tokens: number };
 

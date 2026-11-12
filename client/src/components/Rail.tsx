@@ -200,6 +200,7 @@ export function Rail() {
     setOrder,
     togglePin,
     control,
+    openTask,
     openLogs,
     setLang,
   } = useStore();
@@ -394,7 +395,12 @@ export function Rail() {
       </div>
       <div className="min-h-0 max-h-40 overflow-y-auto px-2.5 pb-2">
         {liveTasks.map((task: Task) => (
-            <div key={task.id} className="flex items-center gap-1.5 py-1 text-[11px]">
+            <button
+              key={task.id}
+              onClick={() => void openTask(task.id)}
+              title="点开看详情"
+              className="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-left text-[11px] transition hover:bg-accent/10"
+            >
               <span
                 className={`size-1.5 shrink-0 rounded-full ${TASK_DOT[task.state] ?? "bg-muted-foreground/40"} ${
                   task.state === "running" ? "animate-pulse" : ""
@@ -409,7 +415,7 @@ export function Rail() {
                   ? formatWhen(lang, task.until)
                   : taskState(lang, task.state)}
               </span>
-            </div>
+            </button>
         ))}
       </div>
         </>

@@ -726,6 +726,38 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         });
       }
 
+      if (req.method === "GET" && path === "/api/task") {
+        // One task in detail: what it is doing, what it was asked, and where it lives.
+        const id = Number(url.searchParams.get("id"));
+        if (!Number.isFinite(id)) return send(res, 400, { error: "id required" });
+        const record = await runtime.harness.getTask(id as never, context);
+        if (record === undefined) return send(res, 404, { error: "no such task" });
+        const state = record.state as unknown as { status?: string; kind?: string; phase?: string; until?: number };
+        return send(res, 200, {
+          id: record.id,
+          kind: record.kind,
+          conversationId: record.conversationId,
+          owner: record.owner ?? null,
+          background: record.background === true,
+          abortRequested: record.abortRequested === true,
+          status: state.status ?? state.kind ?? "?",
+          phase: state.phase ?? null,
+          until: state.until ?? null,
+          title: taskTitle(record.kind, record.input),
+          input: record.input ?? null,
+          outcome: (record as unknown as { outcome?: unknown }).outcome ?? null,
+        });
+      }
+
+      if (req.method === "POST" && path === "/api/task/cancel") {
+        const body = await readJson(req);
+        const id = Number(body["id"]);
+        if (!Number.isFinite(id)) return send(res, 400, { error: "id required" });
+        await runtime.harness.abortTask(id as never, context);
+        log("http", "task cancelled", { id });
+        return send(res, 200, { ok: true });
+      }
+
       if (req.method === "GET" && path === "/api/access") {
         // Who may use which chat, as the agent actually resolved it: one row per chat, with the
         // conversation it maps to and the title a person would recognise.
