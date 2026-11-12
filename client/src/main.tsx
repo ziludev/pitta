@@ -5,7 +5,8 @@ import { useStore } from "@/store";
 import "@/index.css";
 
 document.documentElement.lang = initialLang() === "zh" ? "zh-CN" : "en";
-document.title = "Agent";
+// The window title, the Dock and the menu bar should say the same thing.
+document.title = "知衡 Pitta";
 
 // Anything that escapes React still has to be visible: the log file is not in-app.
 window.addEventListener("error", (event) => {

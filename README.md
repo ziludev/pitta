@@ -162,7 +162,7 @@ npm start                     # 前台跑一次试试
 cd client
 npm install
 npm run dev      # 开发：Go 窗口 + Vite 热更新
-npm run build    # 产出 build/darwin-arm64/Agent.app 与 .dmg
+npm run build    # 产出 build/darwin-arm64/知衡 Pitta.app 与 .dmg
 ```
 
 前端栈：shadcn/ui **Nova**（`radix-nova`）+ Tailwind v4 · Lucide 图标 · Motion 动效 · react-resizable-panels 三栏 · dnd-kit 会话排序 · Zustand 状态 · next-themes 主题。

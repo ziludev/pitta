@@ -331,7 +331,7 @@ export function Rail() {
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <BotAvatar mood={mood} tone={tone} />
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold tracking-tight">Agent</div>
+            <div className="truncate text-sm font-semibold tracking-tight">{tr(lang, "appName")}</div>
             <div className={`truncate text-[11px] ${busy ? "text-primary" : "text-muted-foreground"}`}>
               {status}
             </div>
