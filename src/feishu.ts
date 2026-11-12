@@ -10,6 +10,10 @@ import { setApprovalDecider, setNotifier, type ApprovalRequest } from "./channel
 import { log, logError } from "./log.ts";
 import { recent, record } from "./audit.ts";
 import { note } from "./notes.ts";
+import { lastRequestMessages } from "./context-guard.ts";
+
+/** Above this many request messages a turn starts costing about a minute per step. */
+const COMPACT_AFTER_MESSAGES = 400;
 import { agentName } from "./identity.ts";
 import { SurfaceMetaDoc, updateSurfaceMeta } from "./surface-meta.ts";
 import { transcribeAudio } from "./asr.ts";
@@ -1475,6 +1479,16 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
             message.message_id,
             `✅ 答完了 · ${seconds}s`,
             { thread: replyOptions.thread === true },
+          );
+        }
+        // A conversation this long makes every step cost about a minute, and the tokens still fit the
+        // window, so threshold compaction never fires. Compact on message count instead, after the
+        // answer is out, so the user is not left waiting for the next turn to be slow.
+        const carried = lastRequestMessages();
+        if (carried > COMPACT_AFTER_MESSAGES) {
+          log("feishu", "conversation too long, compacting", { chatId, messages: carried });
+          await conversation.compact(undefined, context).catch((error: unknown) =>
+            logError("feishu", "could not compact a long conversation", error),
           );
         }
       } else if (settled.reason === "turn_limit") {

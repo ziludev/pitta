@@ -19,6 +19,16 @@ export const ELIDE_MIN_CHARS = 60_000;
 /** What a placeholder keeps of the original: enough to recognise, not enough to pay for. */
 const PREVIEW_CHARS = 200;
 
+/**
+ * How many messages the last request carried. A conversation with 1900 of them costs about a minute
+ * per step even with the output elided, and nothing else notices: the tokens still fit the window, so
+ * automatic compaction never fires. `turn.ts` reads this to compact on message count as well.
+ */
+let lastCount = 0;
+export function lastRequestMessages(): number {
+  return lastCount;
+}
+
 const PLACEHOLDER = (name: string, chars: number) =>
   `[较早的工具输出已省略：${name}，原文约 ${Math.round(chars / 100) / 10}k 字符。需要时重新运行这个工具]`;
 
@@ -59,6 +69,7 @@ export const contextGuardExtension = defineExtension({
   hooks: [
     hook(GenerationTask, {
       beforeRequest: (request) => {
+        lastCount = request.messages.length;
         const { messages, elided } = elideOldToolOutputs(request.messages);
         if (elided === 0) return undefined;
         log("context", "elided old tool output", { elided, messages: messages.length });
