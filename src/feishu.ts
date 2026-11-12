@@ -245,38 +245,6 @@ export function parseContent(message: NonNullable<IncomingMessage["message"]>): 
   return { text: "", imageKeys: [] };
 }
 
-/**
- * One line for the "答完了" ping: the answer's own words, without the markup that reads as noise.
- *
- * The first attempt was `answer.slice(0, 60)`, which shipped headings, `**bold**` and `##` into a
- * notification and cut mid-sentence ("改自己\n做） **sit…"). A ping is a notification, not a
- * preview: strip the markup, prefer the first whole sentence, and only then cut.
- */
-export function pingSummary(answer: string, limit = 60): string {
-  const lines = answer
-    .replace(/```[\s\S]*?```/g, " ") // a code block tells a notification nothing
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  // A leading heading names a section ("## 交付"), it does not summarise the answer.
-  while (lines.length > 0 && /^#{1,6}\s/.test(lines[0] ?? "")) lines.shift();
-  const flat = lines
-    .join(" ")
-    .replace(/^[-*+]\s+/gm, "") // list markers
-    .replace(/`([^`]*)`/g, "$1") // inline code keeps its words
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1") // links keep their label
-    .replace(/^\s{0,3}#{1,6}\s*/gm, "") // heading markers inside a line
-    .replace(/[*_~>#]+/g, "") // emphasis, quotes, leftover hashes
-    .replace(/\s+/g, " ")
-    .trim();
-  if (flat.length === 0) return "";
-  // Chinese does not put a space after 。, so the terminator alone ends the sentence.
-  const sentence = /^(.{1,200}?[。！？!?])/.exec(flat)?.[1] ?? "";
-  const base = sentence.length > 0 && sentence.length <= limit ? sentence : flat;
-  if (base.length <= limit) return base;
-  return `${base.slice(0, limit).replace(/[，、,;；:：\s]+$/, "")}…`;
-}
-
 /** `/model` forms: list, one id, `default <id>`, `thinking <level>`. */
 export type ModelCommand =
   | { kind: "list" }
@@ -1501,11 +1469,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         }
         await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", meta, buttons);
         if (seconds >= config.feishu.donePingSeconds) {
-          const summary = pingSummary(answer);
           await pingDone(
             chatId,
             message.message_id,
-            `✅ 答完了 · ${seconds}s${summary.length > 0 ? `\n${summary}` : ""}`,
+            `✅ 答完了 · ${seconds}s`,
             { thread: replyOptions.thread === true },
           );
         }
@@ -1530,11 +1497,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
           }${cost > 0.00005 ? ` · $${cost.toFixed(4)}` : ""} · 到 ${config.maxTurns} 步后续跑 1 次`;
           await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", meta);
           if (total >= config.feishu.donePingSeconds) {
-            const summary = pingSummary(answer);
-            await pingDone(
+              await pingDone(
               chatId,
               message.message_id,
-              `✅ 答完了（自动续跑一次） · ${total}s${summary.length > 0 ? `\n${summary}` : ""}`,
+              `✅ 答完了（自动续跑一次） · ${total}s`,
               { thread: replyOptions.thread === true },
             );
           }
