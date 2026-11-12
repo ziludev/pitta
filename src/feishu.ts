@@ -4,12 +4,13 @@ import { join } from "node:path";
 import * as Lark from "@larksuiteoapi/node-sdk";
 import { UsageDoc } from "@earendil-works/pi-durable";
 import { config, requireFeishuCredentials, requireFeishuOwner } from "./config.ts";
-import { context, type AgentRuntime } from "./harness.ts";
+import { ChatsToken, context, type AgentRuntime } from "./harness.ts";
 import { watchLive, type LiveSnapshot } from "./live.ts";
 import { setApprovalDecider, setNotifier, type ApprovalRequest } from "./channel.ts";
 import { log, logError } from "./log.ts";
 import { recent, record } from "./audit.ts";
 import { note } from "./notes.ts";
+import { SurfaceMetaDoc, updateSurfaceMeta } from "./surface-meta.ts";
 import { transcribeAudio } from "./asr.ts";
 import { attachSubmission, clearCardPending, leftoverCards, markCardPending, noteCardAttempt } from "./cards.ts";
 import { readTurnDetails, saveTurnDetails, type TurnDetails } from "./details.ts";
@@ -915,6 +916,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     const isOwner = owner.length > 0 && owner.includes(senderId);
     const access = await chatAccess(runtime.harness, context).catch(() => ({}) as Record<string, ChatLevel>);
     const level = levelOf(message.chat_id, access, config.feishu.allowedChatIds);
+    // A group's own name belongs in the rail; the event never carries it, so ask once.
+    if (level !== "closed" && message.chat_id.startsWith("oc_")) {
+      void rememberChatInfo(message.chat_id).catch(() => {});
+    }
     const isGuestChat = isGuestLevel(level);
     const reason = rejectionReason(event, parsed, level, isOwner);
     // Where to send "someone is asking" — the stranger's chat cannot be the address. The owner's
@@ -1273,6 +1278,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       const currentProjectId = await runtime.projectOfConversation(conversation.id as unknown as number);
       // The model belongs on this line: in a topic fork it can differ from the chat's, and
       // `fork: "asOf"` keeps it that way, so "which model answered here" needs an answer.
+      const chatMeta = (await runtime.harness.snapshot(SurfaceMetaDoc, context).catch(() => undefined))?.surfaces[chatId];
       const plan = await conversation.agent(context).catch(() => undefined);
       const model = plan?.model === undefined ? `${config.model.provider}/${config.model.modelId}` : `${plan.model.provider}/${plan.model.modelId}`;
       const thinking = plan?.thinkingLevel ?? config.thinkingLevel;
@@ -1280,6 +1286,13 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         chatId,
         [
           `chat: ${chatId}`,
+          ...(chatMeta?.chatName === undefined
+            ? []
+            : [
+                `name: ${chatMeta.chatName}${
+                  chatMeta.chatOwner === undefined ? "" : ` · 群主 …${chatMeta.chatOwner.slice(-6)}`
+                }${chatMeta.members === undefined ? "" : ` · ${chatMeta.members} 人`}`,
+              ]),
           `conversation: ${conversation.id}${threadKey === undefined ? "" : `\nthread: ${threadKey}（已 fork）`}`,
           `model: ${model} · thinking ${thinking}`,
           `project: ${(await runtime.projects()).find((project) => project.id === currentProjectId)?.name ?? "workspace"}`,
@@ -1529,6 +1542,55 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     }
   }
 
+/** Feishu's own name for a chat, and whose it is. */
+async function chatInfo(chatId: string): Promise<{ name?: string; owner?: string; members?: number } | undefined> {
+  const response = await client
+    .request({ method: "GET", url: `/open-apis/im/v1/chats/${chatId}` })
+    .catch((error: unknown) => {
+      logError("feishu", "could not read the chat info", error);
+      return undefined;
+    });
+  const data = (response as { data?: { name?: string; owner_id?: string; user_count?: number } })?.data;
+  if (data === undefined) return undefined;
+  return {
+    ...(data.name === undefined || data.name.length === 0 ? {} : { name: data.name }),
+    ...(data.owner_id === undefined ? {} : { owner: data.owner_id }),
+    ...(typeof data.user_count === "number" ? { members: data.user_count } : {}),
+  };
+}
+
+/** Names this process already asked for, so a busy group costs one API call, not one per message. */
+const chatNamesKnown = new Set<string>();
+
+/** Once per chat: store Feishu's name (a title the owner set wins) and whose group it is. */
+async function rememberChatInfo(chatId: string): Promise<void> {
+  if (chatNamesKnown.has(chatId)) return;
+  chatNamesKnown.add(chatId);
+  const info = await chatInfo(chatId);
+  if (info === undefined) return;
+  const meta = (await runtime.harness.snapshot(SurfaceMetaDoc, context).catch(() => undefined))?.surfaces[chatId];
+  await updateSurfaceMeta(runtime.harness, context, chatId, {
+    ...(info.name === undefined ? {} : { chatName: info.name }),
+    ...(info.owner === undefined ? {} : { chatOwner: info.owner }),
+    ...(info.members === undefined ? {} : { members: info.members }),
+    // A name the owner set (or an earlier title) is never overwritten; an empty one takes the
+    // group's own name, which reads better in the rail than a fragment of the first message.
+    ...(info.name !== undefined && (meta?.title === undefined || meta.title.length === 0)
+      ? { title: info.name }
+      : {}),
+  }).catch((error: unknown) => logError("feishu", "could not store the chat info", error));
+}
+
+/** At boot: fill in names for chats that already have a conversation but no name yet. */
+async function backfillChatNames(): Promise<void> {
+  const mapping = await runtime.harness.snapshot(ChatsToken, context).catch(() => undefined);
+  const known = Object.keys(mapping?.chats ?? {}).filter((chatId) => chatId.startsWith("oc_"));
+  const meta = (await runtime.harness.snapshot(SurfaceMetaDoc, context).catch(() => undefined))?.surfaces ?? {};
+  const missing = known.filter((chatId) => (meta[chatId]?.chatName ?? "").length === 0);
+  for (const chatId of missing) await rememberChatInfo(chatId);
+  if (missing.length > 0) log("feishu", "chat names filled in", { chats: missing.length });
+}
+
 /** Per-model token totals of one conversation, so a turn's spend is a difference. */
 async function tokenTotals(conversationId: number): Promise<{ total: number; byModel: Map<string, number> }> {
   const doc = await runtime.harness.snapshot(UsageDoc, conversationId as never, context).catch(() => undefined);
@@ -1663,6 +1725,7 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
   });
   await wsClient.start({ eventDispatcher });
   log("feishu", `long connection established for app ${appId}`);
+  void backfillChatNames().catch((error: unknown) => logError("feishu", "could not backfill chat names", error));
 
   // The SDK stops retrying once it gives up, and a long connection that dies silently
   // is indistinguishable from a bot nobody talks to. Restart it ourselves when it stays

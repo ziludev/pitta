@@ -132,6 +132,10 @@ export type AccessRow = {
   level: AccessLevel;
   conversationId?: number;
   title?: string;
+  /** Feishu's own name for the group, and whose it is. */
+  chatName?: string;
+  chatOwner?: string;
+  members?: number;
 };
 export type AccessView = { chats: AccessRow[]; envChats: string[]; ownerChat?: string };
 export type AuditEvent = {

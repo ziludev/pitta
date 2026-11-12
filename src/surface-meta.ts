@@ -8,6 +8,12 @@ export type SurfaceMeta = {
   archived?: boolean;
   /** When the surface first appeared, for sorting archived ones. */
   createdAt: number;
+  /** Feishu's own name for the chat, kept apart from a title the owner set. */
+  chatName?: string;
+  /** Feishu chat owner's open_id: "whose group is this". */
+  chatOwner?: string;
+  /** Members, when the API reports it. */
+  members?: number;
 };
 
 /**
@@ -34,7 +40,13 @@ export async function updateSurfaceMeta(
   harness: Harness,
   context: Context,
   surfaceId: string,
-  patch: { title?: string | null; archived?: boolean },
+  patch: {
+    title?: string | null;
+    archived?: boolean;
+    chatName?: string;
+    chatOwner?: string;
+    members?: number;
+  },
 ): Promise<void> {
   await harness.commit(async (tx) => {
     const doc = await tx.doc(SurfaceMetaDoc);
@@ -44,6 +56,9 @@ export async function updateSurfaceMeta(
       else current.title = patch.title.trim().slice(0, 60);
     }
     if (patch.archived !== undefined) current.archived = patch.archived;
+    if (patch.chatName !== undefined) current.chatName = patch.chatName;
+    if (patch.chatOwner !== undefined) current.chatOwner = patch.chatOwner;
+    if (patch.members !== undefined) current.members = patch.members;
     doc.surfaces[surfaceId] = current;
   }, context);
   log("surface", "meta updated", { surfaceId, ...patch });

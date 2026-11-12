@@ -731,13 +731,19 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
         // conversation it maps to and the title a person would recognise.
         const access = await chatAccess(runtime.harness, context);
         const mapping = await runtime.harness.snapshot(ChatsToken, context).catch(() => undefined);
-        const meta: Record<string, { title?: string }> = await surfaceMeta(runtime.harness, context).catch(() => ({}));
+        const meta: Record<string, { title?: string; chatName?: string; chatOwner?: string; members?: number }> = await surfaceMeta(
+          runtime.harness,
+          context,
+        ).catch(() => ({}));
         const chats = Object.entries(access)
           .map(([chatId, level]) => ({
             chatId,
             level,
             conversationId: mapping?.chats[chatId],
             title: meta[chatId]?.title,
+            chatName: meta[chatId]?.chatName,
+            chatOwner: meta[chatId]?.chatOwner,
+            members: meta[chatId]?.members,
           }))
           .sort((left, right) => left.level.localeCompare(right.level) || left.chatId.localeCompare(right.chatId));
         return send(res, 200, {

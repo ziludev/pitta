@@ -131,6 +131,12 @@ export function AccessPanel() {
                     <span className={`size-1.5 shrink-0 rounded-full ${LEVEL_DOT[row.level]}`} />
                     <span className="min-w-0 flex-1 truncate text-[11px]" title={row.chatId}>
                       {chatLabel(row)}
+                      {row.chatOwner === undefined ? null : (
+                        <span className="ml-1 text-[9.5px] text-muted-foreground/60">
+                          群主 …{row.chatOwner.slice(-6)}
+                          {row.members === undefined ? "" : ` · ${row.members} 人`}
+                        </span>
+                      )}
                     </span>
                     {row.conversationId === undefined ? null : (
                       <span className="shrink-0 font-mono text-[10px] text-muted-foreground/60">
