@@ -62,7 +62,7 @@ const HELP = [
   "- `/memory` 看记忆内容",
   "- `/memo` 看本群专属记忆；`/memo add 内容` 添加；`/memo del 3` 删第 3 条；`/memo clear` 清空",
   "- `/project` 看/切换工作仓库（带参数即切换）",
-  "- `/id` 当前 chat 与 conversation",
+  "- `/id` 当前 chat / conversation / 模型（话题里会显示该话题用的模型）",
   "- `/model` 换本会话模型（卡片按钮）；`/model <id>`、`/model thinking high`、`/model default <id>`",
   "",
   "直接说话就行：能查文件、跑命令、定时提醒、记长期记忆。",
@@ -1271,9 +1271,19 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     }
     if (/^\/(id|会话)$/i.test(command)) {
       const currentProjectId = await runtime.projectOfConversation(conversation.id as unknown as number);
+      // The model belongs on this line: in a topic fork it can differ from the chat's, and
+      // `fork: "asOf"` keeps it that way, so "which model answered here" needs an answer.
+      const plan = await conversation.agent(context).catch(() => undefined);
+      const model = plan?.model === undefined ? `${config.model.provider}/${config.model.modelId}` : `${plan.model.provider}/${plan.model.modelId}`;
+      const thinking = plan?.thinkingLevel ?? config.thinkingLevel;
       await sendText(
         chatId,
-        `chat: ${chatId}\nconversation: ${conversation.id}${threadKey === undefined ? "" : `\nthread: ${threadKey}（已 fork）`}\nproject: ${(await runtime.projects()).find((project) => project.id === currentProjectId)?.name ?? "workspace"}`,
+        [
+          `chat: ${chatId}`,
+          `conversation: ${conversation.id}${threadKey === undefined ? "" : `\nthread: ${threadKey}（已 fork）`}`,
+          `model: ${model} · thinking ${thinking}`,
+          `project: ${(await runtime.projects()).find((project) => project.id === currentProjectId)?.name ?? "workspace"}`,
+        ].join("\n"),
       );
       return;
     }
