@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { quoteBlock, quoteText, quotedParentId } from "../src/feishu.ts";
+import { quoteBlock, quoteText, quotedParentId, wantsThread } from "../src/feishu.ts";
 
 /**
  * A reply in Feishu carries the id of the message it answers, never its text, so "这个怎么改"
@@ -73,4 +73,10 @@ test("a quoted card keeps the words inside it", () => {
     elements: [[{ tag: "text", text: "example-service 已部署到测试环境" }]],
   });
   assert.equal(quoteText("interactive", card), "上线通知 example-service 已部署到测试环境");
+});
+
+test("a topic group always answers inside the topic, whatever the mention", () => {
+  const plain = { chat_type: "group", message_id: "om_1", mentions: [] } as never;
+  assert.equal(wantsThread(plain, true), true);
+  assert.equal(wantsThread(plain, false), false);
 });

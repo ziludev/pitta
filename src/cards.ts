@@ -12,6 +12,10 @@ export type PendingCard = {
   conversationId: number;
   /** Set once the submission exists, so another process can wait for its answer. */
   submissionId?: number;
+  /** The message that was answered: a recovered answer replies to it, not to the whole chat. */
+  messageId?: string;
+  /** Whether that message lives in a topic, so the recovered answer lands inside it too. */
+  thread?: boolean;
   /** Recovery attempts so far. A card that keeps failing is dropped instead of retried forever. */
   attempts?: number;
   at: number;
@@ -80,6 +84,15 @@ export async function noteCardAttempt(
     attempts = current.attempts;
   }, context);
   return attempts;
+}
+
+/**
+ * Whether a card is still marked pending. The live turn clears the mark in its `finally`, right after
+ * it delivers — so a recovery that finds the mark gone has nothing left to deliver.
+ */
+export async function isCardPending(harness: Harness, context: Context, requestId: string): Promise<boolean> {
+  const doc = await harness.snapshot(PendingCards, context).catch(() => undefined);
+  return doc !== undefined && doc.cards[requestId] !== undefined;
 }
 
 /** Cards left over from a previous process, oldest first. */

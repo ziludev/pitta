@@ -17,7 +17,14 @@ const COMPACT_AFTER_MESSAGES = 400;
 import { agentName } from "./identity.ts";
 import { SurfaceMetaDoc, updateSurfaceMeta } from "./surface-meta.ts";
 import { transcribeAudio } from "./asr.ts";
-import { attachSubmission, clearCardPending, leftoverCards, markCardPending, noteCardAttempt } from "./cards.ts";
+import {
+  attachSubmission,
+  clearCardPending,
+  isCardPending,
+  leftoverCards,
+  markCardPending,
+  noteCardAttempt,
+} from "./cards.ts";
 import { readTurnDetails, saveTurnDetails, type TurnDetails } from "./details.ts";
 import {
   adoptChatLevels,
@@ -511,10 +518,13 @@ type PendingApproval = {
  * Feishu collapses thread replies behind "N 条回复", which is the trade-off the owner
  * asked for; "always"/"never" override the whole rule.
  */
-export function wantsThread(message: NonNullable<IncomingMessage["message"]>): boolean {
+export function wantsThread(
+  message: NonNullable<IncomingMessage["message"]>,
+  topicGroup = false,
+): boolean {
   const mode = config.feishu.replyInThread;
   if (message.chat_type !== "group" || mode === "never") return false;
-  if (mode === "always") return true;
+  if (mode === "always" || topicGroup) return true;
   const alreadyInThread = message.thread_id !== undefined && message.thread_id !== message.message_id;
   const addressed = (message.mentions ?? []).length > 0;
   return alreadyInThread || addressed;
@@ -577,6 +587,31 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     await client.im.message.create({
       params: { receive_id_type: "chat_id" },
       data: { receive_id: chatId, msg_type: "text", content: JSON.stringify({ text }) },
+    });
+  }
+
+  /**
+   * A message for a turn that may be over: reply to what was asked, inside its topic when it had one.
+   * Posting to the chat instead put a recovered answer outside the topic, and as a second copy of an
+   * answer the live turn had already delivered.
+   */
+  async function replyOrSend(
+    chatId: string,
+    messageId: string | undefined,
+    thread: boolean | undefined,
+    text: string,
+  ): Promise<void> {
+    if (messageId === undefined) {
+      await sendText(chatId, text);
+      return;
+    }
+    await client.im.message.reply({
+      path: { message_id: messageId },
+      data: {
+        msg_type: "text",
+        content: JSON.stringify({ text }),
+        ...(thread === true ? { reply_in_thread: true } : {}),
+      },
     });
   }
 
@@ -962,6 +997,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     log("feishu", "group opened as guest chat", { chatId });
   }
 
+  /** Replies in a topic group belong inside the topic, whoever started it. */
+  const threadFor = (message: NonNullable<IncomingMessage["message"]>): boolean =>
+    wantsThread(message, topicChats.get(message.chat_id ?? "") === true);
+
   async function handle(event: IncomingMessage): Promise<void> {
     const message = event.message;
     if (message?.message_id === undefined || message.chat_id === undefined) return;
@@ -975,7 +1014,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     const level = levelOf(message.chat_id, access, config.feishu.allowedChatIds);
     // A group's own name belongs in the rail; the event never carries it, so ask once.
     if (level !== "closed" && message.chat_id.startsWith("oc_")) {
-      void rememberChatInfo(message.chat_id).catch(() => {});
+      // Awaited: whether this is a topic group decides where the answer goes, and the lookup is
+      // cached after the chat's first message.
+      await rememberChatInfo(message.chat_id).catch(() => {});
     }
     const isGuestChat = isGuestLevel(level);
     const reason = rejectionReason(event, parsed, level, isOwner);
@@ -1117,7 +1158,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
 
     if (/^\/(help|帮助)$/i.test(command)) {
       await replyCard(message.message_id, HELP, "💡 命令一览", {
-        thread: wantsThread(message),
+        thread: threadFor(message),
         mention: mentionFor(event, message),
       });
       return;
@@ -1184,7 +1225,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
           lines.join("\n"),
           "🤖 模型",
           {
-            thread: wantsThread(message),
+            thread: threadFor(message),
             mention: mentionFor(event, message),
             buttons: picks.map((id) => ({
               label: id.split("/").pop() ?? id,
@@ -1264,7 +1305,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
           message.message_id,
           `当前仓库：${projects.find((p) => p.id === currentId)?.name ?? "workspace"}\n\n${lines.join("\n")}\n\n切换：\`/project ${projects[0]?.name ?? "名字"}\``,
           "📦 项目",
-          { thread: wantsThread(message), mention: mentionFor(event, message) },
+          { thread: threadFor(message), mention: mentionFor(event, message) },
         );
         return;
       }
@@ -1296,7 +1337,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
                 .map((note, index) => `${index + 1}. ${note.text}`)
                 .join("\n")}\n\n\`/memo add 内容\` · \`/memo del 序号\` · \`/memo clear\``;
         await replyCard(message.message_id, body, "📌 本群记忆", {
-          thread: wantsThread(message),
+          thread: threadFor(message),
           mention: mentionFor(event, message),
         });
         return;
@@ -1372,7 +1413,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
 
     log("feishu", "turn start", { chatId, conversationId: conversation.id, type: message.message_type });
     const inGroup = message.chat_type === "group";
-    const replyOptions = { thread: wantsThread(message), mention: mentionFor(event, message) };
+    const replyOptions = { thread: threadFor(message), mention: mentionFor(event, message) };
     const cardId = await replyCard(
       message.message_id,
       parsed.audioKey !== undefined
@@ -1393,6 +1434,8 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       cardId,
       chatId,
       conversationId: conversation.id as unknown as number,
+      messageId: message.message_id,
+      thread: threadFor(message),
     }).catch((error) =>
       logError("feishu", "could not record pending card", error),
     );
@@ -1609,24 +1652,36 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
   }
 
 /** Feishu's own name for a chat, and whose it is. */
-async function chatInfo(chatId: string): Promise<{ name?: string; owner?: string; members?: number } | undefined> {
+async function chatInfo(
+  chatId: string,
+): Promise<{ name?: string; owner?: string; members?: number; topic?: boolean } | undefined> {
   const response = await client
     .request({ method: "GET", url: `/open-apis/im/v1/chats/${chatId}` })
     .catch((error: unknown) => {
       logError("feishu", "could not read the chat info", error);
       return undefined;
     });
-  const data = (response as { data?: { name?: string; owner_id?: string; user_count?: number } })?.data;
+  const data = (
+    response as {
+      data?: { name?: string; owner_id?: string; user_count?: number; chat_mode?: string; group_message_type?: string };
+    }
+  )?.data;
   if (data === undefined) return undefined;
   return {
     ...(data.name === undefined || data.name.length === 0 ? {} : { name: data.name }),
     ...(data.owner_id === undefined ? {} : { owner: data.owner_id }),
     ...(typeof data.user_count === "number" ? { members: data.user_count } : {}),
+    // A topic group: `group_message_type` is "thread", and every message is its own topic, so an
+    // inline answer would start a new topic instead of continuing the conversation.
+    ...(data.group_message_type === "thread" || data.chat_mode === "topic" ? { topic: true } : {}),
   };
 }
 
 /** Names this process already asked for, so a busy group costs one API call, not one per message. */
 const chatNamesKnown = new Set<string>();
+
+/** Topic groups by chat id: known as soon as the chat's info is fetched once. */
+const topicChats = new Map<string, boolean>();
 
 /** Once per chat: store Feishu's name (a title the owner set wins) and whose group it is. */
 async function rememberChatInfo(chatId: string): Promise<void> {
@@ -1635,7 +1690,9 @@ async function rememberChatInfo(chatId: string): Promise<void> {
   const info = await chatInfo(chatId);
   if (info === undefined) return;
   const meta = (await runtime.harness.snapshot(SurfaceMetaDoc, context).catch(() => undefined))?.surfaces[chatId];
+  topicChats.set(chatId, info.topic === true);
   await updateSurfaceMeta(runtime.harness, context, chatId, {
+    ...(info.topic === undefined ? {} : { topic: info.topic }),
     ...(info.name === undefined ? {} : { chatName: info.name }),
     ...(info.owner === undefined ? {} : { chatOwner: info.owner }),
     ...(info.members === undefined ? {} : { members: info.members }),
@@ -1856,11 +1913,20 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
             context,
           );
           const total = duration(Date.now() - card.at);
+          // The run may have been resumed by the new process's own turn handler, which delivers the
+          // answer and clears the mark. Delivering it here as well is what posted the same message
+          // twice — once inside the topic as a card, once in the chat as text.
+          if (!(await isCardPending(runtime.harness, context, card.requestId))) {
+            log("feishu", "recovered answer already delivered by the live turn", { cardId: card.cardId });
+            return;
+          }
           log("feishu", "recovered delivery footer", `${startedAt} 起 · ${total}`);
           if (settled.status === "done" && settled.answer !== undefined && conversation !== undefined) {
             const answer = await runtime.answerText(conversation, settled.answer);
-            await sendText(
+            await replyOrSend(
               card.chatId,
+              card.messageId,
+              card.thread,
               `${answer.length > 0 ? answer : "（模型没有返回文本）"}\n\n—— ✅ ${total}（${startedAt} 起，中途进程重启过）`,
             );
             log("feishu", "recovered answer delivered", { chatId: card.chatId, chars: answer.length, total });
@@ -1870,8 +1936,10 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
               `进程重启过，把上次那条答完了（${startedAt} 起，${total}）`,
             );
           } else {
-            await sendText(
+            await replyOrSend(
               card.chatId,
+              card.messageId,
+              card.thread,
               settled.reason === "turn_limit"
                 ? `上次那条跑到 ${config.maxTurns} 步上限就停了（工作是接着跑的，进度都在）。回一句「继续」我接着做。`
                 : `上次那条没答出来：${settled.reason ?? "unanswered"}（${startedAt} 起，${total}）`,
@@ -1879,7 +1947,9 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
           }
         } catch (error) {
           logError("feishu", "could not recover answer", error);
-          await sendText(card.chatId, "上次那条恢复失败，麻烦再发一次。").catch(() => {});
+          await replyOrSend(card.chatId, card.messageId, card.thread, "上次那条恢复失败，麻烦再发一次。").catch(
+            () => {},
+          );
         } finally {
           await clearCardPending(runtime.harness, context, card.requestId).catch(() => {});
         }

@@ -14,6 +14,8 @@ export type SurfaceMeta = {
   chatOwner?: string;
   /** Members, when the API reports it. */
   members?: number;
+  /** A topic group (话题群): every message is a topic, so answers must go inside one. */
+  topic?: boolean;
 };
 
 /**
