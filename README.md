@@ -26,6 +26,7 @@ CLI      ─┘
 |---|---|
 | 飞书 | 群/单聊各自一个 conversation；群里 @ 才响应；**被 @ 就回在话题里**（群里不刷屏），话题里的追问 → 该话题独立 fork |
 | 客户端 | 自建会话（每个自动分配 git worktree）、流式渲染、步骤时间线（见下） |
+| 模型 | 飞书里 `/model` 一张卡片换本会话模型（也可 `/model <id>`、`/model thinking high`、`/model default <id>`，只有主人能发）；卡片底部那行写明本轮用的模型、thinking 档、token 与花费 |
 | CLI | `durable ask "…"` / `durable chat`（REPL）、`durable sessions` |
 | 输入 | 文字、图片（飞书 image/post 消息；客户端粘贴截图）、语音（本地 whisper） |
 | 中断 | `/stop`、客户端停止按钮；后台任务不受影响 |

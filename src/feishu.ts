@@ -2,6 +2,7 @@ import { readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as Lark from "@larksuiteoapi/node-sdk";
+import { UsageDoc } from "@earendil-works/pi-durable";
 import { config, requireFeishuCredentials, requireFeishuOwner } from "./config.ts";
 import { context, type AgentRuntime } from "./harness.ts";
 import { watchLive, type LiveSnapshot } from "./live.ts";
@@ -62,6 +63,7 @@ const HELP = [
   "- `/memo` 看本群专属记忆；`/memo add 内容` 添加；`/memo del 3` 删第 3 条；`/memo clear` 清空",
   "- `/project` 看/切换工作仓库（带参数即切换）",
   "- `/id` 当前 chat 与 conversation",
+  "- `/model` 换本会话模型（卡片按钮）；`/model <id>`、`/model thinking high`、`/model default <id>`",
   "",
   "直接说话就行：能查文件、跑命令、定时提醒、记长期记忆。",
 ].join("\n");
@@ -239,6 +241,48 @@ export function parseContent(message: NonNullable<IncomingMessage["message"]>): 
     return { text: stripMentions(message, lines.join("\n")), imageKeys };
   }
   return { text: "", imageKeys: [] };
+}
+
+/** `/model` forms: list, one id, `default <id>`, `thinking <level>`. */
+export type ModelCommand =
+  | { kind: "list" }
+  | { kind: "set"; modelId: string }
+  | { kind: "default"; modelId: string }
+  | { kind: "thinking"; level: string };
+
+export function parseModelCommand(raw: string): ModelCommand {
+  const arg = raw.trim();
+  if (arg.length === 0) return { kind: "list" };
+  const [head, ...rest] = arg.split(/\s+/);
+  const tail = rest.join(" ").trim();
+  if (head === "default" && tail.length > 0) return { kind: "default", modelId: tail };
+  if (head === "thinking" && tail.length > 0) return { kind: "thinking", level: tail };
+  return { kind: "set", modelId: arg };
+}
+
+/** 12.3k / 940: the card line has no room for six digits. */
+export function formatTokens(tokens: number): string {
+  if (!Number.isFinite(tokens) || tokens <= 0) return "0";
+  return tokens >= 1_000 ? `${(tokens / 1000).toFixed(1)}k` : String(Math.round(tokens));
+}
+
+/** What a finished turn cost, in one line under the card: time, tools, tokens, money, model. */
+export function turnMeta(input: {
+  seconds: number;
+  startedAt: string;
+  tools: number;
+  tokens: number;
+  costUsd: number;
+  model: string;
+  thinking: string;
+}): string {
+  const parts = [`✅ ${input.seconds}s（${input.startedAt} 起）`];
+  if (input.tools > 0) parts.push(`${input.tools} 个工具`);
+  if (input.tokens > 0) parts.push(`${formatTokens(input.tokens)} tokens`);
+  if (input.costUsd > 0.00005) parts.push(`$${input.costUsd.toFixed(4)}`);
+  if (input.model.length > 0) parts.push(input.model);
+  if (input.thinking.length > 0) parts.push(`thinking ${input.thinking}`);
+  return parts.join(" · ");
 }
 
 /** A quoted message, as the model needs it: who wrote it and what it said. */
@@ -549,14 +593,14 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     messageId: string,
     markdown: string,
     meta?: string,
-    options: { thread?: boolean; mention?: string } = {},
+    options: { thread?: boolean; mention?: string; buttons?: CardButton[] } = {},
   ): Promise<string | undefined> {
     const body = options.mention === undefined ? markdown : `<at id=${options.mention}></at> ${markdown}`;
     const response = await client.im.message.reply({
       path: { message_id: messageId },
       data: {
         msg_type: "interactive",
-        content: JSON.stringify(card(body, meta ?? "▶️ 处理中")),
+        content: JSON.stringify(card(body, meta ?? "▶️ 处理中", options.buttons)),
         // Group replies stay in one thread: the timeline stays readable and the
         // thread itself becomes the conversation (our fork logic keys on thread_id).
         ...(options.thread === true ? { reply_in_thread: true } : {}),
@@ -689,6 +733,22 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
   async function handleCardAction(payload: CardAction): Promise<Record<string, unknown>> {
     const receivedAt = Date.now();
     const value = payload.action?.value ?? {};
+
+    if (value["kind"] === "set-model") {
+      const operator = payload.operator?.open_id ?? "";
+      if (!isOwnerOperator(operator)) return { toast: { type: "warning", content: "只有主人能换模型" } };
+      const target = Number(value["conversationId"]);
+      const provider = typeof value["provider"] === "string" ? value["provider"] : "magpie";
+      const modelId = typeof value["modelId"] === "string" ? value["modelId"] : "";
+      if (!Number.isFinite(target) || modelId.length === 0) return { toast: { type: "error", content: "缺少模型或会话" } };
+      const conversation = await runtime.harness
+        .conversation(target as never, context)
+        .catch(() => undefined);
+      if (conversation === undefined) return { toast: { type: "error", content: "会话不在了" } };
+      await runtime.setModel(conversation, { provider, modelId });
+      log("feishu", "model switched from a card", { conversationId: target, modelId });
+      return { toast: { type: "success", content: `已切到 ${modelId}（下一轮生效）` } };
+    }
 
     if (value["kind"] === "open-chat") {
       const operator = payload.operator?.open_id ?? "";
@@ -1031,6 +1091,81 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       await sendText(chatId, "已中断当前任务。");
       return;
     }
+    const modelAsk = /^\/(?:model|模型)(?:\s+([\s\S]*))?$/i.exec(command);
+    if (modelAsk !== null) {
+      if (!isOwner) {
+        await sendText(chatId, "只有主人能换模型。").catch(() => {});
+        return;
+      }
+      const agent = await conversation.agent(context).catch(() => undefined);
+      const provider = agent?.model?.provider ?? config.model.provider;
+      const modelId = agent?.model?.modelId ?? config.model.modelId;
+      const thinking = agent?.thinkingLevel ?? config.thinkingLevel;
+      const catalog = runtime.models().filter((entry) => entry.provider === "magpie");
+      const known = new Map(catalog.map((entry) => [entry.id, entry]));
+      const ask = parseModelCommand(modelAsk[1] ?? "");
+
+      if (ask.kind === "list") {
+        const defaultId = (await runtime.defaultModel().catch(() => undefined))?.modelId;
+        // Five buttons fit a card; the rest is `/model <id>`.
+        const picks = [modelId, defaultId ?? "", ...catalog.filter((entry) => !entry.id.startsWith("auto/") && !entry.id.startsWith("group/")).map((entry) => entry.id)]
+          .filter((id, index, all) => id.length > 0 && all.indexOf(id) === index)
+          .slice(0, 5);
+        const lines = [
+          `当前：\`${provider}/${modelId}\` · thinking **${thinking}**`,
+          defaultId === undefined || defaultId.length === 0 ? "" : `默认：\`${defaultId}\`（新会话用它）`,
+          "",
+          "点一个换本会话，或 `/model <id>`、`/model thinking high`、`/model default <id>`",
+        ].filter((line) => line.length > 0);
+        await replyCard(
+          message.message_id,
+          lines.join("\n"),
+          "🤖 模型",
+          {
+            thread: wantsThread(message),
+            mention: mentionFor(event, message),
+            buttons: picks.map((id) => ({
+              label: id.split("/").pop() ?? id,
+              value: { kind: "set-model", conversationId: conversation.id as unknown as number, provider: "magpie", modelId: id },
+              type: id === modelId ? ("primary" as const) : ("default" as const),
+            })),
+          },
+        );
+        return;
+      }
+
+      if (ask.kind === "default") {
+        const entry = known.get(ask.modelId);
+        if (entry === undefined) {
+          await sendText(chatId, `没有这个模型：${ask.modelId}\n可用的有：${catalog.slice(0, 6).map((item) => item.id).join("、")}`).catch(() => {});
+          return;
+        }
+        await runtime.setDefaultModel({ provider: "magpie", modelId: ask.modelId });
+        await sendText(chatId, `默认模型已改为 ${ask.modelId}（新会话生效，当前会话不变）`);
+        return;
+      }
+
+      if (ask.kind === "thinking") {
+        const levels = known.get(modelId)?.thinkingLevels ?? [];
+        if (levels.length > 0 && !levels.includes(ask.level)) {
+          await sendText(chatId, `思考档位只能是：${levels.join(" / ")}`).catch(() => {});
+          return;
+        }
+        await runtime.setModel(conversation, { provider, modelId, thinkingLevel: ask.level });
+        await sendText(chatId, `本会话 thinking 改为 **${ask.level}**（下一轮生效）`.replace(/\*\*/g, ""));
+        return;
+      }
+
+      const entry = known.get(ask.modelId);
+      if (entry === undefined) {
+        await sendText(chatId, `没有这个模型：${ask.modelId}\n可用的有：${catalog.slice(0, 6).map((item) => item.id).join("、")}`).catch(() => {});
+        return;
+      }
+      await runtime.setModel(conversation, { provider: "magpie", modelId: ask.modelId, thinkingLevel: thinking });
+      await sendText(chatId, `本会话已切到 ${ask.modelId}（下一轮生效）`);
+      return;
+    }
+
     if (/^\/(cost|花费|额度)$/i.test(command)) {
       const budget = await runtime.budget(chatId);
       const limit = budget.limit <= 0 ? "未设上限" : `$${budget.limit.toFixed(2)}`;
@@ -1144,6 +1279,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     }
 
     const budget = await runtime.budget(chatId);
+    const tokensBefore = await tokenTotals(conversation.id as unknown as number).catch(() => ({ total: 0, byModel: new Map() }));
     if (!budget.allowed) {
       await sendText(
         chatId,
@@ -1268,9 +1404,29 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         log("feishu", "answer read", { chars: answer.length });
         const after = await runtime.budget(chatId).catch(() => undefined);
         const cost = after === undefined ? 0 : Math.max(0, after.spentToday - budget.spentToday);
-        const meta = `✅ ${seconds}s（${clock(startedAt)} 起）${
-          toolsUsed.size > 0 ? ` · ${toolsUsed.size} 个工具` : ""
-        }${cost > 0.00005 ? ` · $${cost.toFixed(4)}` : ""}`;
+        const tokensAfter = await tokenTotals(conversation.id as unknown as number).catch(() => ({
+          total: tokensBefore.total,
+          byModel: new Map<string, number>(),
+        }));
+        let modelUsed = "";
+        let biggest = 0;
+        for (const [key, tokens] of tokensAfter.byModel) {
+          const delta = tokens - (tokensBefore.byModel.get(key) ?? 0);
+          if (delta > biggest) {
+            biggest = delta;
+            modelUsed = key.split("/").pop() ?? key;
+          }
+        }
+        const agentPlan = await conversation.agent(context).catch(() => undefined);
+        const meta = turnMeta({
+          seconds,
+          startedAt: clock(startedAt),
+          tools: toolsUsed.size,
+          tokens: Math.max(0, tokensAfter.total - tokensBefore.total),
+          costUsd: cost,
+          model: modelUsed,
+          thinking: String(agentPlan?.thinkingLevel ?? ""),
+        });
         let buttons: CardButton[] | undefined;
         if (settled.entry !== undefined) {
           const steps = await runtime
@@ -1362,6 +1518,19 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       await clearCardPending(runtime.harness, context, requestId).catch(() => {});
     }
   }
+
+/** Per-model token totals of one conversation, so a turn's spend is a difference. */
+async function tokenTotals(conversationId: number): Promise<{ total: number; byModel: Map<string, number> }> {
+  const doc = await runtime.harness.snapshot(UsageDoc, conversationId as never, context).catch(() => undefined);
+  const byModel = new Map<string, number>();
+  let total = 0;
+  for (const [key, usage] of Object.entries(doc?.models ?? {})) {
+    const tokens = Number((usage as { totalTokens?: number }).totalTokens ?? 0);
+    byModel.set(key, tokens);
+    total += tokens;
+  }
+  return { total, byModel };
+}
 
   /** One quoted message by id; undefined when it cannot be read (deleted, no scope, gone). */
   async function readQuoted(parentId: string): Promise<Quoted | undefined> {
