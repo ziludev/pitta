@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="知衡">
+  <defs>
+    <linearGradient id="ink" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#16283F"/>
+      <stop offset="1" stop-color="#0A1421"/>
+    </linearGradient>
+    <!-- userSpaceOnUse: the brim is a horizontal line, whose bounding box has no height -->
+    <linearGradient id="mint" gradientUnits="userSpaceOnUse" x1="150" y1="160" x2="360" y2="350">
+      <stop offset="0" stop-color="#8CF7D8"/>
+      <stop offset="1" stop-color="#2FC79C"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.45" r="0.52">
+      <stop offset="0" stop-color="#2FC79C" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="#2FC79C" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#ink)"/>
+  <circle cx="256" cy="240" r="188" fill="url(#glow)"/>
+
+  <!-- the letter as a little figure: a wide brim, two legs, two eyes between them -->
+  <g stroke="url(#mint)" stroke-width="48" stroke-linecap="round" fill="none">
+    <path d="M138 184 H374"/>
+    <path d="M196 184 V326"/>
+    <path d="M316 184 V326"/>
+  </g>
+  <g fill="#B9FBE8">
+    <circle cx="240" cy="250" r="12"/>
+    <circle cx="272" cy="250" r="12"/>
+  </g>
+</svg>
