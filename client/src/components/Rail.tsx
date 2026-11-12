@@ -18,7 +18,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { BotAvatar } from "@/components/BotAvatar";
-import type { AvatarMood } from "@/lib/avatar";
+import { AVATAR_TONES, type AvatarMood } from "@/lib/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -273,6 +273,8 @@ export function Rail() {
 
   // The face follows the work: thinking while a turn or a task runs, one happy beat when it stops.
   const running = busy || liveTasks.length > 0;
+  // Colour says *who* is working: a delegated subagent or background task is not the same as the
+  // assistant answering in this chat, and the rail has no text to say so.
   const [mood, setMood] = useState<AvatarMood>("idle");
   const wasRunning = useRef(false);
   useEffect(() => {
@@ -288,6 +290,11 @@ export function Rail() {
     const timer = setTimeout(() => setMood("idle"), 2_500);
     return () => clearTimeout(timer);
   }, [running]);
+
+  // Colour says *who* is working: a delegated subagent or background task is not the same as the
+  // assistant answering in this chat, and the rail has no text to say so.
+  const tone =
+    liveTasks.length > 0 ? AVATAR_TONES.delegated : mood === "happy" ? AVATAR_TONES.done : AVATAR_TONES.idle;
 
   function onDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -322,7 +329,7 @@ export function Rail() {
     <div className="flex h-full min-h-0 flex-col bg-card/40">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <BotAvatar mood={mood} />
+          <BotAvatar mood={mood} tone={tone} />
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold tracking-tight">Agent</div>
             <div className={`truncate text-[11px] ${busy ? "text-primary" : "text-muted-foreground"}`}>

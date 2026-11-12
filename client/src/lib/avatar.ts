@@ -21,4 +21,17 @@ export const PIE: AvatarDefinition = {
 export const AVATAR_COLOR = "#E8A33D";
 export const AVATAR_EYE_COLOR = "#2A1A0C";
 
+/**
+ * Body colour by what is running. Amber is the bot itself; a delegated subagent gets its own colour so
+ * background work is visible at a glance, and a short teal beat marks the moment it finished.
+ */
+export type AvatarTone = { color: string; eyeColor: string };
+
+export const AVATAR_TONES: Record<"idle" | "delegated" | "done", AvatarTone> = {
+  idle: { color: AVATAR_COLOR, eyeColor: AVATAR_EYE_COLOR },
+  // Violet eyes read muddy in brown, so the delegated tone brings its own ink.
+  delegated: { color: "#6C7BF5", eyeColor: "#101233" },
+  done: { color: "#14B3A5", eyeColor: "#04211F" },
+};
+
 export type AvatarMood = "idle" | "thinking" | "happy";
