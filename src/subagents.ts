@@ -271,9 +271,19 @@ async function runStage(
       { type: "input", content: prompt, requestId: `feature:${String(task.id)}:${key}` },
       context,
     );
-    const settled = await submission.wait(context);
+    let settled = await submission.wait(context);
+    // A stage that ran out of steps is not a failed stage: the work is in its transcript, so ask
+    // for the rest the same way the chat does, up to three times.
+    for (let round = 1; round <= 3 && settled.status === "unanswered" && settled.reason === "turn_limit"; round += 1) {
+      log("feature", `${role} hit the step limit, continuing`, { key, round });
+      const more = await child.submit({ type: "continue", requestId: `feature:${String(task.id)}:${key}:c${round}` }, context);
+      settled = await more.wait(context);
+    }
     if (settled.status !== "done" || settled.answer === undefined) {
-      return { ok: false, error: `${role} 没答出来：${settled.reason ?? "unanswered"}` };
+      return {
+        ok: false,
+        error: `${role} 没答出来：${settled.reason ?? "unanswered"}${settled.detail === undefined ? "" : `（${String(settled.detail)}）`}`,
+      };
     }
     // Read through a transaction: the plain `runtime.entry()` record did not carry the
     // model messages, which silently produced empty stage output.
@@ -331,8 +341,9 @@ async function report(
     return undefined;
   }, context);
   const surfaceId = surfaceForConversation(task.input.parentConversationId) ?? task.input.surfaceId;
+  const headline = text.startsWith("❌") ? "🧩 需求没做完" : "🧩 需求做完了";
   if (surfaceId.length > 0) {
-    await notify(surfaceId, `🧩 需求做完了\n\n${text.slice(0, 3000)}`).catch((error) =>
+    await notify(surfaceId, `${headline}\n\n${text.slice(0, 3000)}`).catch((error) =>
       logError("feature", "could not notify", error),
     );
   }

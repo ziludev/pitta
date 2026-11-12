@@ -7,6 +7,11 @@ export type Role = {
   instructions: string;
   /** Which of the coding tools the role may use. */
   tools: "read" | "write" | "full" | "none";
+  /**
+   * Steps one stage may take. A stage reads before it writes — a design document means exploring a
+   * real repository — so a limit tuned for a single answer cut stages off mid-work (designer at 20,
+   * implementer at 40) and the pipeline failed on `turn_limit` rather than on the work.
+   */
   maxTurns: number;
 };
 
@@ -21,7 +26,7 @@ export const ROLES: Record<RoleName, Role> = {
     instructions: `${shared}
 你的角色：把需求拆成可执行的步骤，标出依赖、风险和验收标准。不要写代码、不要写文档正文，只给拆解结果（步骤列表 + 每步产出物）。`,
     tools: "read",
-    maxTurns: 12,
+    maxTurns: 24,
   },
   designer: {
     title: "写设计文档",
@@ -31,7 +36,7 @@ export const ROLES: Record<RoleName, Role> = {
 1) 文件路径 2) 不超过 200 字的方案摘要 3) 给实现者的注意事项清单。
 不要改业务代码，不要写测试。`,
     tools: "write",
-    maxTurns: 20,
+    maxTurns: 50,
   },
   implementer: {
     title: "实现",
@@ -40,7 +45,7 @@ export const ROLES: Record<RoleName, Role> = {
 先读设计文档再动手；实现完必须自己运行一次（构建或最小可跑验证），把命令和输出贴出来。
 回复结构：改动清单（文件 -> 一句话）/ 验证命令与结果 / 遗留问题。`,
     tools: "full",
-    maxTurns: 40,
+    maxTurns: 100,
   },
   tester: {
     title: "写测试",
@@ -49,7 +54,7 @@ export const ROLES: Record<RoleName, Role> = {
 覆盖：正常路径、边界、错误路径。测试写到项目约定位置；跑不起来要说明原因而不是假装通过。
 回复结构：新增测试文件 / 覆盖点清单 / 运行命令与结果（通过数/失败数）/ 发现的缺陷。`,
     tools: "full",
-    maxTurns: 30,
+    maxTurns: 60,
   },
   reviewer: {
     title: "评审",
