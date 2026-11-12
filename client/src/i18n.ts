@@ -8,6 +8,7 @@ export type Lang = "zh" | "en";
 const dict = {
   zh: {
     sessions: "会话",
+    otherProjects: "其他项目",
     running: "运行中",
     changes: "改动",
     commits: "提交",
@@ -184,6 +185,7 @@ const dict = {
   },
   en: {
     sessions: "Sessions",
+    otherProjects: "Other projects",
     running: "Running",
     changes: "Changes",
     commits: "Commits",

@@ -193,6 +193,8 @@ export function Rail() {
     setSurfaceFilter,
     feishu,
     currentProject,
+    projects,
+    setProject,
     newChat,
     showArchived,
     toggleShowArchived,
@@ -246,6 +248,19 @@ export function Rail() {
     nested.push({ surface, topic: false });
     for (const child of childrenOf.get(surface.conversationId) ?? []) nested.push({ surface: child, topic: true });
   }
+
+  // Every other project that has conversations, biggest first.
+  const otherProjects = projects
+    .filter((project) => project.id !== currentProject)
+    .map((project) => ({
+      id: project.id,
+      name: project.name,
+      count: surfaces.filter(
+        (surface) => (surface.projectId ?? "workspace") === project.id && (showArchived || surface.archived !== true),
+      ).length,
+    }))
+    .filter((entry) => entry.count > 0)
+    .sort((left, right) => right.count - left.count);
 
   // Infrastructure tasks (usage sampling) and internal pi.* tasks are noise here:
   // the rail shows the work the owner started.
@@ -386,6 +401,24 @@ export function Rail() {
           </SortableContext>
         </DndContext>
       </ScrollArea>
+
+      {/* The rail lists one project at a time; this says what the others hold, so a project jump
+          never looks like the list lost its conversations. */}
+      {otherProjects.length === 0 ? null : (
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 border-t border-border/50 px-2.5 py-1 text-[10px] text-muted-foreground/70">
+          <span className="shrink-0">{tr(lang, "otherProjects")}</span>
+          {otherProjects.map((entry) => (
+            <button
+              key={entry.id}
+              onClick={() => setProject(entry.id)}
+              title={`切到 ${entry.name}（${entry.count} 个会话）`}
+              className="shrink-0 rounded border border-border/50 px-1 tabular-nums transition hover:border-primary/40 hover:text-foreground"
+            >
+              {entry.name} {entry.count}
+            </button>
+          ))}
+        </div>
+      )}
 
       {liveTasks.length === 0 ? null : (
         <>
