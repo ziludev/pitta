@@ -60,3 +60,17 @@ test("a topic message is not a quote unless it points at something else", () => 
   assert.equal(quotedParentId({}), "");
   assert.equal(quotedParentId({ parent_id: "om_self", message_id: "om_self" }), "");
 });
+
+test("a merged chat record says what it is and that its messages are unreadable", () => {
+  const quoted = quoteText("merge_forward", JSON.stringify({ title: "张浩与刘普昌的会话记录" }));
+  assert.match(quoted, /合并转发的聊天记录：张浩与刘普昌的会话记录/);
+  assert.match(quoted, /读不到/);
+});
+
+test("a quoted card keeps the words inside it", () => {
+  const card = JSON.stringify({
+    title: "上线通知",
+    elements: [[{ tag: "text", text: "example-service 已部署到测试环境" }]],
+  });
+  assert.equal(quoteText("interactive", card), "上线通知 example-service 已部署到测试环境");
+});

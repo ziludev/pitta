@@ -305,6 +305,44 @@ const quotedCache = new Map<string, { at: number; value: Quoted | undefined }>()
 const QUOTED_TTL_MS = 5 * 60_000;
 const QUOTED_CACHE_MAX = 200;
 
+/** The `title` of a merged-forward payload, when there is one. */
+function titleOf(content: string): string {
+  try {
+    const body = JSON.parse(content) as { title?: unknown };
+    return typeof body.title === "string" ? body.title.trim().slice(0, 120) : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Every `text`/`content` string inside a card JSON, in order — cards are deeply nested. */
+function cardText(content: string): string {
+  const parts: string[] = [];
+  const walk = (value: unknown, depth: number): void => {
+    if (depth > 8 || parts.join(" ").length > 1_500) return;
+    if (typeof value === "string") return;
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item, depth + 1);
+      return;
+    }
+    if (typeof value !== "object" || value === null) return;
+    for (const [key, item] of Object.entries(value)) {
+      if (typeof item === "string" && (key === "text" || key === "content" || key === "title")) {
+        const trimmed = item.replace(/\s+/g, " ").trim();
+        if (trimmed.length > 0) parts.push(trimmed);
+        continue;
+      }
+      walk(item, depth + 1);
+    }
+  };
+  try {
+    walk(JSON.parse(content), 0);
+  } catch {
+    return "";
+  }
+  return parts.join(" ");
+}
+
 /** The text of a quoted message, whatever kind it was: the model can act on words, not ids. */
 export function quoteText(
   msgType: string,
@@ -315,6 +353,17 @@ export function quoteText(
   if (msgType === "audio") return "（一条语音）";
   if (msgType === "file" || msgType === "media") return "（一个文件）";
   if (msgType === "sticker") return "（一个表情）";
+  // A merged chat record (会话记录) carries a title and nothing readable: the open API hands out the
+  // container, not its messages. Say so with the title, so the answer asks for the few lines that
+  // matter instead of guessing from a stale topic.
+  if (msgType === "merge_forward") {
+    const title = titleOf(content);
+    return `（合并转发的聊天记录${title.length > 0 ? `：${title}` : ""}。内容是很多条消息的打包，接口读不到，需要对方把关键几行贴成文字）`;
+  }
+  if (msgType === "interactive") {
+    const own = cardText(content);
+    return own.length > 0 ? own.slice(0, 1_200) : "（一张卡片，里面没有可读的文字）";
+  }
   const parsed = parseContent({ message_type: msgType, content, mentions } as never);
   const text = parsed.text.replace(/\s+/g, " ").trim();
   if (text.length > 0) return text.slice(0, 1_200);
