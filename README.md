@@ -1,4 +1,4 @@
-# pi-durable-agent
+# pitta
 
 跑在 [Pi Durable](https://earendil.com/posts/pi-durable/) 上的个人助理：飞书里聊、桌面上看、终端里也能用，进程挂了不丢对话。
 

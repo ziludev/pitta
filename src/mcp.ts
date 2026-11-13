@@ -76,7 +76,7 @@ export async function connectMcp(configPath: string, workspace: string): Promise
   const tools: ToolRegistration[] = [];
 
   for (const server of servers) {
-    const client = new McpClient({ name: "pi-durable-agent", version: "0.1.0", roots: [{ uri: `file://${workspace}`, name: "workspace" }] });
+    const client = new McpClient({ name: "pitta", version: "0.1.0", roots: [{ uri: `file://${workspace}`, name: "workspace" }] });
     try {
       await client.connect(connectTransport(server, workspace));
       type ListedTool = { name: string; description?: string; inputSchema?: object };
