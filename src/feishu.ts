@@ -97,7 +97,7 @@ function continueButton(messageId: string): CardButton[] {
  * The colour bar is the whole point: a green "答完了", an orange "到了步数上限" and a red
  * "出错了" sit in the same list, and the outcome has to be readable without opening it.
  */
-type CardHeader = { template: "green" | "orange" | "grey" | "red"; title: string };
+type CardHeader = { template: "green" | "orange" | "grey" | "red" | "blue"; title: string };
 
 /**
  * The steps of a turn as a folded panel in the answer card itself. It used to be a 「查看详情」
@@ -751,14 +751,14 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     messageId: string,
     markdown: string,
     meta?: string,
-    options: { thread?: boolean; mention?: string; buttons?: CardButton[] } = {},
+    options: { thread?: boolean; mention?: string; buttons?: CardButton[]; header?: CardHeader } = {},
   ): Promise<string | undefined> {
     const body = options.mention === undefined ? markdown : `<at id=${options.mention}></at> ${markdown}`;
     const response = await client.im.message.reply({
       path: { message_id: messageId },
       data: {
         msg_type: "interactive",
-        content: JSON.stringify(card(body, meta ?? "▶️ 处理中", options.buttons)),
+        content: JSON.stringify(card(body, meta ?? "▶️ 处理中", options.buttons, options.header)),
         // Group replies stay in one thread: the timeline stays readable and the
         // thread itself becomes the conversation (our fork logic keys on thread_id).
         ...(options.thread === true ? { reply_in_thread: true } : {}),
@@ -1563,7 +1563,9 @@ const continuing = new Set<string>();
           ? "🖼️ 看图…"
           : "🤔 收到，处理中…",
       undefined,
-      replyOptions,
+      // The card carries its status from the first frame, so it never starts as a bare message and
+      // then grows a header when it settles.
+      { ...replyOptions, header: { template: "blue", title: "⏳ 处理中" } },
     );
     if (cardId === undefined) {
       log("feishu", "reply card creation failed, continuing without streaming");
@@ -1765,10 +1767,10 @@ const continuing = new Set<string>();
         await deliverAnswer(
           chatId,
           cardId,
-          `⚠️ 这轮跑到 ${config.maxTurns} 步上限，续跑一次仍没收尾（活比较大，不是出错）。\n\n进度都在，点「继续」或回一句「继续」我接着做。`,
+          `这轮跑到 ${config.maxTurns} 步上限，续跑一次仍没收尾（活比较大，不是出错）。\n\n进度都在，点「继续」或回一句「继续」我接着做。`,
           `⏸️ ${seconds}s · 步数上限`,
           continueButton(message.message_id),
-          { template: "orange", title: "⏸️ 到了步数上限" },
+          { template: "orange", title: `⏸️ 到了 ${config.maxTurns} 步上限` },
         );
         if (seconds >= config.feishu.donePingSeconds) {
           await pingDone(
@@ -1779,16 +1781,17 @@ const continuing = new Set<string>();
           );
         }
       } else {
-        const text = `⚠️ 这次没有答出来：${settled.reason ?? "unanswered"}${
-          settled.detail === undefined ? "" : `\n\n${String(settled.detail)}`
-        }`;
+        // The header already carries the status and the reason; repeating them in the body made the
+        // card say 这次没答出来 twice.
+        const reason = settled.reason ?? "unanswered";
+        const text = settled.detail === undefined ? "" : `${String(settled.detail)}\n\n`;
         await deliverAnswer(
           chatId,
           cardId,
-          `${text}\n\n进度都在，点「继续」或回一句「继续」我接着做。`,
+          `${text}进度都在，点「继续」或回一句「继续」我接着做。`,
           `⏹️ ${seconds}s`,
           continueButton(message.message_id),
-          { template: "grey", title: "⚠️ 这次没答出来" },
+          { template: "grey", title: `⚠️ 这次没答出来 · ${reason}` },
         );
         if (seconds >= config.feishu.donePingSeconds) {
           await pingDone(chatId, message.message_id, `⚠️ 这条没答出来（${settled.reason ?? "unanswered"}）· ${seconds}s`, {
@@ -1801,7 +1804,7 @@ const continuing = new Set<string>();
       await deliverAnswer(
         chatId,
         cardId,
-        `❌ 出错：${(error as Error).message}\n\n进度都在，点「继续」可以接着做。`,
+        `原因：${(error as Error).message}\n\n进度都在，点「继续」可以接着做。`,
         "⏹️ 失败",
         continueButton(message.message_id),
         { template: "red", title: "❌ 出错了" },
