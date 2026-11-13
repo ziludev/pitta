@@ -1550,9 +1550,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
           model: modelUsed,
           thinking: String(agentPlan?.thinkingLevel ?? ""),
         });
-        // The step list is still recorded — the client reads it — but the card no longer offers
-        // "查看详情": in a group it was a button nobody pressed, and it made every answer look like a
-        // form. Cards already sent keep working, so the `detail` action stays handled.
+        // The step list is always recorded (the client reads it); the button under the answer is for
+        // a 1:1 chat only. In a group nobody pressed it and it made every answer look like a form.
+        let buttons: CardButton[] | undefined;
         if (settled.entry !== undefined) {
           const steps = await runtime
             .turnSteps(conversation, settled.entry as unknown as number, settled.answer as unknown as number)
@@ -1563,9 +1563,12 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
               seconds,
               costUsd: cost,
             }).catch((error) => logError("feishu", "could not save turn details", error));
+            if (message.chat_type !== "group") {
+              buttons = [{ label: "查看详情", value: { kind: "detail", messageId: message.message_id } }];
+            }
           }
         }
-        await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", meta);
+        await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", meta, buttons);
         if (seconds >= config.feishu.donePingSeconds) {
           await pingDone(
             chatId,
