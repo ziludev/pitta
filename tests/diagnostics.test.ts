@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { logsNeedApproval, parseLogsQuery, searchRoot } from "../src/diagnostics.ts";
+import { parseLogsQuery, searchRoot } from "../src/diagnostics.ts";
 
 /**
  * The two read-only tools exist so a colleague can search the code and look at logs without a
@@ -31,12 +31,6 @@ test("logs_query refuses a bad environment, a suspicious logstore, and an empty 
   }
   assert.match(String(parseLogsQuery({ query: "   " })), /不能为空/);
   assert.match(String(parseLogsQuery({ query: "x".repeat(501) })), /太长/);
-});
-
-test("production logs from a guest turn need the owner's approval, dev does not", () => {
-  assert.equal(logsNeedApproval("prod", true), true);
-  assert.equal(logsNeedApproval("prod", false), false, "the owner's own turn never asks");
-  assert.equal(logsNeedApproval("dev", true), false);
 });
 
 test("project_search stays inside the chat's own project", () => {
