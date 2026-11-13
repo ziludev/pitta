@@ -155,7 +155,7 @@ What to click in the Feishu developer console (open.feishu.cn → your app):
 | Menu | Set |
 |---|---|
 | 添加应用能力 | 机器人 |
-| 权限管理 | `im:message`, `im:message:send_as_bot`, `im:message.p2p_msg:readonly`, `im:message.group_at_msg:readonly`; add `im:message.group_msg` if you want topic replies without an @mention |
+| 权限管理 | `im:message`, `im:message:send_as_bot`, `im:message.p2p_msg:readonly`, `im:message.group_at_msg:readonly`; add `im:message.group_msg` if you want topic replies without an @mention; add `contact:user.base:readonly` so cards and quotes name people instead of showing `ou_…` |
 | 事件与回调 → 订阅方式 | **使用长连接接收事件** — no public IP, domain or certificate |
 | 事件与回调 → 回调 | `card.action.trigger` (the approval and Continue buttons) |
 | 事件与回调 → 事件 | `im.message.receive_v1` |

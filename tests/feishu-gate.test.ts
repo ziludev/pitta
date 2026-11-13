@@ -97,9 +97,12 @@ test("each group message carries who is speaking", async () => {
   const { speakerTag } = await import("../src/feishu.ts");
   const owner = "ou_0123456789abcdef0123456789abcdef";
   const { config } = await import("../src/config.ts");
-  assert.match(speakerTag(true, owner), new RegExp(`^\\[${config.feishu.ownerName} 本人 ou_01234\\]`));
+  assert.match(speakerTag(true, owner), new RegExp(`^\\[${config.feishu.ownerName} 本人\\]$`));
+  // A name, when Feishu gives one, replaces the id fragment; without one the id still identifies.
+  assert.equal(speakerTag(false, "ou_9abc1a2b3c4d", "张三"), "[群成员 张三]");
   assert.match(speakerTag(false, "ou_9abc1a2b3c4d"), /^\[群成员 ou_9abc1\]/);
-  assert.doesNotMatch(speakerTag(false, "ou_9abc1a2b3c4d"), /本人/);
+  assert.match(speakerTag(false, "ou_9abc1a2b3c4d", ""), /^\[群成员 ou_9abc1\]/);
+  assert.doesNotMatch(speakerTag(false, "ou_9abc1a2b3c4d", "张三"), /本人|ou_9abc1/);
 });
 
 // What the model actually said in the group, and what must not be mistaken for a refusal.

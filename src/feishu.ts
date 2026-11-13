@@ -499,9 +499,46 @@ export type Gate = {
  * answers "I cannot verify your identity". A bracketed speaker on each message is evidence it
  * can read, turn by turn.
  */
-export function speakerTag(isOwner: boolean, senderId: string): string {
+export function speakerTag(isOwner: boolean, senderId: string, name?: string): string {
   const owner = config.feishu.ownerName;
-  return isOwner ? `[${owner} 本人 ${senderId.slice(0, 8)}]` : `[群成员 ${senderId.slice(0, 8)}]`;
+  if (isOwner) return `[${owner} 本人]`;
+  return `[群成员 ${name !== undefined && name.length > 0 ? name : senderId.slice(0, 8)}]`;
+}
+
+/**
+ * Display names by open_id, so a card says 「张三」 rather than 「ou_89cc89」. Needs the
+ * contact:user.base:readonly scope: without it Feishu answers 200 with no `name` field, which is
+ * why a missing name is cached as a miss instead of retried on every message.
+ */
+const senderNames = new Map<string, string>();
+const senderNamesMissing = new Set<string>();
+
+/** The client the running bot uses; a name lookup must not build a second one per message. */
+let sharedClient: Lark.Client | undefined;
+
+function larkClient(): Lark.Client {
+  sharedClient ??= new Lark.Client({ appId: config.feishu.appId, appSecret: config.feishu.appSecret });
+  return sharedClient;
+}
+
+export async function senderName(openId: string): Promise<string | undefined> {
+  if (openId.length === 0) return undefined;
+  const known = senderNames.get(openId);
+  if (known !== undefined) return known;
+  if (senderNamesMissing.has(openId)) return undefined;
+  const response = await larkClient()
+    .request({ method: "GET", url: `/open-apis/contact/v3/users/${openId}`, params: { user_id_type: "open_id" } })
+    .catch((error: unknown) => {
+      logError("feishu", "could not read a sender's name", error);
+      return undefined;
+    });
+  const name = (response?.data as { user?: { name?: string } } | undefined)?.user?.name;
+  if (name === undefined || name.length === 0) {
+    senderNamesMissing.add(openId);
+    return undefined;
+  }
+  senderNames.set(openId, name);
+  return name;
 }
 
 /** What a refusal to write looks like, in the forms this agent actually produced. */
@@ -635,6 +672,7 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
   // Until this runs, `.env` is the only source, so a fresh process still answers its own chats.
   await adoptChatLevels(runtime.harness, context, config.feishu.allowedChatIds);
   const client = new Lark.Client({ appId, appSecret });
+  sharedClient = client;
 
   // Who we are, so an @ of the bot can be dropped from the text instead of leaving "@".
   await client
@@ -1612,7 +1650,11 @@ const continuing = new Set<string>();
     }, 15_000);
 
     try {
-      const userContent = await buildUserContent(message, parsed, message.chat_type === "p2p" ? undefined : speakerTag(isOwner, senderId));
+      const speaker =
+        message.chat_type === "p2p"
+          ? undefined
+          : speakerTag(isOwner, senderId, isOwner ? undefined : await senderName(senderId).catch(() => undefined));
+      const userContent = await buildUserContent(message, parsed, speaker);
       const submission = await conversation.submit(
         { type: "input", content: userContent, requestId },
         context,
@@ -1906,7 +1948,11 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
       item === undefined || item.deleted === true
         ? undefined
         : {
-            who: item.sender?.sender_type === "app" ? "bot" : `ou_${String(item.sender?.id ?? "?").slice(-6)}`,
+            who:
+              item.sender?.sender_type === "app"
+                ? "bot"
+                : ((await senderName(String(item.sender?.id ?? "")).catch(() => undefined)) ??
+                  `ou_${String(item.sender?.id ?? "?").slice(-6)}`),
             text: quoteText(
               item.msg_type ?? "",
               item.body?.content ?? "",

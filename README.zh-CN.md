@@ -182,7 +182,7 @@ git clone https://github.com/ziludev/pitta.git && cd pitta
 | 菜单 | 设置 |
 |---|---|
 | 添加应用能力 | 机器人 |
-| 权限管理 | `im:message`、`im:message:send_as_bot`、`im:message.p2p_msg:readonly`、`im:message.group_at_msg:readonly`；想在话题里不 @ 也回复，再加 `im:message.group_msg` |
+| 权限管理 | `im:message`、`im:message:send_as_bot`、`im:message.p2p_msg:readonly`、`im:message.group_at_msg:readonly`；想在话题里不 @ 也回复，再加 `im:message.group_msg`；想让卡片和引用里显示人名而不是 `ou_…`，再加 `contact:user.base:readonly` |
 | 事件与回调 → 订阅方式 | **使用长连接接收事件**（不需要公网 IP、域名、证书） |
 | 事件与回调 → 回调 | `card.action.trigger`（审批与「继续」按钮） |
 | 事件与回调 → 事件 | `im.message.receive_v1` |

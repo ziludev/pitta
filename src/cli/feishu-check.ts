@@ -123,6 +123,26 @@ export async function checkFeishu(appId: string, appSecret: string, ownerIds: st
         },
   );
 
+  // Names in cards and quotes come from the contact API. Without the scope Feishu still answers
+  // 200, just without a `name`, so probing one real person is the only way to tell.
+  const probe = ownerIds[0];
+  if (probe !== undefined) {
+    const person = await client
+      .request({ method: "GET", url: `/open-apis/contact/v3/users/${probe}`, params: { user_id_type: "open_id" } })
+      .catch(() => undefined);
+    const name = (person?.data as { user?: { name?: string } } | undefined)?.user?.name;
+    checks.push(
+      name !== undefined && name.length > 0
+        ? { ok: true, level: "ok", label: `能读出成员名字（${name}），卡片显示人名而不是 ou_ 片段` }
+        : {
+            ok: false,
+            level: "warn",
+            label: "读不到成员名字，卡片只能显示 ou_ 后几位",
+            hint: `开通 contact:user.base:readonly 后重新发布：https://open.feishu.cn/app/${appId}/auth?q=contact:user.base:readonly`,
+          },
+    );
+  }
+
   const chats = await client.im.chat.list({ params: { page_size: 5 } }).catch(() => undefined);
   const items = ((chats?.data as { items?: unknown[] } | undefined)?.items ?? []).length;
   checks.push(
