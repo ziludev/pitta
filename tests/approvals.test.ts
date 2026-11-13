@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import {
+  dropAllApprovals,
   dropApproval,
   listApprovals,
   pendingCount,
@@ -70,4 +71,64 @@ test("an aborted call drops out without recording a wait", async () => {
   dropApproval("call-4");
   assert.equal(pendingCount(), 0);
   assert.equal(waits.length, 0);
+});
+
+/**
+ * The registry owns the pending state now. The Feishu surface used to keep its own map and its own
+ * timer next to this one, so "still pending" could be true here and false there — and a timeout that
+ * the card reported had nothing to do with what the waiting call was told.
+ */
+test("a timeout denies through the same path, and the surface hears it once", async () => {
+  const settled: Array<{ approved: boolean; by: string }> = [];
+  const seen: boolean[] = [];
+  registerApproval({
+    callId: "call-5",
+    tool: "bash",
+    reason: "删除文件",
+    surfaceId: "oc_test",
+    summary: "rm -rf /tmp/x",
+    timeoutMs: 20,
+    onSettled: (outcome) => settled.push(outcome),
+    resolve: (approved) => seen.push(approved),
+  });
+  await new Promise((done) => setTimeout(done, 60));
+  assert.deepEqual(settled, [{ approved: false, by: "timeout" }]);
+  assert.deepEqual(seen, [false]);
+  assert.equal(pendingCount(), 0);
+});
+
+test("a request answered before its timeout leaves no timer behind", async () => {
+  const settled: Array<{ approved: boolean; by: string }> = [];
+  registerApproval({
+    callId: "call-6",
+    tool: "bash",
+    reason: "删除文件",
+    surfaceId: "oc_test",
+    summary: "rm -rf /tmp/x",
+    timeoutMs: 20,
+    onSettled: (outcome) => settled.push(outcome),
+    resolve: () => {},
+  });
+  assert.equal(resolveApproval("call-6", true, "client"), true);
+  await new Promise((done) => setTimeout(done, 60));
+  assert.deepEqual(settled, [{ approved: true, by: "client" }]);
+  assert.equal(pendingCount(), 0);
+});
+
+test("shutdown unblocks every waiter without patching a surface", async () => {
+  const settled: unknown[] = [];
+  const seen: boolean[] = [];
+  registerApproval({
+    callId: "call-7",
+    tool: "bash",
+    reason: "删除文件",
+    surfaceId: "oc_test",
+    summary: "rm -rf /tmp/x",
+    onSettled: (outcome) => settled.push(outcome),
+    resolve: (approved) => seen.push(approved),
+  });
+  assert.equal(dropAllApprovals(), 1);
+  assert.deepEqual(seen, [false]);
+  assert.deepEqual(settled, []);
+  assert.equal(pendingCount(), 0);
 });

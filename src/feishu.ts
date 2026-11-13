@@ -42,7 +42,7 @@ import {
   setGuestPolicy,
   type ChatLevel,
 } from "./access.ts";
-import { dropApproval, registerApproval, resolveApproval } from "./approvals.ts";
+import { dropAllApprovals, getApproval, pendingCount, registerApproval, resolveApproval } from "./approvals.ts";
 import { addChatNote, chatNotes, clearChatNotes, removeChatNote } from "./memory.ts";
 
 type IncomingMessage = {
@@ -574,18 +574,6 @@ export function rejectionReason(
   return undefined;
 }
 
-function dropApprovalIfPresent(map: Map<string, unknown>, key: string): boolean {
-  return map.delete(key);
-}
-
-type PendingApproval = {
-  resolve: (approved: boolean) => void;
-  timer: NodeJS.Timeout;
-  chatId: string;
-  /** The original ask, so a session-wide grant knows which conversation it belongs to. */
-  request: ApprovalRequest;
-};
-
 /**
  * Answers belong in a topic: an @ in a group is a person asking one question, and the
  * answer should not push the conversation aside for everyone else. A plain message in a
@@ -656,7 +644,6 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     .catch((error: unknown) => logError("feishu", "could not read bot identity", error));
 
   const handled = new Set<string>();
-  const pendingApprovals = new Map<string, PendingApproval>();
 
   async function sendText(chatId: string, text: string): Promise<void> {
     await client.im.message.create({
@@ -869,16 +856,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     const cardId = sent?.data?.message_id;
     log("feishu", "approval card sent", { cardId, callId: request.callId.slice(-12), tool: request.tool });
     return new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => {
-        if (dropApprovalIfPresent(pendingApprovals, request.callId)) {
-          if (cardId !== undefined) {
-            void patchCard(cardId, `⏹️ 超时未确认，已拒绝：${request.tool}`).catch(() => {});
-          }
-          resolve(false);
-        }
-      }, request.timeoutMs);
-      pendingApprovals.set(request.callId, { resolve, timer, chatId: request.surfaceId, request });
-      // The desktop client sees the same request and may answer it first.
+      // The registry owns the pending state and the timeout; this surface only says what its card
+      // should look like once the decision lands, whoever made it. Keeping a second map here is
+      // what let "still pending" be true in one place and false in the other.
       registerApproval({
         callId: request.callId,
         conversationId: request.conversationId,
@@ -887,21 +867,20 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         summary: request.summary,
         reason: request.reason,
         surfaceId: request.surfaceId,
-        resolve: (approved) => {
-          const entry = pendingApprovals.get(request.callId);
-          if (entry !== undefined) {
-            pendingApprovals.delete(request.callId);
-            clearTimeout(entry.timer);
-          }
-          if (cardId !== undefined) {
-            void patchCard(
-              cardId,
-              approved ? "✅ 已允许（客户端确认），继续执行" : "🛑 已拒绝（客户端）",
-              "桌面客户端",
-            ).catch(() => {});
-          }
-          resolve(approved);
+        timeoutMs: request.timeoutMs,
+        onSettled: ({ approved, by }) => {
+          if (cardId === undefined) return;
+          const text =
+            by === "timeout"
+              ? `⏹️ 超时未确认，已拒绝：${request.tool}`
+              : approved
+                ? `✅ 已允许（${by === "client" ? "客户端" : "飞书"}确认），继续执行`
+                : `🛑 已拒绝（${by === "client" ? "客户端" : "飞书"}）`;
+          void patchCard(cardId, text, by === "timeout" ? undefined : `${by === "client" ? "桌面客户端" : "飞书"}确认`).catch(
+            (error) => logError("feishu", "could not patch approval card", error),
+          );
         },
+        resolve: (approved) => resolve(approved),
       });
     });
   });
@@ -1052,49 +1031,36 @@ const continuing = new Set<string>();
 
     const callId = typeof value["approval"] === "string" ? value["approval"] : "";
     const operator = payload.operator?.open_id ?? "";
-    const entry = pendingApprovals.get(callId);
+    const entry = getApproval(callId);
     log("feishu", "card action received", {
       callId: callId.slice(-12),
       operator: operator.slice(-6),
       ok: value["ok"],
       pending: entry !== undefined,
-      pendingIds: pendingApprovals.size,
+      pendingIds: pendingCount(),
       messageId: payload.context?.open_message_id,
     });
     if (entry === undefined) return { toast: { type: "info", content: "已处理" } };
 
     if (!isOwnerOperator(operator)) return { toast: { type: "warning", content: "只有 alex 可以确认" } };
 
-    pendingApprovals.delete(callId);
-    clearTimeout(entry.timer);
     const approved = value["ok"] === true;
-    if (approved && value["session"] === true && typeof value["key"] === "string") {
-      const conversationId = entry.request.conversationId;
-      if (conversationId !== undefined) {
-        void runtime.grantSession(conversationId, value["key"]).catch((error) =>
-          logError("feishu", "could not store session grant", error),
-        );
-      }
-    }
-    // Route through the registry so the client's pending list clears too.
-    const handled = resolveApproval(callId, approved, `feishu:${operator.slice(-6)}`);
-    if (!handled) entry.resolve(approved);
-    const text = approved ? "✅ 已允许，继续执行" : "🛑 已拒绝";
-    const meta = `由 ${operator.slice(-6)} 确认`;
-    const messageId = payload.context?.open_message_id;
-    if (messageId !== undefined) {
-      // Never await here: Feishu drops a callback response that takes too long, and
-      // then the click looks like it did nothing at all.
-      void patchCard(messageId, text, meta).catch((error) =>
-        logError("feishu", "could not patch approval card", error),
+    if (approved && value["session"] === true && typeof value["key"] === "string" && entry.conversationId !== undefined) {
+      void runtime.grantSession(entry.conversationId, value["key"]).catch((error) =>
+        logError("feishu", "could not store session grant", error),
       );
+    }
+    // The registry decides and tells every surface — this card included, through onSettled. A false
+    // therefore means another surface answered in between: this click was simply late.
+    if (!resolveApproval(callId, approved, `feishu:${operator.slice(-6)}`)) {
+      return { toast: { type: "info", content: "已经处理过了" } };
     }
     log("feishu", "approval answered", { approved, callId: callId.slice(-12), ms: Date.now() - receivedAt });
     void record(runtime.harness, context, {
       kind: "approve",
       who: operator.slice(-6),
-      tool: entry.request.tool,
-      chat: entry.chatId,
+      tool: entry.tool,
+      chat: entry.surfaceId,
       detail: approved ? "approved" : "denied",
     });
     return { toast: { type: "success", content: approved ? "已允许，继续执行" : "已拒绝" } };
@@ -2170,11 +2136,9 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
   return {
     stop() {
       clearInterval(supervisor);
-      for (const entry of pendingApprovals.values()) {
-        clearTimeout(entry.timer);
-        entry.resolve(false);
-      }
-      pendingApprovals.clear();
+      // Every waiter is told no and no timer survives; the registry is the only place that knows
+      // what was still pending.
+      dropAllApprovals();
       wsClient.close({ force: true });
     },
   };
