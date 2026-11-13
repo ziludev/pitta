@@ -6,9 +6,11 @@ import { num, obj, opt, str } from "@earendil-works/pi-schema";
 import { ChatPolicy, readRoots } from "./access.ts";
 import { config } from "./config.ts";
 import { requestApproval, surfaceForConversation } from "./channel.ts";
+import { grantSession, hasGrant } from "./grants.ts";
 import { log, logError } from "./log.ts";
 import { record } from "./audit.ts";
 import { listSkills } from "./skills.ts";
+import { getHarness, getSessionContext } from "./runtime-ref.ts";
 
 /**
  * The two read-only capabilities a colleague needs to ask about a problem — search the code,
@@ -56,6 +58,9 @@ export function parseLogsQuery(args: Record<string, unknown>): LogsQuery | strin
  * card goes to the owner's DM, so a colleague diagnosing a prod problem does not have to
  * interrupt the conversation to get a human to type the query.
  */
+/** The risk class a conversation-wide grant is remembered under. */
+export const PROD_LOGS_GRANT = "logs-prod";
+
 export function logsNeedApproval(env: Environment, guestTurn: boolean): boolean {
   return env === "prod" && guestTurn;
 }
@@ -102,19 +107,28 @@ const logsQuery = defineTool({
     if (typeof parsed === "string") return { output: [{ type: "text" as const, text: parsed }] };
     const policy = await api.snapshot(ChatPolicy, api.conversationId, context).catch(() => undefined);
     const guestTurn = policy?.guest === true && policy.turn !== "owner";
-    if (logsNeedApproval(parsed.env, guestTurn)) {
-      const conversationId = api.conversationId as unknown as number;
+    const conversationId = api.conversationId as unknown as number;
+    // One investigation is several queries: asking for each of them buried alex in approval cards.
+    // The first yes covers this conversation until the process restarts.
+    if (logsNeedApproval(parsed.env, guestTurn) && !hasGrant(conversationId, PROD_LOGS_GRANT)) {
       const approved = await requestApproval({
         callId: `logs:${String(conversationId)}:${String(Date.now())}`,
         conversationId,
         tool: "logs_query",
         summary: `env=prod logstore=${parsed.logstore} 近 ${parsed.minutes} 分钟 query=${parsed.query}`,
-        reason: "群里有人要查生产日志",
+        reason: "群里有人要查生产日志（同意后本次对话不再逐条询问）",
         surfaceId: surfaceForConversation(conversationId) ?? "",
         timeoutMs: 600_000,
       });
       if (!approved) {
         return { output: [{ type: "text" as const, text: "alex 没有批准这次生产日志查询。" }] };
+      }
+      const harness = getHarness();
+      const session = getSessionContext();
+      if (harness !== undefined && session !== undefined) {
+        await grantSession(harness, session, conversationId, PROD_LOGS_GRANT).catch((error: unknown) =>
+          logError("logs", "could not store the prod-log grant", error),
+        );
       }
       log("logs", "prod query approved by the owner", { logstore: parsed.logstore, minutes: parsed.minutes });
     }
