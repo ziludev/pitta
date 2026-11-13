@@ -1,6 +1,7 @@
 import { defineDoc, defineTask, UsageDoc, type Harness, type TaskRuntime } from "@earendil-works/pi-durable";
 import type { Context } from "@earendil-works/chord/context";
 import { log, logError } from "./log.ts";
+import { settle } from "./settle.ts";
 
 export type DayUsage = {
   /** Cumulative totals across every conversation, at the last sample of that day. */
@@ -95,7 +96,9 @@ export const UsageSampler = defineTask<null, { phase: "sample" }, null>({
     },
   },
   abort: (_task, runtime, context) =>
-    runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context),
+    settle("app.usage-sampler", () =>
+      runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context),
+    ),
 });
 
 /**

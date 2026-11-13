@@ -2,6 +2,7 @@ import { defineExtension, defineTask, defineTool } from "@earendil-works/pi-dura
 import { num, obj, opt, str } from "@earendil-works/pi-schema";
 import { notify, surfaceForConversation } from "./channel.ts";
 import { logError } from "./log.ts";
+import { settle } from "./settle.ts";
 
 export type ReminderInput = {
   /** What to say when it fires. */
@@ -35,19 +36,23 @@ export const Reminder = defineTask<ReminderInput, { phase: "sleep" } | { phase: 
       } catch (error) {
         logError("reminders", `could not deliver reminder to ${surfaceId}`, error);
       }
-      await runtime.commit(
-        () => ({
-          status: "terminal",
-          outcome: { status: "completed", result: delivered ? "delivered" : "undeliverable" },
-        }),
-        context,
+      await settle("app.reminder", () =>
+        runtime.commit(
+          () => ({
+            status: "terminal",
+            outcome: { status: "completed", result: delivered ? "delivered" : "undeliverable" },
+          }),
+          context,
+        ),
       );
     },
   },
   abort: (_task, runtime, context) =>
-    runtime.commit(
-      () => ({ status: "terminal", outcome: { status: "aborted" } }),
-      context,
+    settle("app.reminder", () =>
+      runtime.commit(
+        () => ({ status: "terminal", outcome: { status: "aborted" } }),
+        context,
+      ),
     ),
 });
 

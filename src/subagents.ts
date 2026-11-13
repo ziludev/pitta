@@ -9,6 +9,7 @@ import {
 } from "@earendil-works/pi-durable";
 import type { Context } from "@earendil-works/chord/context";
 import { obj, opt, str } from "@earendil-works/pi-schema";
+import { settle } from "./settle.ts";
 import type { TaskRuntime, ToolExecutionApi } from "@earendil-works/pi-durable";
 import { ROLES, toolsFor, type RoleName } from "./roles.ts";
 import { notify, surfaceForConversation } from "./channel.ts";
@@ -212,9 +213,11 @@ export const FeatureTask = defineTask<FeatureInput, { phase: "run" }, string>({
         const result = await runStage(runtime, task, context, stage.key, stage.role, stage.title, outputs, task.input.spec);
         if (!result.ok) {
           await report(runtime, task, context, `❌ ${stage.role} 失败了：${result.error}`);
-          await runtime.commit(
-            () => ({ status: "terminal", outcome: { status: "failed", error: { message: result.error } } }),
-            context,
+          await settle("app.feature", () =>
+            runtime.commit(
+              () => ({ status: "terminal", outcome: { status: "failed", error: { message: result.error } } }),
+              context,
+            ),
           );
           return;
         }
@@ -223,14 +226,18 @@ export const FeatureTask = defineTask<FeatureInput, { phase: "run" }, string>({
 
       const summary = buildSummary(task.input.spec, outputs, stages);
       await report(runtime, task, context, summary);
-      await runtime.commit(
-        () => ({ status: "terminal", outcome: { status: "completed", result: summary } }),
-        context,
+      await settle("app.feature", () =>
+        runtime.commit(
+          () => ({ status: "terminal", outcome: { status: "completed", result: summary } }),
+          context,
+        ),
       );
     },
   },
   abort: (_task, runtime, context) =>
-    runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context),
+    settle("app.feature", () =>
+      runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context),
+    ),
 });
 
 async function runStage(

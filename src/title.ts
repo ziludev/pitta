@@ -12,6 +12,7 @@ import {
 import type { Context } from "@earendil-works/chord/context";
 import { SurfaceMetaDoc, type SurfaceMeta } from "./surface-meta.ts";
 import { config } from "./config.ts";
+import { settle } from "./settle.ts";
 import { log } from "./log.ts";
 
 /**
@@ -52,8 +53,11 @@ export const TitleTask = defineTask<TitleInput, { phase: "run" }, string>({
   initial: () => ({ phase: "run" }),
   phases: {
     run: async (task: RunningTask<TitleInput, { phase: "run" }, string>, runtime, context: Context) => {
-      const done = async (result: string) =>
-        runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result } }), context);
+      const done = async (result: string) => {
+        await settle("app.title", () =>
+          runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result } }), context),
+        );
+      };
       const model = runtime.models.getModel(config.model.provider, config.model.modelId);
       if (model === undefined) return done("no-model");
 
@@ -89,7 +93,10 @@ export const TitleTask = defineTask<TitleInput, { phase: "run" }, string>({
       log("title", "named a conversation", { surfaceId: task.input.surfaceId.slice(-6), title });
     },
   },
-  abort: (_task, runtime, context) => runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context),
+  abort: (_task, runtime, context) =>
+    settle("app.title", () =>
+      runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context),
+    ),
 });
 
 /** Asked once, after the first answer of a conversation that still has no title. */
