@@ -7,14 +7,19 @@ import { SUBAGENT_TOOLS } from "./subagents.ts";
  * Tools that stay installed but leave the model's schema, found through `tool_search` when a
  * request actually needs one.
  *
- * Every request carries every tool's schema: the full set here measured 8.3KB (~2.3k tokens), and
- * MCP servers add more on top. These ten — the owner's Feishu identity, subagent fan-out, and
- * opening a project — are rare per message and never needed by a group turn, so they carry
- * `deferred: true` in their own definition and are the ones worth deferring. `tool_search` writes
- * what it loads into the conversation's `modelTools.add`, so a tool stays offered on that branch,
- * also after a compaction.
+ * Every request carries every tool's schema, and MCP servers add more on top. What stays here is
+ * rare per message: the owner's Feishu identity, opening a project, and codemode.
+ *
+ * The subagent tools used to be deferred too, to save about 500 tokens — and the logs showed what
+ * that cost: `tool_search` ran six times in four thousand calls, so `delegate_parallel` was never
+ * once loaded and `delegate` once. Delegation is the core capability, not a rare one, so those stay
+ * in the request; the rest still carry `deferred: true` in their own definition, and `tool_search`
+ * writes what it loads into the conversation's `modelTools.add`, so a tool stays offered on that
+ * branch, also after a compaction.
  */
-export const DEFERRED_TOOLS = [...LARK_TOOLS, ...SUBAGENT_TOOLS, ...PROJECT_TOOLS];
+export const DEFERRED_TOOLS = [...LARK_TOOLS, ...SUBAGENT_TOOLS, ...PROJECT_TOOLS].filter(
+  (tool) => tool.deferred === true,
+);
 
 /** One line per deferred tool: its name is what `tool_search` matches, the hint is what the model reads. */
 const HINTS: Record<string, string> = {
@@ -22,11 +27,6 @@ const HINTS: Record<string, string> = {
   feishu_tasks: "看飞书待办",
   feishu_create_task: "建飞书待办（会写你的飞书）",
   feishu_doc_read: "读飞书文档",
-  delegate: "派一个子 agent 去做一件事",
-  delegate_parallel: "并行派几个子 agent",
-  build_feature: "需求流水线（拆解→设计→实现→测试）",
-  task_status: "看子 agent 的进度",
-  cancel_task: "取消子 agent",
   open_project: "把一个 git 仓库加进来当项目",
 };
 
