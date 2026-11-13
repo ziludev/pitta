@@ -100,6 +100,12 @@ function continueButton(messageId: string): CardButton[] {
 type CardHeader = { template: "green" | "orange" | "grey" | "red" | "blue"; title: string };
 
 /**
+ * The band a card wears while the turn runs. A patch replaces the whole card, so every live patch
+ * has to carry it again — otherwise the header exists only until the first update 15s later.
+ */
+const WORKING_HEADER: CardHeader = { template: "blue", title: "⏳ 处理中" };
+
+/**
  * The steps of a turn as a folded panel in the answer card itself. It used to be a 「查看详情」
  * button — only in 1:1 chats, and it answered with a second card, so a group never saw the work
  * at all and every answer looked like a form to fill in.
@@ -907,7 +913,7 @@ const continuing = new Set<string>();
       const indexed =
         hit === undefined ? undefined : await runtime.harness.conversation(hit.conversationId as never, context);
       const conversation = indexed ?? (await runtime.conversationFor(chatId));
-      await patchCard(cardId, "▶️ 继续中…", "从卡片继续这一轮").catch(() => {});
+      await patchCard(cardId, "▶️ 继续中…", "从卡片继续这一轮", undefined, WORKING_HEADER).catch(() => {});
       const submission = await conversation.submit(
         { type: "continue", requestId: `continue-card:${cardId}:${startedAt}` },
         context,
@@ -1565,7 +1571,7 @@ const continuing = new Set<string>();
       undefined,
       // The card carries its status from the first frame, so it never starts as a bare message and
       // then grows a header when it settles.
-      { ...replyOptions, header: { template: "blue", title: "⏳ 处理中" } },
+      { ...replyOptions, header: WORKING_HEADER },
     );
     if (cardId === undefined) {
       log("feishu", "reply card creation failed, continuing without streaming");
@@ -1585,7 +1591,7 @@ const continuing = new Set<string>();
 
     // If the run stalls (provider hang, restart mid-run), say so instead of spinning forever.
     const watchdog = setTimeout(() => {
-      void patchCard(cardId, body, `⏳ ${elapsed()} · 超过 5 分钟，可 /stop 中断`).catch(() => {});
+      void patchCard(cardId, body, `⏳ ${elapsed()} · 超过 5 分钟，可 /stop 中断`, undefined, WORKING_HEADER).catch(() => {});
     }, 300_000);
 
     let streamErrors = 0;
@@ -1598,7 +1604,7 @@ const continuing = new Set<string>();
       if (finished) return;
       body = renderLive(live);
       for (const tool of live.tools) toolsUsed.add(tool);
-      void patchCard(cardId, body, `▶️ 处理中 · ${elapsed()}`).catch((error) => {
+      void patchCard(cardId, body, `▶️ 处理中 · ${elapsed()}`, undefined, WORKING_HEADER).catch((error) => {
         if (streamErrors < 3) {
           streamErrors += 1;
           logError("feishu", "stream patch failed", error);
@@ -1610,7 +1616,7 @@ const continuing = new Set<string>();
     // ourselves: the user should never have to ask "is it still working?".
     const heartbeat = setInterval(() => {
       if (finished) return;
-      void patchCard(cardId, body, `⏳ ${elapsed()} · 进行中`).catch(() => {});
+      void patchCard(cardId, body, `⏳ ${elapsed()} · 进行中`, undefined, WORKING_HEADER).catch(() => {});
     }, 15_000);
 
     try {
