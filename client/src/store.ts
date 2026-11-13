@@ -35,7 +35,14 @@ export type LiveDoc = {
   tools?: Array<Record<string, unknown>>;
 };
 
-export type Connection = "connecting" | "open" | "closed" | "failed";
+/**
+ * Where the live stream stands. A union, because "closed" used to mean both "the bridge said
+ * goodbye" and "an error fired first", and the two need different words.
+ */
+export type Connection =
+  | { kind: "connecting" }
+  | { kind: "open" }
+  | { kind: "down"; reason: "error" | "closed" };
 
 /**
  * One id per user action, so a retried POST returns the submission it already created
@@ -190,6 +197,8 @@ type State = {
 };
 
 let socket: WebSocket | undefined;
+/** Bumped for every socket we open, so a socket we already replaced cannot write state. */
+let socketGeneration = 0;
 
 const ORDER_KEY = "agent.surfaceOrder";
 const PIN_KEY = "agent.pinned";
@@ -218,7 +227,7 @@ export const useStore = create<State>((set, get) => ({
   })(),
   lang: initialLang(),
   home: "",
-  connection: "connecting",
+  connection: { kind: "connecting" },
   busy: false,
   surfaces: [],
   projects: [],
@@ -266,7 +275,7 @@ export const useStore = create<State>((set, get) => ({
     set({ home: homeDir });
     await waitForBridge(() => get().refreshSurfaces()).catch((error: unknown) => {
       // Nothing answered for 30s: say so instead of pretending to connect forever.
-      set({ connection: "failed" });
+      set({ connection: { kind: "down", reason: "error" } });
       throw error;
     });
     await get().loadChanges();
@@ -356,7 +365,8 @@ export const useStore = create<State>((set, get) => ({
 
   async select(conversationId) {
     socket?.close();
-    set({ current: conversationId, connection: "connecting", entries: [], live: undefined });
+    const generation = ++socketGeneration;
+    set({ current: conversationId, connection: { kind: "connecting" }, entries: [], live: undefined });
     const projectId = get().surfaces.find((surface) => surface.conversationId === conversationId)?.projectId;
     if (projectId !== undefined && projectId !== get().currentProject) {
       // Opening a chat from another project moves the rail there; without saying so the list
@@ -382,8 +392,17 @@ export const useStore = create<State>((set, get) => ({
     });
 
     socket = new WebSocket(wsURL(conversationId));
-    socket.onopen = () => set({ connection: "open" });
+    // A socket that errors and then closes reports both; the first reason is the informative one.
+    const down = (reason: "error" | "closed") => {
+      if (generation !== socketGeneration) return;
+      if (get().connection.kind === "down") return;
+      set({ connection: { kind: "down", reason } });
+    };
+    socket.onopen = () => {
+      if (generation === socketGeneration) set({ connection: { kind: "open" } });
+    };
     socket.onmessage = (event) => {
+      if (generation !== socketGeneration) return;
       const frame = JSON.parse(event.data as string) as {
         value?: { entries?: Entry[]; docs?: Record<string, LiveDoc> };
       };
@@ -395,8 +414,8 @@ export const useStore = create<State>((set, get) => ({
         busy: value.docs?.["pi.live"]?.run !== undefined,
       });
     };
-    socket.onerror = () => set({ connection: "failed" });
-    socket.onclose = () => set({ connection: "closed" });
+    socket.onerror = () => down("error");
+    socket.onclose = () => down("closed");
 
     await Promise.all([get().loadMemory(), get().loadChanges(), get().loadGit().catch(() => {})]);
   },

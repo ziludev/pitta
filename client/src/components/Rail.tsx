@@ -317,11 +317,11 @@ export function Rail() {
   const status =
     busy
       ? tr(lang, "busy")
-      : connection === "open"
+      : connection.kind === "open"
         ? tr(lang, "idle")
-        : connection === "connecting"
+        : connection.kind === "connecting"
           ? tr(lang, "connecting")
-          : connection === "failed"
+          : connection.reason === "error"
             ? tr(lang, "bridgeFailed")
             : tr(lang, "disconnected");
 

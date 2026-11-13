@@ -9,6 +9,7 @@ import type { Entry } from "@/lib/api";
 import { Markdown } from "@/lib/markdown";
 import { StepRail, TurnDivider, partsOf, textOf, useElapsed, duration } from "@/components/TurnRail";
 import { clockOf, entryText, groupTurns } from "@/lib/turns";
+import { isLive, runningTool, turnState, type TurnState } from "@/lib/turn-state";
 import { Spinner } from "@/components/ui/spinner";
 import { useStore } from "@/store";
 
@@ -122,48 +123,39 @@ function NoteLine({ entry }: { entry: Entry }) {
   );
 }
 
-function LiveBlock({ start }: { start?: number }) {
-  const { live, busy, lang } = useStore();
+function LiveBlock({ state, start }: { state: TurnState; start?: number }) {
+  const { lang } = useStore();
   // Ticks only while the model is between tool calls, where nothing else moves.
-  const spent = useElapsed(busy ? start : undefined);
+  const spent = useElapsed(state.kind === "thinking" ? start : undefined);
   const elapsedText = spent === undefined || spent < 1_000 ? null : (
     <span className="text-muted-foreground">{duration(spent)}</span>
   );
-  if (live === undefined) return null;
-  const tools = Array.isArray(live.tools) ? live.tools : [];
-  const running = tools.find((slot) => slot["status"] === "running");
-  const partial = textOf(partsOf(live.generation?.message));
-  const tail = running
-    ? (String(running["output"] ?? "")
-        .split("\n")
-        .filter((line) => line.trim().length > 0)
-        .pop() ?? "")
-    : "";
-  // Between two tool calls the model is thinking: no tool is running and no text has arrived yet.
-  // Rendering nothing there is what made a live turn look stopped.
-  const waiting = running === undefined && partial.length === 0 && busy;
-  if (!waiting && running === undefined && partial.length === 0) return null;
+  if (!isLive(state)) return null;
+  const text = state.kind === "tool" ? state.text : state.kind === "streaming" ? state.text : "";
   return (
     <motion.div initial={{ opacity: 0.7 }} animate={{ opacity: 1 }} className="flex max-w-[92%] flex-col gap-1.5">
-      {waiting || running !== undefined ? (
+      {state.kind === "thinking" || state.kind === "tool" ? (
         <span className="flex w-fit items-center gap-1.5 rounded-full border border-primary/40 px-2 py-0.5 font-mono text-[10px] text-primary">
           <Spinner size={10} />
-          {running === undefined ? `${tr(lang, "thinking")}…` : String(running["name"] ?? "")}
-          {waiting ? elapsedText : null}
+          {state.kind === "tool" ? state.name : `${tr(lang, "thinking")}…`}
+          {state.kind === "thinking" ? elapsedText : null}
         </span>
       ) : null}
-      {partial.length > 0 ? (
+      {text.length > 0 ? (
         <div className="rounded-xl rounded-bl-sm border border-dashed border-border bg-card/50 px-3 py-2 text-[13px] leading-relaxed">
-          <Markdown text={partial} />
+          <Markdown text={text} />
         </div>
       ) : null}
-      {tail.length > 0 ? <div className="truncate text-[10px] text-muted-foreground">{tail.slice(0, 160)}</div> : null}
+      {state.kind === "tool" && state.tail.length > 0 ? (
+        <div className="truncate text-[10px] text-muted-foreground">{state.tail.slice(0, 160)}</div>
+      ) : null}
     </motion.div>
   );
 }
 
 export function Transcript() {
-  const { entries, focusEntry, lang, convQuery, setConvMatches, submit, approvalWaits, usage, busy } = useStore();
+  const { entries, focusEntry, lang, convQuery, setConvMatches, submit, approvalWaits, usage, busy, live } =
+    useStore();
   const boxRef = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
   const [unseen, setUnseen] = useState(0);
@@ -173,9 +165,15 @@ export function Transcript() {
   const seenCount = useRef(0);
   const turns = useMemo(() => groupTurns(entries, approvalWaits), [entries, approvalWaits]);
   // The newest turn has no answer yet and the conversation is running: that turn is live, and every
-  // line under it must look live instead of settled.
+  // line under it must look live instead of settled. One derivation for the whole window.
   const liveTurn = turns[turns.length - 1];
-  const running = busy && liveTurn !== undefined && liveTurn.finals.length === 0;
+  const state = turnState({
+    busy,
+    hasAnswer: (liveTurn?.finals.length ?? 0) > 0,
+    text: textOf(partsOf(live?.generation?.message)),
+    tool: runningTool(Array.isArray(live?.tools) ? live.tools : undefined),
+  });
+  const running = isLive(state);
   // Execution time of the loaded turns (idle between turns excluded): "why is this slow"
   // starts with knowing how much of the wall clock the agent actually spent.
   const totalMs = useMemo(
@@ -311,7 +309,7 @@ export function Transcript() {
             <TurnDivider stats={turn.stats} live={running && index === turns.length - 1} />
           </div>
         ))}
-        <LiveBlock start={liveTurn?.stats.start} />
+        <LiveBlock state={state} start={liveTurn?.stats.start} />
       </div>
     </div>
     </div>
