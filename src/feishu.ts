@@ -21,6 +21,7 @@ import {
   attachSubmission,
   clearCardPending,
   isCardPending,
+  claimCard,
   leftoverCards,
   markCardPending,
   noteCardAttempt,
@@ -104,6 +105,13 @@ type CardHeader = { template: "green" | "orange" | "grey" | "red" | "blue"; titl
  * has to carry it again — otherwise the header exists only until the first update 15s later.
  */
 const WORKING_HEADER: CardHeader = { template: "blue", title: "⏳ 处理中" };
+
+/** The band on a card that is not the turn's own: a recovered answer arrives as a new message. */
+function standaloneHeader(reason: string | undefined): CardHeader {
+  return reason === "turn_limit"
+    ? { template: "orange", title: `⏸️ 到了 ${config.maxTurns} 步上限` }
+    : { template: "grey", title: `⚠️ 这次没答出来 · ${reason ?? "unanswered"}` };
+}
 
 /**
  * The steps of a turn as a folded panel in the answer card itself. It used to be a 「查看详情」
@@ -662,21 +670,25 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
    * Posting to the chat instead put a recovered answer outside the topic, and as a second copy of an
    * answer the live turn had already delivered.
    */
+  /** Replies with a card, not text: a recovered answer carries markdown, and as plain text the
+   * `**bold**` and `| tables |` arrived unrendered. */
   async function replyOrSend(
     chatId: string,
     messageId: string | undefined,
     thread: boolean | undefined,
-    text: string,
+    markdown: string,
+    meta?: string,
+    header?: CardHeader,
   ): Promise<void> {
     if (messageId === undefined) {
-      await sendText(chatId, text);
+      await sendText(chatId, markdown);
       return;
     }
     await client.im.message.reply({
       path: { message_id: messageId },
       data: {
-        msg_type: "text",
-        content: JSON.stringify({ text }),
+        msg_type: "interactive",
+        content: JSON.stringify(card(markdown, meta, undefined, header)),
         ...(thread === true ? { reply_in_thread: true } : {}),
       },
     });
@@ -2042,7 +2054,10 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
   // old card has no owner. Reacquire the submission, wait for it, deliver the answer
   // as a message, and close the card — the durable equivalent of "it kept working".
   void (async () => {
-    const leftovers = await leftoverCards(runtime.harness, context).catch(() => []);
+    // Only cards from before this process started. A turn that begins while this loop runs creates a
+    // placeholder card too, and treating it as a leftover delivered the same finished answer twice.
+    const bootedAt = Date.now();
+    const leftovers = await leftoverCards(runtime.harness, context, bootedAt).catch(() => []);
     for (const card of leftovers) {
       const attempt = await noteCardAttempt(runtime.harness, context, card.requestId).catch(() => 0);
       if (attempt > 3) {
@@ -2088,8 +2103,15 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
           // The run may have been resumed by the new process's own turn handler, which delivers the
           // answer and clears the mark. Delivering it here as well is what posted the same message
           // twice — once inside the topic as a card, once in the chat as text.
+          // Two guards, because they catch different races: the pending check catches the live turn
+          // that delivered while this loop waited, and the claim catches two boots that waited for
+          // the same answer and would both reply with it.
           if (!(await isCardPending(runtime.harness, context, card.requestId))) {
             log("feishu", "recovered answer already delivered by the live turn", { cardId: card.cardId });
+            return;
+          }
+          if (!(await claimCard(runtime.harness, context, card.requestId, `recover:${process.pid}`))) {
+            log("feishu", "recovered answer already claimed", { cardId: card.cardId });
             return;
           }
           log("feishu", "recovered delivery footer", `${startedAt} 起 · ${total}`);
@@ -2099,7 +2121,9 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
               card.chatId,
               card.messageId,
               card.thread,
-              `${answer.length > 0 ? answer : "（模型没有返回文本）"}\n\n—— ✅ ${total}（${startedAt} 起，中途进程重启过）`,
+              answer.length > 0 ? answer : "（模型没有返回文本）",
+              `✅ ${total} · ${startedAt} 起，中途进程重启过`,
+              { template: "green", title: "✅ 答完了（重启后补发）" },
             );
             log("feishu", "recovered answer delivered", { chatId: card.chatId, chars: answer.length, total });
             await note(
@@ -2114,14 +2138,21 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
               card.thread,
               settled.reason === "turn_limit"
                 ? `上次那条跑到 ${config.maxTurns} 步上限就停了（工作是接着跑的，进度都在）。回一句「继续」我接着做。`
-                : `上次那条没答出来：${settled.reason ?? "unanswered"}（${startedAt} 起，${total}）`,
+                : `上次那条没答出来（${settled.reason ?? "unanswered"}）。回一句「继续」我接着做。`,
+              `${startedAt} 起 · ${total}`,
+              standaloneHeader(settled.reason),
             );
           }
         } catch (error) {
           logError("feishu", "could not recover answer", error);
-          await replyOrSend(card.chatId, card.messageId, card.thread, "上次那条恢复失败，麻烦再发一次。").catch(
-            () => {},
-          );
+          await replyOrSend(
+            card.chatId,
+            card.messageId,
+            card.thread,
+            "上次那条恢复失败，麻烦再发一次。",
+            `❌ 恢复失败`,
+            { template: "red", title: "❌ 恢复失败" },
+          ).catch(() => {});
         } finally {
           await clearCardPending(runtime.harness, context, card.requestId).catch(() => {});
         }

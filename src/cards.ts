@@ -18,6 +18,9 @@ export type PendingCard = {
   thread?: boolean;
   /** Recovery attempts so far. A card that keeps failing is dropped instead of retried forever. */
   attempts?: number;
+  /** Who took the card for delivery. Two boots in a row both waited for the same answer and both
+   * replied with it; the claim is committed before anything is sent, so only one of them does. */
+  claimedBy?: string;
   at: number;
 };
 
@@ -87,6 +90,26 @@ export async function noteCardAttempt(
 }
 
 /**
+ * Takes the card for delivery, atomically. Returns false when another process already took it.
+ */
+export async function claimCard(
+  harness: Harness,
+  context: Context,
+  requestId: string,
+  owner: string,
+): Promise<boolean> {
+  let claimed = false;
+  await harness.commit(async (tx) => {
+    const doc = await tx.doc(PendingCards);
+    const current = doc.cards[requestId];
+    if (current === undefined || current.claimedBy !== undefined) return;
+    current.claimedBy = owner;
+    claimed = true;
+  }, context);
+  return claimed;
+}
+
+/**
  * Whether a card is still marked pending. The live turn clears the mark in its `finally`, right after
  * it delivers — so a recovery that finds the mark gone has nothing left to deliver.
  */
@@ -95,14 +118,18 @@ export async function isCardPending(harness: Harness, context: Context, requestI
   return doc !== undefined && doc.cards[requestId] !== undefined;
 }
 
-/** Cards left over from a previous process, oldest first. */
+/** Cards left over from a previous process, oldest first. Cards created at or after `before` belong
+ * to this process: a turn that started while the recovery loop was reading would otherwise be
+ * treated as a leftover, and its already-finished submission delivered a second time. */
 export async function leftoverCards(
   harness: Harness,
   context: Context,
+  before: number,
 ): Promise<Array<{ requestId: string } & PendingCard>> {
   const doc = await harness.snapshot(PendingCards, context);
   if (doc === undefined) return [];
   return Object.entries(doc.cards)
     .map(([requestId, value]) => ({ requestId, ...value }))
+    .filter((card) => card.at < before)
     .sort((a, b) => a.at - b.at);
 }
