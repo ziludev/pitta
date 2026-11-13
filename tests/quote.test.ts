@@ -40,8 +40,8 @@ test("a quote that cannot be parsed still tells the model it was something", () 
 });
 
 test("the block marks where the quote starts and ends", () => {
-  const block = quoteBlock({ who: "ou_9d6f1a", text: "原文一行" });
-  assert.equal(block, "[引用 · ou_9d6f1a 的消息]\n原文一行\n[引用结束]\n\n");
+  const block = quoteBlock({ who: "ou_9abc1a", text: "原文一行" });
+  assert.equal(block, "[引用 · ou_9abc1a 的消息]\n原文一行\n[引用结束]\n\n");
 });
 
 /**

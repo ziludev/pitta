@@ -21,7 +21,7 @@ const run = promisify(execFile);
 const TIMEOUT_MS = 60_000;
 const MAX_OUTPUT = 8_000;
 
-/** Log stores are names like `app-dev-stdout`; anything else is a typo or an injection attempt. */
+/** Log stores are names like `<prefix>-dev-stdout`; anything else is a typo or an injection attempt. */
 const LOGSTORE = /^[a-z0-9][a-z0-9-]{1,60}$/;
 const ENVIRONMENTS = ["dev", "prod"] as const;
 type Environment = (typeof ENVIRONMENTS)[number];
@@ -40,7 +40,7 @@ export function parseLogsQuery(args: Record<string, unknown>): LogsQuery | strin
   if (!ENVIRONMENTS.includes(env as Environment)) return `env 只能是 dev 或 prod，收到 "${env}"`;
   const logstore = typeof args["logstore"] === "string" && args["logstore"].length > 0
     ? args["logstore"]
-    : `app-${env}-stdout`;
+    : `${process.env.SLS_LOGSTORE_PREFIX ?? "app"}-${env}-stdout`;
   if (!LOGSTORE.test(logstore)) return `logstore 名不合法："${logstore}"`;
   const query = typeof args["query"] === "string" ? args["query"].trim() : "";
   if (query.length === 0) return "query 不能为空";
@@ -83,11 +83,11 @@ async function slsScript(): Promise<string | undefined> {
 const logsQuery = defineTool({
   name: "logs_query",
   description:
-    "查阿里云 SLS 日志（只读）。env 选 dev 或 prod，logstore 默认 app-<env>-stdout，query 用 SLS 查询语法（如 '\"2100083235\"' 或 'severity: ERROR and service: gateway'），minutes 是时间窗口（默认 60）。生产日志也能查：只读，写操作另有代码拦截。",
+    "查阿里云 SLS 日志（只读）。env 选 dev 或 prod，logstore 默认 <prefix>-<env>-stdout（prefix 取 SLS_LOGSTORE_PREFIX，兜底 app），query 用 SLS 查询语法（如 '\"2100083235\"' 或 'severity: ERROR and service: gateway'），minutes 是时间窗口（默认 60）。生产日志也能查：只读，写操作另有代码拦截。",
   parameters: obj({
     query: str({ description: "SLS 查询语句" }),
     env: opt(str({ description: "dev 或 prod，默认 dev" })),
-    logstore: opt(str({ description: "logstore 名，默认 app-<env>-stdout" })),
+    logstore: opt(str({ description: "logstore 名，默认 <prefix>-<env>-stdout" })),
     minutes: opt(num({ description: "往前查多少分钟，默认 60，上限 1440" })),
     limit: opt(num({ description: "返回条数上限，默认 50，上限 200" })),
   }),

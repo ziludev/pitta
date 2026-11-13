@@ -39,7 +39,7 @@ test("a line carries the fields a person would ask for", () => {
   const fields = line.split("\t");
   assert.equal(fields[1], "query");
   assert.equal(fields[2], "abcde");
-  assert.equal(fields[3], "a66fa83f");
+  assert.equal(fields[3], "89abcdef");
   assert.equal(fields[4], "group");
   assert.equal(fields[5], "logs_query");
   assert.match(fields[6] ?? "", /env=dev/);

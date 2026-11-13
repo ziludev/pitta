@@ -61,7 +61,7 @@
   { "id": "write-deep-relative", "category": "path", "tool": "write", "args": { "path": "a/b/c.ts", "content": "x" }, "expect": "quiet" },
   { "id": "write-absolute-outside", "category": "path", "tool": "write", "args": { "path": "/etc/hosts", "content": "x" }, "expect": "ask", "key": "write-outside" },
   { "id": "write-parent-escape", "category": "path", "tool": "write", "args": { "path": "../other/x.ts", "content": "x" }, "expect": "ask", "key": "write-outside" },
-  { "id": "edit-outside", "category": "path", "tool": "edit", "args": { "path": "/Users/example/.zshrc", "newText": "x" }, "expect": "ask", "key": "write-outside" },
+  { "id": "edit-outside", "category": "path", "tool": "edit", "args": { "path": "/Users/you/.zshrc", "newText": "x" }, "expect": "ask", "key": "write-outside" },
   { "id": "feishu-task", "category": "path", "tool": "feishu_create_task", "args": { "summary": "x" }, "expect": "ask", "key": "feishu-write" },
   { "id": "bash-no-command", "category": "path", "tool": "bash", "args": {}, "expect": "quiet" }
 ]

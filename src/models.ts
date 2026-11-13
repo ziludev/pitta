@@ -129,7 +129,7 @@ export function warnIfRoutingGroup(): void {
   if (provider === "magpie" && (modelId.startsWith("auto/") || modelId.startsWith("group/"))) {
     console.warn(
       `[models] ${modelId} is a routing group: identical tasks may route to different models. ` +
-        "Pin a concrete id (e.g. vendor/deepseek-flash) for stable behaviour.",
+        "Pin a concrete id (e.g. vendor/model-name) for stable behaviour.",
     );
   }
 }

@@ -10,9 +10,9 @@ import { formatTokens, parseModelCommand, turnMeta } from "../src/feishu.ts";
 test("/model forms", () => {
   assert.deepEqual(parseModelCommand(""), { kind: "list" });
   assert.deepEqual(parseModelCommand("   "), { kind: "list" });
-  assert.deepEqual(parseModelCommand("vendor/deepseek-v4-pro"), {
+  assert.deepEqual(parseModelCommand("vendor/model-pro"), {
     kind: "set",
-    modelId: "vendor/deepseek-v4-pro",
+    modelId: "vendor/model-pro",
   });
   assert.deepEqual(parseModelCommand("default auto/glm-5.3"), { kind: "default", modelId: "auto/glm-5.3" });
   assert.deepEqual(parseModelCommand("thinking high"), { kind: "thinking", level: "high" });

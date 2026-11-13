@@ -90,7 +90,7 @@ export const config = {
     provider: process.env.AGENT_PROVIDER ?? "magpie",
     // Pinned model id on purpose: routing groups (auto/*, group/*) pick a different
     // backend per request, which makes the same task succeed one day and fail the next.
-    modelId: process.env.AGENT_MODEL ?? "vendor/deepseek-flash",
+    modelId: process.env.AGENT_MODEL ?? "vendor/model-name",
   },
   thinkingLevel: (process.env.AGENT_THINKING ?? "high") as
     | "off"

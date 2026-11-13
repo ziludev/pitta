@@ -3,7 +3,7 @@
   "servers": {
     "filesystem": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/example/learn/pi-durable-agent/workspace"]
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/example/learn/pitta/workspace"]
     },
     "example-http": {
       "url": "https://example.com/mcp",

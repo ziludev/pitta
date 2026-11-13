@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { guestBlockReason, guestShellBlockReason, outsideRoots } from "../src/approval.ts";
 import { isOwnerOperator } from "../src/feishu.ts";
 
-const WS = "/Users/example/learn/pi-durable-agent/workspace";
+const WS = "/Users/example/learn/pitta/workspace";
 const PROJECT = "/Users/example/work/example-service";
 
 /**
@@ -29,7 +29,7 @@ test("a guest shell is open to reading and closed to changing", () => {
     "grep -rn \"OrderTotal\" /Users/example/work/example-service/src",
     "rg minUrl | head -20",
     "psql -h 10.0.0.10 -c \"select user_id from userinfo limit 5\"",
-    "curl -sI https://cdn.example.com/cai/dh_avatar/x.jpeg",
+    "curl -sI https://cdn.example.com/avatar/x.jpeg",
     "dig +short example.com",
   ];
   for (const command of allowed) assert.equal(guestShellBlockReason(command, [WS, PROJECT]), undefined, command);

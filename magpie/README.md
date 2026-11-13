@@ -9,7 +9,7 @@
 magpie plugin add ./magpie          # 在本仓库根目录
 magpie ls                           # 应该出现 Pi Durable Agent
 magpie pi-durable                   # 看它当前用的模型
-magpie pi-durable vendor/deepseek-v4-pro   # 换模型（等于在 magpie 里点一下）
+magpie pi-durable vendor/model-pro   # 换模型（等于在 magpie 里点一下）
 ```
 
 装完在 magpie 应用的「Agent」页也能看到这一行，选模型、切换都从那里面点。

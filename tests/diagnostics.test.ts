@@ -7,10 +7,11 @@ import { parseLogsQuery, searchRoot } from "../src/diagnostics.ts";
  * shell. Their limits have to hold on the arguments, since the blast radius is the tool.
  */
 
-const WS = "/Users/example/learn/pi-durable-agent/workspace";
+const WS = "/Users/example/learn/pitta/workspace";
 const PROJECT = "/Users/example/work/example-service";
 
 test("logs_query fills in sane defaults", () => {
+  delete process.env["SLS_LOGSTORE_PREFIX"]; // the prefix is per-installation; assert the fallback
   const parsed = parseLogsQuery({ query: '"2100083235"' });
   assert.deepEqual(parsed, { env: "dev", logstore: "app-dev-stdout", query: '"2100083235"', minutes: 60, limit: 50 });
 });

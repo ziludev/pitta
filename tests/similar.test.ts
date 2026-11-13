@@ -29,7 +29,7 @@ test("a reordered long note is kept, not merged away", () => {
 });
 
 test("isDuplicate respects the threshold", () => {
-  const existing = ["默认使用 vendor/deepseek-flash"];
-  assert.equal(isDuplicate("默认使用 deepseek-flash 模型", existing, 0.95), false);
-  assert.equal(isDuplicate("默认使用 deepseek-flash 模型", existing, 0.3), true);
+  const existing = ["默认使用 vendor/model-name"];
+  assert.equal(isDuplicate("默认使用 vendor/model-pro 模型", existing, 0.95), false);
+  assert.equal(isDuplicate("默认使用 vendor/model-pro 模型", existing, 0.3), true);
 });

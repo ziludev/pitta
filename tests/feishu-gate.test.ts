@@ -92,9 +92,9 @@ test("a shared group tells alex he may change files, and a guest that he may not
 test("each group message carries who is speaking", async () => {
   const { speakerTag } = await import("../src/feishu.ts");
   const owner = "ou_0123456789abcdef0123456789abcdef";
-  assert.match(speakerTag(true, owner), /^\[alex 本人 ou_abcde\]/);
-  assert.match(speakerTag(false, "ou_9d6f1a2b3c4d"), /^\[群成员 ou_9d6f1\]/);
-  assert.doesNotMatch(speakerTag(false, "ou_9d6f1a2b3c4d"), /alex/);
+  assert.match(speakerTag(true, owner), /^\[alex 本人 ou_01234\]/);
+  assert.match(speakerTag(false, "ou_9abc1a2b3c4d"), /^\[群成员 ou_9abc1\]/);
+  assert.doesNotMatch(speakerTag(false, "ou_9abc1a2b3c4d"), /alex/);
 });
 
 // What the model actually said in the group, and what must not be mistaken for a refusal.

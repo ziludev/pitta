@@ -25,7 +25,7 @@ test("an ssh GitHub remote becomes an https compare link", async () => {
 });
 
 test("a GitLab ssh remote becomes a new-MR link with both branches", async () => {
-  const remote = await remoteInfo(await withRemote("git@gitlab.example.com:backend/example-service.git"));
+  const remote = await remoteInfo(await withRemote("git@gitlab.example.com:team/example-service.git"));
   assert.equal(remote.kind, "gitlab");
   const url = compareUrl(remote, "master", "agent/conv-3");
   assert.match(url ?? "", /\/-\/merge_requests\/new\?/);
