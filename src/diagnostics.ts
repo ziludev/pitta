@@ -111,10 +111,13 @@ const logsQuery = defineTool({
       String(parsed.limit),
     ];
     log("logs", "sls query", { env: parsed.env, logstore: parsed.logstore, minutes: parsed.minutes, query: parsed.query });
+    // Anyone in a shared group can read prod logs now, so this record stands in for the approval
+    // that used to be asked: who asked, which logstore, what they were looking for. One line.
     await record(api, context, {
       kind: "query",
       tool: "logs_query",
-      detail: `env=${parsed.env} logstore=${parsed.logstore} ${parsed.minutes}m ${parsed.query}`,
+      ...(guestTurn ? { who: "guest" } : {}),
+      detail: `env=${parsed.env} logstore=${parsed.logstore} ${parsed.minutes}m ${parsed.query.slice(0, 160)}`,
     });
     try {
       const { stdout } = await run("bash", argv, {
