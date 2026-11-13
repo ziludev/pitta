@@ -134,7 +134,6 @@
 | MCP | `mcp.json` 里的 servers（stdio / streamable HTTP）启动时连接，工具注册为 `mcp__<server>__<tool>` |
 | 多角色 | `delegate` / `delegate_parallel` / `build_feature`；每个子 agent 是 task-owned conversation，崩了续跑、abort 级联、只允许一层 |
 | 飞书原生 | 走本机已登录的 `lark-cli`（你的用户身份）：`feishu_agenda` 日历、`feishu_tasks` 待办、`feishu_create_task`、`feishu_doc_read` |
-| Magpie | `magpie/` 是 magpie 的 agent 插件：装一次，之后在 magpie 的 Agent 页给它选模型，magpie 把 `AGENT_MODEL` + 网关地址 + key 写进本仓库 `.env`（关掉开关逐字节还原）。模型列表在启动时从网关 `/v1/models` 取——上下文、模态、每 token 价格都在里面，所以 magpie 里新加的模型不用改代码 |
 
 ---
 
