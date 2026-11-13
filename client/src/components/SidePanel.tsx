@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { MessageSquarePlus, Send, Trash2 } from "lucide-react";
-import { AnimateService, motion } from "motion/react";
+import { motion } from "motion/react";
 import { Brain, Check, GitCommitHorizontal, GitCompareArrows, RefreshCw, ShieldCheck, Signal, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
@@ -382,8 +382,7 @@ export function SidePanel() {
             {tr(lang, "access")}
           </TabsTrigger>
         </TabsList>
-        <AnimateService mode="wait" initial={false}>
-          <motion.div
+        <motion.div
             key={value}
             initial={{ opacity: 0, y: tabs.rise }}
             animate={{ opacity: 1, y: 0 }}
@@ -407,8 +406,7 @@ export function SidePanel() {
             <TabsContent value="access" className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <AccessPanel />
             </TabsContent>
-          </motion.div>
-        </AnimateService>
+        </motion.div>
       </Tabs>
     </div>
   );
