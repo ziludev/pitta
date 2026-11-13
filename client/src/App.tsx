@@ -81,15 +81,6 @@ export function App() {
                 </div>
                 <ConvSearch />
                 <div className="flex shrink-0 items-center gap-0.5">
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={toggleSide}
-                    title={sideOpen ? "收起右栏" : "展开右栏"}
-                    className={sideOpen ? "text-primary" : undefined}
-                  >
-                    <PanelRight className="size-3" />
-                  </Button>
                   <Button variant="ghost" size="icon-xs" onClick={() => void reset()} title="/new">
                     <SquarePen className="size-3" />
                   </Button>
@@ -102,6 +93,16 @@ export function App() {
                     className={busy ? "text-rose-500" : undefined}
                   >
                     <Square className="size-3" />
+                  </Button>
+                  {/* Last on the right: it is the edge the panel opens from. */}
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={toggleSide}
+                    title={sideOpen ? "收起右栏" : "展开右栏"}
+                    className={sideOpen ? "text-primary" : undefined}
+                  >
+                    <PanelRight className="size-3" />
                   </Button>
                 </div>
               </div>
