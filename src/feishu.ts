@@ -25,6 +25,7 @@ import {
   markCardPending,
   noteCardAttempt,
 } from "./cards.ts";
+import { lookupMessage } from "./threads.ts";
 import { readTurnDetails, saveTurnDetails, type TurnDetails } from "./details.ts";
 import {
   adoptChatLevels,
@@ -83,7 +84,27 @@ const HELP = [
 
 type CardButton = { label: string; value: Record<string, unknown>; type?: "primary" | "danger" | "default" };
 
-function card(markdown: string, meta?: string, buttons?: CardButton[]): Record<string, unknown> {
+/**
+ * A failed turn leaves the card with nothing to press, so the only way on was typing "继续"
+ * (from a phone, on a long answer). The button submits a continue for the same conversation.
+ * `messageId` is the question the card answered, so a second failure stays pressable.
+ */
+function continueButton(messageId: string): CardButton[] {
+  return [{ label: "继续", value: { kind: "continue", messageId }, type: "primary" }];
+}
+
+/**
+ * The colour bar is the whole point: a green "答完了", an orange "到了步数上限" and a red
+ * "出错了" sit in the same list, and the outcome has to be readable without opening it.
+ */
+type CardHeader = { template: "green" | "orange" | "grey" | "red"; title: string };
+
+function card(
+  markdown: string,
+  meta?: string,
+  buttons?: CardButton[],
+  header?: CardHeader,
+): Record<string, unknown> {
   const elements: Array<Record<string, unknown>> = [{ tag: "markdown", content: markdown }];
   if (meta !== undefined) {
     elements.push({ tag: "note", elements: [{ tag: "plain_text", content: meta }] });
@@ -99,7 +120,13 @@ function card(markdown: string, meta?: string, buttons?: CardButton[]): Record<s
       })),
     });
   }
-  return { config: { wide_screen_mode: true, update_multi: true }, elements };
+  return {
+    config: { wide_screen_mode: true, update_multi: true },
+    ...(header === undefined
+      ? {}
+      : { header: { template: header.template, title: { tag: "plain_text", content: header.title } } }),
+    elements,
+  };
 }
 
 function renderDetails(details: TurnDetails): string {
@@ -620,10 +647,11 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     markdown: string,
     meta?: string,
     buttons?: CardButton[],
+    header?: CardHeader,
   ): Promise<void> {
     const response = await client.im.message.patch({
       path: { message_id: messageId },
-      data: { content: JSON.stringify(card(markdown, meta, buttons)) },
+      data: { content: JSON.stringify(card(markdown, meta, buttons, header)) },
     });
     if (response?.code !== 0) {
       throw new Error(`patch failed: ${response?.code} ${response?.msg ?? ""}`);
@@ -666,9 +694,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     markdown: string,
     meta: string,
     buttons?: CardButton[],
+    header?: CardHeader,
   ): Promise<void> {
     try {
-      await patchCard(cardId, markdown, meta, buttons);
+      await patchCard(cardId, markdown, meta, buttons, header);
       log("feishu", "final card patched", { chatId, cardId, chars: markdown.length });
       return;
     } catch (error) {
@@ -823,6 +852,69 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     });
   });
 
+/** Cards with a continue already running, so a double tap cannot start two turns at once. */
+const continuing = new Set<string>();
+
+  /**
+   * The 「继续」 button under a card that did not finish. Submitted with no new user message, so it
+   * replays the same context, and the answer lands in the card that asked for it: the turn reads as
+   * one answer instead of a second card after the first.
+   */
+  async function continueFromCard(chatId: string, cardId: string, messageId: string): Promise<void> {
+    if (continuing.has(cardId)) return;
+    continuing.add(cardId);
+    const startedAt = Date.now();
+    try {
+      // The index knows which conversation answered this message; a topic's fork is not the chat's
+      // own conversation, so a missing entry is the only case that falls back to the chat.
+      const hit = await lookupMessage(runtime.harness, context, messageId).catch(() => undefined);
+      const indexed =
+        hit === undefined ? undefined : await runtime.harness.conversation(hit.conversationId as never, context);
+      const conversation = indexed ?? (await runtime.conversationFor(chatId));
+      await patchCard(cardId, "▶️ 继续中…", "从卡片继续这一轮").catch(() => {});
+      const submission = await conversation.submit(
+        { type: "continue", requestId: `continue-card:${cardId}:${startedAt}` },
+        context,
+      );
+      const settled = await submission.wait(context);
+      const seconds = Math.round((Date.now() - startedAt) / 100) / 10;
+      log("feishu", "card continue settled", { status: settled.status, seconds });
+      if (settled.status === "done" && settled.answer !== undefined) {
+        const answer = await runtime.answerText(conversation, settled.answer);
+        await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", `✅ 接着答完了 · ${seconds}s`, undefined, {
+          template: "green",
+          title: "✅ 答完了",
+        });
+      } else {
+        await deliverAnswer(
+          chatId,
+          cardId,
+          `⚠️ 接着跑也没收尾：${settled.reason ?? "unanswered"}`,
+          `⏸️ ${seconds}s`,
+          continueButton(messageId),
+          { template: "orange", title: "⏸️ 还是没收尾" },
+        );
+      }
+      if (seconds >= config.feishu.donePingSeconds) {
+        await pingDone(chatId, cardId, `✅ 接着答完了 · ${seconds}s`, {
+          thread: topicChats.get(chatId) === true,
+        });
+      }
+    } catch (error) {
+      logError("feishu", "card continue failed", error);
+      await deliverAnswer(
+        chatId,
+        cardId,
+        `❌ 继续失败：${(error as Error).message}`,
+        "⏹️ 失败",
+        continueButton(messageId),
+        { template: "red", title: "❌ 出错了" },
+      );
+    } finally {
+      continuing.delete(cardId);
+    }
+  }
+
   async function handleCardAction(payload: CardAction): Promise<Record<string, unknown>> {
     const receivedAt = Date.now();
     const value = payload.action?.value ?? {};
@@ -868,6 +960,18 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         void patchCard(messageId, `✅ 已开放 ${chatId.slice(-6)}`, "guest 权限：只读工具、不写记忆").catch(() => {});
       }
       return { toast: { type: "success", content: "已开放，并通知了对方" } };
+    }
+
+    if (value["kind"] === "continue") {
+      const messageId = typeof value["messageId"] === "string" ? value["messageId"] : "";
+      const chatId = payload.context?.open_chat_id ?? "";
+      const cardId = payload.context?.open_message_id ?? "";
+      if (chatId.length === 0 || cardId.length === 0) {
+        return { toast: { type: "error", content: "缺少会话信息" } };
+      }
+      // A continue runs for minutes and Feishu drops a callback after ~3s: answer now, work later.
+      void continueFromCard(chatId, cardId, messageId);
+      return { toast: { type: "success", content: "继续中…" } };
     }
 
     if (value["kind"] === "detail") {
@@ -1568,7 +1672,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
             }
           }
         }
-        await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", meta, buttons);
+        await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", meta, buttons, {
+          template: "green",
+          title: "✅ 答完了",
+        });
         if (seconds >= config.feishu.donePingSeconds) {
           await pingDone(
             chatId,
@@ -1607,7 +1714,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
           const meta = `✅${toolsUsed.size > 0 ? ` · ${toolsUsed.size} 个工具` : ""}${
             cost > 0.00005 ? ` · $${cost.toFixed(4)}` : ""
           } · 到 ${config.maxTurns} 步后续跑 1 次`;
-          await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", meta);
+          await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", meta, undefined, {
+            template: "green",
+            title: "✅ 答完了（续跑一次）",
+          });
           if (total >= config.feishu.donePingSeconds) {
               await pingDone(
               chatId,
@@ -1622,8 +1732,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         await deliverAnswer(
           chatId,
           cardId,
-          `⚠️ 这轮跑到 ${config.maxTurns} 步上限，续跑一次仍没收尾（活比较大，不是出错）。\n\n进度都在，回一句「继续」我再接着做。`,
+          `⚠️ 这轮跑到 ${config.maxTurns} 步上限，续跑一次仍没收尾（活比较大，不是出错）。\n\n进度都在，点「继续」或回一句「继续」我接着做。`,
           `⏸️ ${seconds}s · 步数上限`,
+          continueButton(message.message_id),
+          { template: "orange", title: "⏸️ 到了步数上限" },
         );
         if (seconds >= config.feishu.donePingSeconds) {
           await pingDone(
@@ -1637,7 +1749,14 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
         const text = `⚠️ 这次没有答出来：${settled.reason ?? "unanswered"}${
           settled.detail === undefined ? "" : `\n\n${String(settled.detail)}`
         }`;
-        await deliverAnswer(chatId, cardId, text, `⏹️ ${seconds}s`);
+        await deliverAnswer(
+          chatId,
+          cardId,
+          `${text}\n\n进度都在，点「继续」或回一句「继续」我接着做。`,
+          `⏹️ ${seconds}s`,
+          continueButton(message.message_id),
+          { template: "grey", title: "⚠️ 这次没答出来" },
+        );
         if (seconds >= config.feishu.donePingSeconds) {
           await pingDone(chatId, message.message_id, `⚠️ 这条没答出来（${settled.reason ?? "unanswered"}）· ${seconds}s`, {
             thread: replyOptions.thread === true,
@@ -1646,7 +1765,14 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
       }
     } catch (error) {
       logError("feishu", "turn failed", error);
-      await deliverAnswer(chatId, cardId, `❌ 出错：${(error as Error).message}`, "⏹️ 失败");
+      await deliverAnswer(
+        chatId,
+        cardId,
+        `❌ 出错：${(error as Error).message}\n\n进度都在，点「继续」可以接着做。`,
+        "⏹️ 失败",
+        continueButton(message.message_id),
+        { template: "red", title: "❌ 出错了" },
+      );
     } finally {
       clearTimeout(watchdog);
       clearInterval(heartbeat);
