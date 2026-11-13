@@ -60,7 +60,8 @@ export function CommitDialog({ files, iconOnly = false }: { files: number; iconO
           placeholder={tr(lang, "commitMessage")}
           className="text-[13px]"
           onKeyDown={(event) => {
-            if (event.key === "Enter") {
+            // Enter while an IME is composing (pinyin, kana) confirms the candidate, not the commit.
+            if (event.key === "Enter" && !event.nativeEvent.isComposing) {
               event.preventDefault();
               void run();
             }

@@ -72,7 +72,8 @@ export function Composer() {
         value={text}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          // Skip the IME's candidate confirmation: a Chinese input session sends Enter too.
+          if (event.key === "Enter" && !event.nativeEvent.isComposing && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
             void send();
           }
