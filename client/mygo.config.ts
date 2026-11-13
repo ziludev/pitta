@@ -1,8 +1,8 @@
 import { defineConfig } from "mygo-cli";
 
 export default defineConfig({
-  // Both names, because the Dock and the menu bar are read by people who call it either.
-  name: "知衡 Pitta",
+  // The app is Pitta; the Chinese name belongs to the agent inside it, not to the icon in the Dock.
+  name: "Pitta",
   // Kept so the webview keeps its stored state: a new identifier is a new app to macOS.
   identifier: "com.example.agent",
   version: "0.1.0",

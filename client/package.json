@@ -9,7 +9,7 @@
     "dev:web": "vite",
     "build:web": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "install-app": "mygo build && rm -rf '/Applications/知衡 Pitta.app' && cp -R 'build/darwin-arm64/知衡 Pitta.app' /Applications/ && xattr -dr com.apple.quarantine '/Applications/知衡 Pitta.app' || true"
+    "install-app": "mygo build && rm -rf '/Applications/Pitta.app' && cp -R 'build/darwin-arm64/Pitta.app' /Applications/ && xattr -dr com.apple.quarantine '/Applications/Pitta.app' || true"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

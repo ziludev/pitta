@@ -31,6 +31,9 @@ CLI      ─┘
 | 输入 | 文字、图片（飞书 image/post 消息；客户端粘贴截图）、语音（本地 whisper） |
 | 中断 | `/stop`、客户端停止按钮；后台任务不受影响 |
 | 完成提醒 | 答案只是**原地更新卡片**，飞书不会为"更新"推送通知。所以一轮超过 45 秒时，收尾会额外发一条短消息（`✅ 答完了 · 53s` + 结论前 60 字），这样锁屏也能收到；话题里的提问，这条也发在同一个话题里。`FEISHU_DONE_PING_SECONDS` 可调，设 0 关闭 |
+| 卡片状态 | 卡片顶部一直写着这轮处在哪：蓝 `⏳ 处理中` → 绿 `✅ 答完了`（续跑过一次写「续跑一次」）/ 橙 `⏸️ 到了 80 步上限` / 灰 `⚠️ 这次没答出来 · 原因` / 红 `❌ 出错了`。飞书的 patch 是**整张重建**，所以每次刷新都重新带上 header，否则状态条会在第一次流式刷新后消失 |
+| 没答完能接着跑 | 橙卡和灰卡带一个「继续」按钮，点它在**同一张卡片**里续跑；连点只跑一次（注册表里先认领再提交）。卡片上的「继续」和 `durable chat` 里的 `/continue` 走同一条路径 |
+| 执行详情 | 步骤时间线默认折叠在卡片里（`本轮执行详情 · 5 步 · 62s · $0.0031`），不再单发一条「查看详情」消息；客户端是一条可展开的步骤条 |
 
 ### 运行时间线（参考 Detent UI / ThinkRail 的表达）
 
@@ -49,6 +52,8 @@ CLI      ─┘
 - 每步 = `工具 · 第一个有意义的参数`，右侧是该步在整轮里的**迷你甘特条**（位置=起始时间，长度=耗时）
 - 轮末是阶段占比条 + 工具数 + token + 花费 + 总时长
 - 「等你确认」的审批等待也会计入（数据来自 `app/approval-waits`），所以"这轮为什么 171 秒"能一眼归因
+- **跑着的时候窗口不会自己看起来停了**：客户端只有一个 `turnState()`（`idle / thinking / tool / streaming / settled`），判定一次、渲染各处读它。工具调用之间没工具在跑、也还没出字，就是 `thinking` 并带着秒数往上走；轮末那条统计条在跑的时候显示 spinner +「运行中」，不是总结
+- **连接状态也是一个显式联合**（`connecting / open / down{reason:error|closed}`），每个 socket 带代数，切会话时旧 socket 迟到的 `onclose` 不会再给新会话盖上"已断开"
 
 ### 会话与项目
 
@@ -89,7 +94,7 @@ CLI      ─┘
 - **群里也能用 `/allow`**：飞书把 @ 渲染成 `@_user_1` 记号，之前替换成 `@` 后 `/allow` 变成 `@ /allow`，所有斜杠命令在群里都失效（单聊没 @ 所以看不出来）。现在先取到 bot 自己的 open_id，@ 它时整段去掉；找不到身份时命令匹配也会剥掉开头的 @ 前缀
 - **本会话内全部允许**：卡片和客户端都有这个按钮。它按**风险类**（`rm` / `force-push` / `write-outside` / `chmod-777`…）在**当前会话**内记住，存在 `app.session-grants`，重启后仍有效；别的会话、别的风险类照样会问。风险类 key 有单测钉住，"同一个炸点不会被反复问，也不会一次放行所有危险操作"
 - **有审计**：拒绝（guest 越界用工具）、级别变更、审批结果、两个只读查询各记一条，存在 `app.audit`（环形 300 条），`durable audit` 直接看；`durable doctor` 会打印每个会话的级别，桌面端侧栏「权限」页查看同一份数据
-- **审批**：`guard` hook 拦危险调用（`rm -rf`、`git push --force`、`sudo`、写工作区外…），**卡片发到你的私聊**（不再发在群里，群里只会看到“等主人确认”）；decision 存 durable memo，重启不重问。只有 `FEISHU_ALLOWED_SENDER_IDS` 里的 open_id 能点
+- **审批**：`guard` hook 拦危险调用（`rm -rf`、`git push --force`、`sudo`、写工作区外…），**卡片发到你的私聊**（不再发在群里，群里只会看到“等主人确认”）；decision 存 durable memo，重启不重问。只有 `FEISHU_ALLOWED_SENDER_IDS` 里的 open_id 能点。**10 分钟没人点按拒绝处理**，和手点拒绝走同一条回调，卡片上写清是超时
 - **同一份待审批**同时出现在飞书卡片和客户端（底部琥珀条），任一处都可决定；**fail closed**（没有审批通道时默认拒绝）
 - **审批等待**会记录时长并计入该轮时间线
 - **额度**：`pi.usage` 汇总 → 每日上限（`AGENT_DAILY_BUDGET_USD`），超了拒绝新请求，跨天重置
@@ -162,7 +167,8 @@ npm start                     # 前台跑一次试试
 cd client
 npm install
 npm run dev      # 开发：Go 窗口 + Vite 热更新
-npm run build    # 产出 build/darwin-arm64/知衡 Pitta.app 与 .dmg
+npm run build        # 产出 build/darwin-arm64/Pitta.app 与 .dmg
+npm run install-app  # 同一份装进 /Applications（应用列表里能看到）
 ```
 
 前端栈：shadcn/ui **Nova**（`radix-nova`）+ Tailwind v4 · Lucide 图标 · Motion 动效 · react-resizable-panels 三栏 · dnd-kit 会话排序 · Zustand 状态 · next-themes 主题。
@@ -207,7 +213,7 @@ durable audit [n]       # 最近 n 条权限决定：谁、哪个会话、什么
 
 - plist 是模板（`launchd/*.plist.tmpl`），`install` 时渲染实路径，换机器不用手改
 - 备份：`sqlite3 .backup` 热备 → `journal_mode=DELETE` 收成单文件 → 完整性校验 → 保留 14 份；恢复会先停进程、等它真正退出
-- **一份 storage 只能一个进程写**：`openRuntime()` 会写 `.data/agent.owner`（pid），第二个进程直接报错而不是把运行中的会话搞坏
+- **一份 storage 只能一个进程写**：`openRuntime()` 用 `wx` 独占创建 `.data/agent.owner`（pid），第二个进程直接报错而不是把运行中的会话搞坏。**pid 被系统复用不会挡住启动**：除了 `kill(pid,0)`，还要 `ps -p <pid> -o command=` 里确实是 `node … main.ts` 才认（硬杀或重启后，那个号可能已经归别人；以前这种情况 launchd 会一直重启失败，看起来就是"开机后进程没起来"）
 - **写坏了会自己重开**：storage 一旦报 `Session failed after a storage error`（比如撞上重复 id），session 就永久废了——只有重开进程能救。所以 bridge 遇到这种错误会直接 `exit`，让 launchd 起新进程；10 分钟内不重复触发（标记在 `.data/storage-selfheal`），避免真的坏库变成重启死循环
 - 日志：`logs/agent.log`、`logs/agent.err.log`、`logs/backup.log`；`[report] <时间戳> <kind>` 是 hook/tool/listener 的失败（不会抛进 harness，只能在这看）
 - `doctor` 的判据是**相对量**：重启次数与上次体检比（`+N since last check`），错误只看近两天；旧日志里没有时间戳的行单独计数，不会永远冒充"新故障"
@@ -226,6 +232,7 @@ src/
   personal.ts      人设 / 时间 / 工作区 section
   roles.ts         子 agent 角色：指令 + 工具白名单 + 轮次上限
   subagents.ts     delegate / delegate_parallel / build_feature（durable 子会话）
+  settle.ts        任务收尾：写终态时把「已经是终态 / 已被中止 / session 已关」当成正常，别的错照样抛
   memory.ts        global / chat / work 三层记忆 doc、remember/forget/recall
   curator.ts       手动整理：读会话 → 只产出建议
   reminders.ts     durable Reminder task（sleepUntil）+ remind 工具
@@ -253,6 +260,7 @@ client/            MyGo 桌面 app
   main.go          Go 窗口 + 绑定（桥接地址/token、agentctl 控制、原生通知）
   src/components/  Transcript / TurnRail（步骤时间线）/ Composer / SideRail / SidePanel（改动·提交·用量·记忆）…
   src/store.ts     Zustand：会话/条目/live/记忆/改动/审批/项目/语言
+  src/lib/turn-state.ts  一轮渲染成什么（idle/thinking/tool/streaming/settled），窗口自己没有第二套判断
 ```
 
 ---
@@ -264,6 +272,8 @@ client/            MyGo 桌面 app
 | 崩溃续跑 | `sleep 10` 跑到一半 `kill -9`，新进程把工具调用标为中断，模型改后台重跑并答完 |
 | 跨进程提醒 | A 进程设 45s 提醒后退出，B 进程打开同一 storage，到点照样触发 |
 | 重启保持 | conversation id、记忆、会话↔项目映射、会话↔卡片登记都不变 |
+| 重启不重投 | 重启后一张「本轮还在跑」的卡片不会把上一轮的答案再发一遍：认领（`live→delivering`）在 transaction 里，两个进程只有一个能拿到 |
+| pid 被复用 | `.data/agent.owner` 里的 pid 已被别的进程占用时照常启动（`ps` 校验命令行为 `node … main.ts` 才拦） |
 | 工具审批 | `rm -rf` 被拦 → 飞书卡片点「允许」/ 客户端 API 允许 → 工具真实执行；等待时长计入时间线 |
 | worktree 隔离 | 会话 A 写文件，主树与其他会话看不到；合并 `--no-ff` 后出现在主树 |
 | 未合并保护 | 清理 worktree 时分支有未合并提交 → `unmerged, commits:1` 拒绝 |
