@@ -13,11 +13,7 @@ A personal assistant that runs on [Pi Durable](https://earendil.com/posts/pi-dur
 - **Storage** — one SQLite file (`.data/agent.sqlite`), one writer process, restored as-is on restart.
 - **Three surfaces** — a Feishu app (long connection: no public IP, domain or certificate), a MyGo desktop app (Go window + React), and the `durable` CLI.
 
-```
-Feishu bot ─┐
-desktop app ┼─→ agent process (one SQLite, single writer) ─→ 127.0.0.1:8787 HTTP/WS bridge
-CLI        ─┘
-```
+![Three surfaces, one process, one SQLite file](assets/readme/architecture.svg)
 
 ## What it does
 
@@ -110,7 +106,7 @@ One level per chat, in `app.chat-access`: `closed`, `owner` or `group`. Chats li
 
 Skills are scanned from `./.pi/skills`, `./.agents/skills`, `~/.pi/agent/skills`, `~/.agents/skills`, `~/.claude/skills`; only names go into the prompt and the `skill` tool fetches a body on demand. MCP servers from `mcp.json` (stdio or streamable HTTP) are connected at startup and their tools registered as `mcp__<server>__<tool>`. `delegate`, `delegate_parallel` and `build_feature` run sub-agents as task-owned conversations: they resume after a crash, abort in cascade, and nest one level. Feishu-native tools (`feishu_agenda`, `feishu_tasks`, `feishu_create_task`, `feishu_doc_read`) go through a locally logged-in `lark-cli`, so they act as you. `magpie/` is an agent plugin for [magpie](https://github.com/earendil-works/magpie) that writes the model and gateway into this repository's `.env` from its own Agent page.
 
-### Configuration
+## Configuration
 
 Everything lives in `.env`; `.env.example` explains every key.
 

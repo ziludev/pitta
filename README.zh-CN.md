@@ -16,11 +16,7 @@
   - `client/`：MyGo 桌面 app（Go 窗口 + React + shadcn/ui Nova）
   - `durable`：CLI
 
-```
-飞书 bot ─┐
-桌面 app ─┼─→ agent 进程（一份 SQLite，唯一写者）─→ 127.0.0.1:8787 HTTP/WS 桥
-CLI      ─┘
-```
+![三个入口，一个进程，一份 SQLite](assets/readme/architecture.svg)
 
 ---
 
@@ -141,6 +137,26 @@ CLI      ─┘
 | Magpie | `magpie/` 是 magpie 的 agent 插件：装一次，之后在 magpie 的 Agent 页给它选模型，magpie 把 `AGENT_MODEL` + 网关地址 + key 写进本仓库 `.env`（关掉开关逐字节还原）。模型列表在启动时从网关 `/v1/models` 取——上下文、模态、每 token 价格都在里面，所以 magpie 里新加的模型不用改代码 |
 
 ---
+
+## 配置
+
+都在 `.env` 里，每个键的说明见 `.env.example`。
+
+| 键 | 作用 |
+|---|---|
+| `FEISHU_APP_ID`、`FEISHU_APP_SECRET` | 飞书自建应用；缺了飞书桥不启动 |
+| `FEISHU_ALLOWED_SENDER_IDS` | 谁是主人 —— 必填，也只有这些人能点审批 |
+| `FEISHU_ALLOWED_CHAT_IDS` | 固定成 `owner` 级别的会话（留空则每个会话都从 `closed` 开始） |
+| `FEISHU_DONE_PING_SECONDS` | 超过多少秒额外发一条完成消息；`0` 关闭 |
+| `AGENT_PROVIDER`、`AGENT_MODEL`、`AGENT_THINKING` | 默认 provider、模型、思考档 |
+| `MAGPIE_BASE_URL`、`MAGPIE_API_KEY` | `AGENT_PROVIDER=magpie` 时的本机代理地址与 key |
+| `AGENT_WORKSPACE`、`AGENT_DB` | 工具能碰的目录，和那个 SQLite 文件 |
+| `AGENT_MAX_TURNS` | 一轮多少步工具调用后停住并给出「继续」 |
+| `AGENT_DAILY_BUDGET_USD` | 每日花费上限，`0` 不限 |
+| `AGENT_WORKTREE`、`AGENT_SKILLS_DIRS`、`AGENT_MCP_CONFIG` | worktree 模式、skill 目录、MCP 配置 |
+| `AGENT_HTTP_PORT`、`AGENT_HTTP_HOST`、`AGENT_HTTP_TOKEN` | 客户端与 CLI 用的本机桥；`0` 关闭 |
+| `SLS_LOGSTORE_PREFIX` | `logs_query` 的 logstore 名是 `<prefix>-<env>-stdout` |
+| `AGENT_ASR` | 本地 whisper 转写：`auto` 或 `off` |
 
 ## 快速开始
 

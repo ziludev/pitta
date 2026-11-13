@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600" role="img" aria-label="pitta architecture: three surfaces, one process, one SQLite file">
+  <defs>
+    <style>
+      .plate { fill: #0a0a0c; }
+      .card { fill: #141418; stroke: #26262c; stroke-width: 1; }
+      .t { fill: #e9e9ec; font-family: -apple-system, "SF Pro Text", Inter, sans-serif; font-size: 14.5px; font-weight: 600; }
+      .s { fill: #9a9aa3; font-family: -apple-system, "SF Pro Text", Inter, sans-serif; font-size: 11.5px; }
+      .f { fill: #6a6a72; font-family: -apple-system, "SF Pro Text", Inter, sans-serif; font-size: 11px; }
+      .m { fill: #b9b9c2; font-family: "SF Mono", ui-monospace, monospace; font-size: 11px; }
+      .ln { stroke: #3a3a44; stroke-width: 1.4; fill: none; }
+      .arw { fill: #3a3a44; }
+      .badge { fill: #1b1b20; stroke: #2c2c33; }
+      .accent { fill: #3b82f6; }
+    </style>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="arw" />
+    </marker>
+  </defs>
+
+  <rect class="plate" x="0" y="0" width="1200" height="600" rx="16" />
+
+  <!-- surfaces -->
+  <g>
+    <rect class="card" x="44" y="96" width="250" height="104" rx="10" />
+    <circle class="accent" cx="68" cy="124" r="4" />
+    <text class="t" x="82" y="129">Feishu app</text>
+    <text class="s" x="68" y="154">custom app, long connection</text>
+    <text class="f" x="68" y="172">no public IP, domain or certificate</text>
+  </g>
+  <g>
+    <rect class="card" x="44" y="232" width="250" height="104" rx="10" />
+    <circle class="accent" cx="68" cy="260" r="4" />
+    <text class="t" x="82" y="265">Desktop app</text>
+    <text class="s" x="68" y="290">MyGo window · React</text>
+    <text class="f" x="68" y="308">timeline, diff, commits, memory</text>
+  </g>
+  <g>
+    <rect class="card" x="44" y="368" width="250" height="104" rx="10" />
+    <circle class="accent" cx="68" cy="396" r="4" />
+    <text class="t" x="82" y="401">CLI</text>
+    <text class="m" x="68" y="426">durable ask | chat | doctor</text>
+    <text class="f" x="68" y="444">talks to the bridge, never to the file</text>
+  </g>
+
+  <!-- bridge -->
+  <rect class="card" x="366" y="300" width="176" height="104" rx="10" />
+  <text class="t" x="386" y="332">Bridge</text>
+  <text class="m" x="386" y="356">127.0.0.1:8787</text>
+  <text class="f" x="386" y="376">HTTP + WS, local only</text>
+
+  <!-- arrows: surfaces to bridge / process -->
+  <path class="ln" d="M294,148 H584" marker-end="url(#a)" />
+  <text class="f" x="326" y="138">long connection, events in</text>
+
+  <path class="ln" d="M294,284 H330 Q340,284 340,294 V330 H356" marker-end="url(#a)" />
+  <path class="ln" d="M294,420 H330 Q340,420 340,410 V374 H356" marker-end="url(#a)" />
+
+  <path class="ln" d="M542,352 H584" marker-end="url(#a)" />
+
+  <!-- process -->
+  <rect class="card" x="584" y="96" width="330" height="376" rx="12" />
+  <text class="t" x="608" y="126">agent process</text>
+  <text class="f" x="608" y="144">one process, one writer</text>
+
+  <rect class="badge" x="608" y="162" width="282" height="46" rx="7" />
+  <text class="s" x="624" y="182">harness</text>
+  <text class="m" x="624" y="199">one durable task per request / tool</text>
+
+  <rect class="badge" x="608" y="220" width="282" height="46" rx="7" />
+  <text class="s" x="624" y="240">tools</text>
+  <text class="m" x="624" y="257">bash · read · edit · delegate · mcp__*</text>
+
+  <rect class="badge" x="608" y="278" width="282" height="46" rx="7" />
+  <text class="s" x="624" y="298">guard</text>
+  <text class="m" x="624" y="315">danger asks · guest surface sliced</text>
+
+  <rect class="badge" x="608" y="336" width="282" height="46" rx="7" />
+  <text class="s" x="624" y="356">memory</text>
+  <text class="m" x="624" y="373">global · chat · work, tombstones</text>
+
+  <rect class="badge" x="608" y="394" width="282" height="46" rx="7" />
+  <text class="s" x="624" y="414">cards</text>
+  <text class="m" x="624" y="431">live → delivering → gone, transactional</text>
+
+  <!-- sqlite -->
+  <path class="ln" d="M914,240 H950 Q962,240 962,252 V292 H968" marker-end="url(#a)" />
+  <rect class="card" x="978" y="232" width="178" height="140" rx="10" />
+  <text class="t" x="998" y="262">SQLite</text>
+  <text class="m" x="998" y="284">.data/agent.sqlite</text>
+  <text class="f" x="998" y="304">conversations, memory,</text>
+  <text class="f" x="998" y="320">approvals, audit, costs</text>
+  <text class="s" x="998" y="348" style="fill:#34c724">checkpointed per step</text>
+
+  <!-- launchd -->
+  <path class="ln" d="M749,472 V502" marker-end="url(#a)" />
+  <rect class="card" x="584" y="508" width="330" height="52" rx="10" />
+  <text class="s" x="608" y="530">launchd</text>
+  <text class="f" x="608" y="547">starts at login · restarts on crash</text>
+
+  <text class="f" x="44" y="524">Every surface sees the same conversation: one state, one timeline, one audit trail.</text>
+  <text class="f" x="978" y="404">kill -9 mid-turn:</text>
+  <text class="f" x="978" y="420">the next process resumes</text>
+  <text class="f" x="978" y="436">from the last checkpoint</text>
+</svg>
