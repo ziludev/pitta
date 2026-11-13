@@ -1536,6 +1536,15 @@ const continuing = new Set<string>();
       return;
     }
 
+    // Feishu redelivers an event whose ack was lost (a long-connection reconnection, a restart),
+    // and a replay carries the original message id. That message already has its transcript entry,
+    // so the turn is over: without this check the replay finds the finished submission, settles in
+    // a second, and posts the old answer again as a brand-new card.
+    if ((await lookupMessage(runtime.harness, context, message.message_id).catch(() => undefined)) !== undefined) {
+      log("feishu", "duplicate event ignored", { chatId, messageId: message.message_id });
+      return;
+    }
+
     log("feishu", "turn start", { chatId, conversationId: conversation.id, type: message.message_type });
     const inGroup = message.chat_type === "group";
     const replyOptions = { thread: threadFor(message), mention: mentionFor(event, message) };
