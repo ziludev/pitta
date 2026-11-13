@@ -334,7 +334,10 @@ export function SidePanel() {
   const memoryCount = memory.global.length + memory.work.length + memory.chat.length;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-card/40">
+    // `animate-in` runs on mount, which is exactly when the panel is opened. A view transition would
+    // move the whole layout, but this WebView does not expose it; a slide of the content reads the
+    // same and cannot break the layout.
+    <div className="flex h-full min-h-0 flex-col bg-card/40 animate-in fade-in slide-in-from-right-6 duration-200">
       <Tabs
         value={value}
         onValueChange={(next) => {

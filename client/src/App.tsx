@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { useState } from "react";
-import { flushSync } from "react-dom";
 import { PanelRight } from "lucide-react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { SquarePen, Square } from "lucide-react";
@@ -43,20 +42,7 @@ export function App() {
   const toggleSide = (): void => {
     const next = !sideOpen;
     localStorage.setItem("agent.sidePanel", next ? "1" : "0");
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    // A panel appearing is a change of layout, not of page: a view transition slides the old and new
-    // snapshots instead of snapping the whole window. Without the API (or with reduced motion) it is
-    // the plain state change it always was.
-    if (typeof document.startViewTransition !== "function" || reduceMotion) {
-      setSideOpen(next);
-      return;
-    }
-    const transition = document.startViewTransition(() => {
-      flushSync(() => setSideOpen(next));
-    });
-    // If the callback never lands, the panel must still open: the state change is what matters, the
-    // animation is what is written on top of it.
-    void transition.finished.catch(() => setSideOpen(next));
+    setSideOpen(next);
   };
 
   return (
@@ -134,7 +120,7 @@ export function App() {
           {sideOpen ? (
             <>
               <Handle />
-              <Panel defaultSize={26} minSize={18} maxSize={34} className="[view-transition-name:side-panel]">
+              <Panel defaultSize={26} minSize={18} maxSize={34}>
                 <SidePanel />
               </Panel>
             </>
