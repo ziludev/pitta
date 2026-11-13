@@ -47,6 +47,22 @@ const newRequestId = (): string =>
     ? crypto.randomUUID()
     : `r-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
+/**
+ * The app and the agent both start at login, so the first request can arrive before the bridge
+ * listens. Without a retry that one failure left the window "connecting" with no conversations
+ * until someone relaunched the app.
+ */
+async function waitForBridge(load: () => Promise<void>, attempts = 30): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await load();
+    } catch (error) {
+      if (attempt >= attempts) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+  }
+}
+
 type State = {
   lang: Lang;
   home: string;
@@ -248,7 +264,11 @@ export const useStore = create<State>((set, get) => ({
 
   async init() {
     set({ home: homeDir });
-    await get().refreshSurfaces();
+    await waitForBridge(() => get().refreshSurfaces()).catch((error: unknown) => {
+      // Nothing answered for 30s: say so instead of pretending to connect forever.
+      set({ connection: "failed" });
+      throw error;
+    });
     await get().loadChanges();
     const { surfaces, order } = get();
     const sorted = [...surfaces].sort((a, b) => {
