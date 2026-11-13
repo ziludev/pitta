@@ -1,4 +1,6 @@
 import { useEffect } from "react";
+import { useState } from "react";
+import { PanelRight } from "lucide-react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { SquarePen, Square } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
@@ -33,6 +35,16 @@ export function App() {
   }, [init]);
 
   const surface = surfaces.find((item) => item.conversationId === current);
+
+  // The right panel is a place you go on purpose: changes, commits, usage. Closed by default so the
+  // conversation gets the width, and remembered once someone opens it.
+  const [sideOpen, setSideOpen] = useState(() => localStorage.getItem("agent.sidePanel") === "1");
+  const toggleSide = (): void => {
+    setSideOpen((open) => {
+      localStorage.setItem("agent.sidePanel", open ? "0" : "1");
+      return !open;
+    });
+  };
 
   return (
     <MotionConfig reducedMotion="user">
@@ -69,6 +81,15 @@ export function App() {
                 </div>
                 <ConvSearch />
                 <div className="flex shrink-0 items-center gap-0.5">
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={toggleSide}
+                    title={sideOpen ? "收起右栏" : "展开右栏"}
+                    className={sideOpen ? "text-primary" : undefined}
+                  >
+                    <PanelRight className="size-3" />
+                  </Button>
                   <Button variant="ghost" size="icon-xs" onClick={() => void reset()} title="/new">
                     <SquarePen className="size-3" />
                   </Button>
@@ -96,10 +117,14 @@ export function App() {
             </div>
           </Panel>
 
-          <Handle />
-          <Panel defaultSize={26} minSize={18} maxSize={34}>
-            <SidePanel />
-          </Panel>
+          {sideOpen ? (
+            <>
+              <Handle />
+              <Panel defaultSize={26} minSize={18} maxSize={34}>
+                <SidePanel />
+              </Panel>
+            </>
+          ) : null}
         </PanelGroup>
         {/* #056: the toast lives 3.2s; its time bar drains over the spec's 1.8s. */}
         <ErrorPanel />
