@@ -7,7 +7,7 @@ import { Images } from "@/components/Images";
 import { tr } from "@/i18n";
 import type { Entry } from "@/lib/api";
 import { Markdown } from "@/lib/markdown";
-import { StepRail, TurnDivider, partsOf, textOf } from "@/components/TurnRail";
+import { StepRail, TurnDivider, partsOf, textOf, useElapsed, duration } from "@/components/TurnRail";
 import { clockOf, entryText, groupTurns } from "@/lib/turns";
 import { Spinner } from "@/components/ui/spinner";
 import { useStore } from "@/store";
@@ -122,8 +122,13 @@ function NoteLine({ entry }: { entry: Entry }) {
   );
 }
 
-function LiveBlock() {
-  const { live } = useStore();
+function LiveBlock({ start }: { start?: number }) {
+  const { live, busy, lang } = useStore();
+  // Ticks only while the model is between tool calls, where nothing else moves.
+  const spent = useElapsed(busy ? start : undefined);
+  const elapsedText = spent === undefined || spent < 1_000 ? null : (
+    <span className="text-muted-foreground">{duration(spent)}</span>
+  );
   if (live === undefined) return null;
   const tools = Array.isArray(live.tools) ? live.tools : [];
   const running = tools.find((slot) => slot["status"] === "running");
@@ -134,13 +139,17 @@ function LiveBlock() {
         .filter((line) => line.trim().length > 0)
         .pop() ?? "")
     : "";
-  if (running === undefined && partial.length === 0) return null;
+  // Between two tool calls the model is thinking: no tool is running and no text has arrived yet.
+  // Rendering nothing there is what made a live turn look stopped.
+  const waiting = running === undefined && partial.length === 0 && busy;
+  if (!waiting && running === undefined && partial.length === 0) return null;
   return (
     <motion.div initial={{ opacity: 0.7 }} animate={{ opacity: 1 }} className="flex max-w-[92%] flex-col gap-1.5">
-      {running !== undefined ? (
+      {waiting || running !== undefined ? (
         <span className="flex w-fit items-center gap-1.5 rounded-full border border-primary/40 px-2 py-0.5 font-mono text-[10px] text-primary">
           <Spinner size={10} />
-          {String(running["name"] ?? "")}
+          {running === undefined ? `${tr(lang, "thinking")}…` : String(running["name"] ?? "")}
+          {waiting ? elapsedText : null}
         </span>
       ) : null}
       {partial.length > 0 ? (
@@ -154,7 +163,7 @@ function LiveBlock() {
 }
 
 export function Transcript() {
-  const { entries, focusEntry, lang, convQuery, setConvMatches, submit, approvalWaits, usage } = useStore();
+  const { entries, focusEntry, lang, convQuery, setConvMatches, submit, approvalWaits, usage, busy } = useStore();
   const boxRef = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
   const [unseen, setUnseen] = useState(0);
@@ -163,6 +172,10 @@ export function Transcript() {
   const notified = useRef<number | undefined>(undefined);
   const seenCount = useRef(0);
   const turns = useMemo(() => groupTurns(entries, approvalWaits), [entries, approvalWaits]);
+  // The newest turn has no answer yet and the conversation is running: that turn is live, and every
+  // line under it must look live instead of settled.
+  const liveTurn = turns[turns.length - 1];
+  const running = busy && liveTurn !== undefined && liveTurn.finals.length === 0;
   // Execution time of the loaded turns (idle between turns excluded): "why is this slow"
   // starts with knowing how much of the wall clock the agent actually spent.
   const totalMs = useMemo(
@@ -268,7 +281,7 @@ export function Transcript() {
       className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4"
     >
       <div className="flex flex-col gap-2">
-        {turns.map((turn) => (
+        {turns.map((turn, index) => (
           <div key={turn.id} className="flex flex-col gap-1.5" data-entry={turn.anchor.id}>
             {turn.user !== undefined ? (
               <UserBubble
@@ -279,7 +292,11 @@ export function Transcript() {
             {turn.reports.map((entry) => (
               <FeatureReport key={entry.id} entry={entry} />
             ))}
-            <StepRail steps={turn.steps} stats={turn.stats} />
+            <StepRail
+              steps={turn.steps}
+              stats={turn.stats}
+              live={running && index === turns.length - 1}
+            />
             {turn.finals.map((entry) => (
               <div key={entry.id} data-entry={entry.id}>
                 <AnswerBubble
@@ -291,10 +308,10 @@ export function Transcript() {
             {turn.notes.map((entry) => (
               <NoteLine key={entry.id} entry={entry} />
             ))}
-            <TurnDivider stats={turn.stats} />
+            <TurnDivider stats={turn.stats} live={running && index === turns.length - 1} />
           </div>
         ))}
-        <LiveBlock />
+        <LiveBlock start={liveTurn?.stats.start} />
       </div>
     </div>
     </div>

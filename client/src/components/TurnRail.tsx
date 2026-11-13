@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { Brain, ChevronRight, Clock, Coins, FileDiff, Hash, Layers, Wrench } from "lucide-react";
 import { cn } from "cn";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ToolOutput } from "@/components/ToolOutput";
+import { Spinner } from "@/components/ui/spinner";
 import { DiffView, diffStats } from "@/lib/diff";
 import { accordion, easeInOutCubic } from "@/lib/motion";
 import { tr } from "@/i18n";
@@ -64,6 +65,21 @@ export type TurnStats = {
   end?: number;
 };
 
+/**
+ * Elapsed time for a line that is still moving. A frozen "26.3s" reads as a finished turn; a
+ * ticking number reads as work in progress.
+ */
+export function useElapsed(start?: number): number | undefined {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (start === undefined) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, [start]);
+  return start === undefined ? undefined : Math.max(0, now - start);
+}
+
 function argOf(part: Part): string {
   const args = part["arguments"] as Record<string, unknown> | undefined;
   if (args === undefined) return "";
@@ -87,7 +103,7 @@ function stepLabel(entry: Entry): string {
   return chars > 0 ? `${tr("zh", "thinking")} · ${(chars / 1000).toFixed(1)}k` : tr("zh", "thinking");
 }
 
-function duration(ms: number): string {
+export function duration(ms: number): string {
   // Sub-50ms is the commit gap between two entries, not a duration worth showing.
   if (ms < 50) return "—";
   if (ms < 1000) return `${Math.round(ms)}ms`;
@@ -156,7 +172,7 @@ function StepRow({ step, turn }: { step: Step; turn: TurnStats }) {
 }
 
 /** The run's machinery, collapsed to a summary; each step carries its own timing. */
-export function StepRail({ steps, stats }: { steps: Step[]; stats: TurnStats }) {
+export function StepRail({ steps, stats, live }: { steps: Step[]; stats: TurnStats; live?: boolean }) {
   const { lang } = useStore();
   // ?steps=1 opens every rail (demos and screenshots).
   const [open, setOpen] = useState(new URLSearchParams(location.search).get("steps") === "1");
@@ -179,8 +195,12 @@ export function StepRail({ steps, stats }: { steps: Step[]; stats: TurnStats }) 
           className="size-3 shrink-0 transition-transform group-data-[state=open]:rotate-180"
           style={{ transitionDuration: `${accordion.duration}s` }}
         />
-        <Layers className="size-3 shrink-0" />
-        <span className="truncate">
+        {live === true ? (
+          <Spinner size={10} className="text-primary" />
+        ) : (
+          <Layers className="size-3 shrink-0" />
+        )}
+        <span className={live === true ? "truncate text-primary" : "truncate"}>
           {steps.length} {tr(lang, "steps")}
           {summary.length > 0 ? ` · ${summary}` : ""}
         </span>
@@ -202,7 +222,7 @@ export function StepRail({ steps, stats }: { steps: Step[]; stats: TurnStats }) 
 }
 
 /** Proportion of the turn spent thinking / running tools / failing. */
-function PhaseBar({ phases }: { phases: TurnStats["phases"] }) {
+function PhaseBar({ phases, live }: { phases: TurnStats["phases"]; live?: boolean }) {
   const total = Math.max(1, phases.think + phases.tool + phases.error + phases.wait);
   const segments = [
     // Amber first: waiting on a human is the part the owner caused.
@@ -214,7 +234,11 @@ function PhaseBar({ phases }: { phases: TurnStats["phases"] }) {
   if (segments.length === 0) return null;
 
   return (
-    <span className="flex h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-muted/30">
+    <span
+      className={`flex h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-muted/30 ${
+        live === true ? "animate-pulse" : ""
+      }`}
+    >
       {segments.map((segment) => (
         <span
           key={segment.key}
@@ -227,9 +251,12 @@ function PhaseBar({ phases }: { phases: TurnStats["phases"] }) {
   );
 }
 
-/** The batch divider: what a finished turn amounted to. */
-export function TurnDivider({ stats }: { stats: TurnStats }) {
+/** The batch divider: what a finished turn amounted to. While the turn still runs it says so and
+ * keeps ticking — the same numbers with no motion read as "stopped" even mid-run. */
+export function TurnDivider({ stats, live }: { stats: TurnStats; live?: boolean }) {
   const { lang } = useStore();
+  const elapsed = useElapsed(live === true ? stats.start : undefined);
+  const ms = live === true && elapsed !== undefined ? elapsed : stats.ms;
   const pieces = [
     stats.tools > 0 ? { icon: Wrench, text: `${stats.tools} ${tr(lang, "toolCalls")}` } : undefined,
     stats.files > 0
@@ -239,21 +266,27 @@ export function TurnDivider({ stats }: { stats: TurnStats }) {
       ? { icon: Hash, text: stats.tokens >= 1000 ? `${(stats.tokens / 1000).toFixed(1)}k` : String(stats.tokens) }
       : undefined,
     stats.cost !== undefined && stats.cost > 0.00005 ? { icon: Coins, text: `$${stats.cost.toFixed(4)}` } : undefined,
-    stats.ms !== undefined && stats.ms > 1000 ? { icon: Clock, text: duration(stats.ms) } : undefined,
+    ms !== undefined && ms > 1000 ? { icon: Clock, text: duration(ms) } : undefined,
   ].filter((piece) => piece !== undefined);
 
-  if (pieces.length === 0) return null;
+  if (pieces.length === 0 && live !== true) return null;
   return (
     <div className="flex items-center gap-2.5 py-1 text-[10px] text-muted-foreground">
-      <span className="h-px flex-1 bg-border" />
-      <PhaseBar phases={stats.phases} />
+      <span className={`h-px flex-1 ${live === true ? "bg-primary/30" : "bg-border"}`} />
+      {live === true ? (
+        <span className="flex shrink-0 items-center gap-1 text-primary">
+          <Spinner size={10} />
+          {tr(lang, "busy")}
+        </span>
+      ) : null}
+      <PhaseBar phases={stats.phases} live={live} />
       {pieces.map((piece, index) => (
         <span key={index} className="flex shrink-0 items-center gap-1">
           <piece.icon className="size-3" />
           {piece.text}
         </span>
       ))}
-      <span className="h-px flex-1 bg-border" />
+      <span className={`h-px flex-1 ${live === true ? "bg-primary/30" : "bg-border"}`} />
     </div>
   );
 }
