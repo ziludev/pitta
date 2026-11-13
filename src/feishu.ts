@@ -20,10 +20,10 @@ import { transcribeAudio } from "./asr.ts";
 import {
   attachSubmission,
   clearCardPending,
-  isCardPending,
-  claimCard,
+  type CardPhase,
   leftoverCards,
   markCardPending,
+  moveCard,
   noteCardAttempt,
 } from "./cards.ts";
 import { lookupMessage } from "./threads.ts";
@@ -1603,17 +1603,20 @@ const continuing = new Set<string>();
 
     // If the run stalls (provider hang, restart mid-run), say so instead of spinning forever.
     const watchdog = setTimeout(() => {
+      if (phase !== "live") return;
       void patchCard(cardId, body, `⏳ ${elapsed()} · 超过 5 分钟，可 /stop 中断`, undefined, WORKING_HEADER).catch(() => {});
     }, 300_000);
 
     let streamErrors = 0;
-    // Once the turn settles, late watcher/heartbeat patches must never overwrite the
-    // answer: that race put "思考中…" back on a finished card.
-    let finished = false;
+    // The card's own life, as one value instead of a flag per concern: only a `live` card may be
+    // patched, and settling is a transition rather than "set finished, then remember to check it
+    // in every callback that can still fire". A late watcher or heartbeat therefore cannot put
+    // "思考中…" back on a finished card, and a new patch site cannot forget the rule.
+    let phase: CardPhase = "live";
     let body = "🤔 思考中…";
     const toolsUsed = new Set<string>();
     const watcher = await watchLive(conversation, (live) => {
-      if (finished) return;
+      if (phase !== "live") return;
       body = renderLive(live);
       for (const tool of live.tools) toolsUsed.add(tool);
       void patchCard(cardId, body, `▶️ 处理中 · ${elapsed()}`, undefined, WORKING_HEADER).catch((error) => {
@@ -1627,7 +1630,7 @@ const continuing = new Set<string>();
     // A silent model or a long tool round produces no commits, so tick the card
     // ourselves: the user should never have to ask "is it still working?".
     const heartbeat = setInterval(() => {
-      if (finished) return;
+      if (phase !== "live") return;
       void patchCard(cardId, body, `⏳ ${elapsed()} · 进行中`, undefined, WORKING_HEADER).catch(() => {});
     }, 15_000);
 
@@ -1646,7 +1649,7 @@ const continuing = new Set<string>();
       log("feishu", "settled", { status: settled.status, reason: settled.reason ?? null, seconds });
 
       // Freeze live output first, then write the answer.
-      finished = true;
+      phase = "delivering";
       clearInterval(heartbeat);
       clearTimeout(watchdog);
       await watcher.stop();
@@ -2103,15 +2106,19 @@ async function tokenTotals(conversationId: number): Promise<{ total: number; byM
           // The run may have been resumed by the new process's own turn handler, which delivers the
           // answer and clears the mark. Delivering it here as well is what posted the same message
           // twice — once inside the topic as a card, once in the chat as text.
-          // Two guards, because they catch different races: the pending check catches the live turn
-          // that delivered while this loop waited, and the claim catches two boots that waited for
-          // the same answer and would both reply with it.
-          if (!(await isCardPending(runtime.harness, context, card.requestId))) {
-            log("feishu", "recovered answer already delivered by the live turn", { cardId: card.cardId });
-            return;
-          }
-          if (!(await claimCard(runtime.harness, context, card.requestId, `recover:${process.pid}`))) {
-            log("feishu", "recovered answer already claimed", { cardId: card.cardId });
+          // One transition replaces two guards: whichever process moves the card live → delivering
+          // posts the answer, and the other finds it taken. `gone` means the live turn already
+          // delivered and cleared its mark.
+          const taken = await moveCard(
+            runtime.harness,
+            context,
+            card.requestId,
+            "live",
+            "delivering",
+            `recover:${process.pid}`,
+          );
+          if (!taken.moved) {
+            log("feishu", "recovered answer already taken", { cardId: card.cardId, phase: taken.found });
             return;
           }
           log("feishu", "recovered delivery footer", `${startedAt} 起 · ${total}`);
