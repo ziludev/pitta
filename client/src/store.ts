@@ -59,21 +59,35 @@ const newRequestId = (): string =>
  * listens. Without a retry that one failure left the window "connecting" with no conversations
  * until someone relaunched the app.
  */
-async function waitForBridge(load: () => Promise<void>, attempts = 30): Promise<void> {
+async function waitForBridge(
+  load: () => Promise<void>,
+  attempts = 30,
+  onRetry?: (attempt: number) => void,
+): Promise<void> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await load();
     } catch (error) {
       if (attempt >= attempts) throw error;
+      onRetry?.(attempt);
       await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
   }
 }
 
+/** Guards the poll that heals a window opened before the bridge. */
+let healing = false;
+
 type State = {
   lang: Lang;
   home: string;
   connection: Connection;
+  /** Failed attempts at the bridge so far; the rail turns this into a sentence. */
+  retryAttempts: number;
+  /** When the bridge last answered, so a blank window can say since when it has been dark. */
+  lastOpenAt?: number;
+  /** Whether the latest /api/state poll succeeded — an empty rail may mean nobody answered. */
+  reachable: boolean;
   busy: boolean;
   surfaces: Surface[];
   projects: Project[];
@@ -228,6 +242,8 @@ export const useStore = create<State>((set, get) => ({
   lang: initialLang(),
   home: "",
   connection: { kind: "connecting" },
+  retryAttempts: 0,
+  reachable: false,
   busy: false,
   surfaces: [],
   projects: [],
@@ -273,12 +289,17 @@ export const useStore = create<State>((set, get) => ({
 
   async init() {
     set({ home: homeDir });
-    await waitForBridge(() => get().refreshSurfaces()).catch((error: unknown) => {
-      // Nothing answered for 30s: say so instead of pretending to connect forever.
+    await waitForBridge(
+      () => get().refreshSurfaces(),
+      30,
+      (attempt) => set({ retryAttempts: attempt }),
+    ).catch((error: unknown) => {
+      // Nothing answered for 30s: say so, but keep polling — the agent may start after the
+      // window does, which is exactly what a login does.
+      console.warn("[bridge] still down after 30 attempts", error);
       set({ connection: { kind: "down", reason: "error" } });
-      throw error;
     });
-    await get().loadChanges();
+    await get().loadChanges().catch(() => {});
     const { surfaces, order } = get();
     const sorted = [...surfaces].sort((a, b) => {
       const ai = order.indexOf(a.conversationId);
@@ -291,14 +312,31 @@ export const useStore = create<State>((set, get) => ({
       Number.isFinite(requested) && requested > 0 && sorted.some((item) => item.conversationId === requested)
         ? requested
         : sorted[sorted.length - 1]?.conversationId;
-    if (target !== undefined) await get().select(target);
+    if (target !== undefined) await get().select(target).catch(() => {});
     // ?q= ... deep links a search inside the conversation.
     const query = new URLSearchParams(location.search).get("q");
     if (query !== null && query.trim().length >= 2) get().setConvQuery(query);
     setInterval(() => {
       void get()
         .refreshSurfaces()
-        .catch(() => {});
+        .then(() => {
+          // The bridge answered again: pick a conversation (or rebuild the socket), or the
+          // window stays empty until someone relaunches the app.
+          const { connection, current: open, surfaces } = get();
+          if (connection.kind !== "down" && open !== undefined) return;
+          const target = open ?? surfaces[surfaces.length - 1]?.conversationId;
+          if (target === undefined || healing) return;
+          healing = true;
+          void get()
+            .select(target)
+            .catch(() => {})
+            .finally(() => {
+              healing = false;
+            });
+        })
+        .catch(() => {
+          set({ reachable: false });
+        });
       void get()
         .loadMemory()
         .catch(() => {});
@@ -333,6 +371,9 @@ export const useStore = create<State>((set, get) => ({
       tasks: state.tasks,
       projects: state.projects ?? get().projects,
       feishu: state.feishu,
+      retryAttempts: 0,
+      lastOpenAt: Date.now(),
+      reachable: true,
     });
   },
 
@@ -399,7 +440,8 @@ export const useStore = create<State>((set, get) => ({
       set({ connection: { kind: "down", reason } });
     };
     socket.onopen = () => {
-      if (generation === socketGeneration) set({ connection: { kind: "open" } });
+      if (generation === socketGeneration)
+        set({ connection: { kind: "open" }, lastOpenAt: Date.now() });
     };
     socket.onmessage = (event) => {
       if (generation !== socketGeneration) return;

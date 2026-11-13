@@ -189,6 +189,9 @@ export function Rail() {
     order,
     pinned,
     connection,
+    retryAttempts,
+    lastOpenAt,
+    reachable,
     busy,
     home,
     filter,
@@ -325,6 +328,38 @@ export function Rail() {
             ? tr(lang, "bridgeFailed")
             : tr(lang, "disconnected");
 
+  // A blank list used to be indistinguishable from "the agent is not running": the conversations
+  // simply vanished from the rail and nothing said why.
+  const empty =
+    connection.kind === "connecting" ? (
+      <EmptyState
+        title={tr(lang, "connecting")}
+        hint={`${tr(lang, "bridgeRetrying")} ${retryAttempts}`}
+      />
+    ) : connection.kind === "down" || !reachable ? (
+      <EmptyState
+        title={tr(lang, "bridgeDownTitle")}
+        hint={[
+          `${tr(lang, "bridgeRetrying")} ${retryAttempts}`,
+          lastOpenAt === undefined
+            ? undefined
+            : `${tr(lang, "bridgeLastSeen")} ${new Date(lastOpenAt).toLocaleTimeString(
+                lang === "zh" ? "zh-CN" : "en-US",
+                { hour: "2-digit", minute: "2-digit" },
+              )}`,
+        ]
+          .filter((line) => line !== undefined)
+          .join(" · ")}
+        action={
+          <div className="mt-1 rounded-md border border-border bg-background/60 px-2 py-1 font-mono text-[10px] text-muted-foreground">
+            {tr(lang, "bridgeCheck")} ./scripts/agentctl status
+          </div>
+        }
+      />
+    ) : (
+      <EmptyState title={tr(lang, "noSessions")} hint={tr(lang, "noSessionsHint")} />
+    );
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-card/40">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
@@ -409,6 +444,7 @@ export function Rail() {
         >
           <SortableContext items={sorted.map((surface) => surface.conversationId)} strategy={verticalListSortingStrategy}>
             <div className="flex flex-col gap-0.5 pb-2">
+              {nested.length === 0 ? empty : null}
               {nested.map(({ surface, topic }) => (
                 <SessionRow
                   key={surface.conversationId}
