@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { guestBlockReason, outsideRoots } from "../src/approval.ts";
+import { guestBlockReason, guestShellBlockReason, outsideRoots } from "../src/approval.ts";
 import { isOwnerOperator } from "../src/feishu.ts";
 
 const WS = "/Users/example/learn/pi-durable-agent/workspace";
@@ -15,10 +15,52 @@ const PROJECT = "/Users/example/work/example-service";
 const blocked = (tool: string, args: Record<string, unknown> = {}, roots: readonly string[] = [WS]) =>
   guestBlockReason(tool, args, roots) !== undefined;
 
-test("a guest cannot run a shell, write, or borrow the owner's identity", () => {
-  for (const tool of ["bash", "write", "edit", "feishu_agenda", "feishu_doc_read", "feishu_create_task", "delegate", "delegate_parallel", "build_feature", "mcp__jira__create_issue"]) {
+test("a guest cannot write, or borrow the owner's identity", () => {
+  for (const tool of ["write", "edit", "feishu_agenda", "feishu_doc_read", "feishu_create_task", "delegate", "delegate_parallel", "build_feature", "mcp__jira__create_issue"]) {
     assert.equal(blocked(tool, { command: "ls", path: "a.ts", content: "x" }), true, tool);
   }
+});
+
+test("a guest shell is open to reading and closed to changing", () => {
+  const allowed = [
+    "ls -la",
+    "git log --oneline -20",
+    "git -C /Users/example/work/example-service show HEAD:src/main.ts",
+    "grep -rn \"OrderTotal\" /Users/example/work/example-service/src",
+    "rg minUrl | head -20",
+    "psql -h 10.0.0.10 -c \"select user_id from userinfo limit 5\"",
+    "curl -sI https://cdn.example.com/cai/dh_avatar/x.jpeg",
+    "dig +short example.com",
+  ];
+  for (const command of allowed) assert.equal(guestShellBlockReason(command, [WS, PROJECT]), undefined, command);
+
+  const refused = [
+    "rm -rf build",
+    "git push origin main",
+    "git checkout -b x",
+    "git log --output=/tmp/x",
+    "echo hi > /tmp/out",
+    "cat a.txt | tee b.txt",
+    "psql -c \"update userinfo set avatar = null\"",
+    "psql -c \"select 1\" && psql -c \"delete from t\"",
+    "curl -X POST https://x/y",
+    "curl -o /tmp/a https://x/y",
+    "sudo ls",
+    "find . -name x -delete",
+    "python3 -c \"print(1)\"",
+    "node -e 1",
+    "cat /Users/example/work/example-service/.env",
+    "awk '{system(\"id\")}' a.txt",
+    "sed -i s/a/b/ f.txt",
+    "cat $(echo /etc/passwd)",
+  ];
+  for (const command of refused) assert.notEqual(guestShellBlockReason(command, [WS, PROJECT]), undefined, command);
+});
+
+test("a guest reads any registered project, not just the linked one", () => {
+  assert.equal(blocked("read", { path: "/Users/example/work/example-service/src/a.java" }, [WS, PROJECT]), false);
+  assert.equal(blocked("read", { path: "/Users/example/work/example-service/.env" }, [WS, PROJECT]), true);
+  assert.equal(blocked("project_search", { pattern: "minUrl", path: "../etc" }, [WS, PROJECT]), true);
 });
 
 test("a guest can read project code, search the group's memory, read a skill, set a reminder", () => {

@@ -59,6 +59,24 @@ export async function readRoots(
   return roots;
 }
 
+/**
+ * Roots a guest may read. A group member asking about Flicker cannot be expected to know which
+ * repo the chat happens to be linked to, so every project alex registered is in scope; the
+ * secrets list still applies inside each of them.
+ */
+export async function guestRoots(
+  read: DocumentReader,
+  conversationId: number,
+  context: Context,
+): Promise<string[]> {
+  const roots = await readRoots(read, conversationId, context);
+  const projects = (await read.snapshot(ProjectsDoc, context).catch(() => undefined))?.projects ?? [];
+  for (const project of projects) {
+    if (!roots.includes(project.path)) roots.push(project.path);
+  }
+  return roots;
+}
+
 export async function chatAccess(harness: Harness, context: Context): Promise<Record<string, ChatLevel>> {
   return (await harness.snapshot(ChatAccess, context).catch(() => undefined))?.chats ?? {};
 }

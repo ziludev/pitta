@@ -456,7 +456,7 @@ export function groupInstructions(who: "owner" | "guest", topic?: string): strin
     "- 每条消息开头的方括号是网关标注的说话人：「alex 本人」就是 Alex 本人的账号，已经校验过，不需要你再判断身份；「群成员」不是。",
     who === "owner"
       ? "- 本轮是 alex 本人提问：按他说的改文件、跑命令、推分支、触发部署都可以。"
-      : "- 本轮不是 alex：只读（read/bash 可查证），不要改文件、不要推分支、不要触发部署、不要写记忆。",
+      : "- 本轮不是 alex：只读查证照常做（read / project_search / logs_query / bash 的只读命令：git log、grep、psql select 都放行，所有已注册项目都能读）。不要改文件、不要推分支、不要触发部署、不要写记忆；被拦时只说被拦的那条命令，不要笼统说「guest 模式用不了工具」。",
   ];
   if (who === "owner") {
     // The model reads its own earlier refusals in the transcript and repeats them, even when
@@ -1550,7 +1550,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
           model: modelUsed,
           thinking: String(agentPlan?.thinkingLevel ?? ""),
         });
-        let buttons: CardButton[] | undefined;
+        // The step list is still recorded — the client reads it — but the card no longer offers
+        // "查看详情": in a group it was a button nobody pressed, and it made every answer look like a
+        // form. Cards already sent keep working, so the `detail` action stays handled.
         if (settled.entry !== undefined) {
           const steps = await runtime
             .turnSteps(conversation, settled.entry as unknown as number, settled.answer as unknown as number)
@@ -1561,10 +1563,9 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
               seconds,
               costUsd: cost,
             }).catch((error) => logError("feishu", "could not save turn details", error));
-            buttons = [{ label: "查看详情", value: { kind: "detail", messageId: message.message_id } }];
           }
         }
-        await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", meta, buttons);
+        await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", meta);
         if (seconds >= config.feishu.donePingSeconds) {
           await pingDone(
             chatId,

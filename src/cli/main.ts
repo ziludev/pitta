@@ -307,6 +307,8 @@ ${c.bold("对话")}（走本机桥接，agent 在跑也能用）
 
 ${c.bold("权限")}
   durable access               每个会话的访问级别（closed / owner / group）
+  durable access set <chat> <level>
+                               改某个会话的访问级别（owner=只有你）
   durable audit [n]            最近 n 条权限决定（默认 30）
   durable trace [n]            最近 n 次运行的 span（默认 15，看哪一步慢）
 
@@ -351,6 +353,15 @@ function printAccess(data: AccessView): void {
 
 async function access(): Promise<void> {
   printAccess(await api<AccessView>("/api/access"));
+}
+
+async function accessSet(chatId: string | undefined, level: string | undefined): Promise<void> {
+  if (chatId === undefined || level === undefined) throw new Error("用法: durable access set <chatId> <closed|owner|group>");
+  const data = await api<{ chatId: string; level: string }>("/api/access", {
+    method: "POST",
+    body: JSON.stringify({ chatId, level }),
+  });
+  console.log(c.green(`已将 …${data.chatId.slice(-8)} 设为 ${data.level}`));
 }
 
 async function audit(limit = 30): Promise<void> {
@@ -403,7 +414,8 @@ try {
       await sessions();
       break;
     case "access":
-      await access();
+      if (rest[0] === "set") await accessSet(rest[1], rest[2]);
+      else await access();
       break;
     case "audit":
       await audit(rest[0] === undefined ? 30 : Math.max(1, Number(rest[0]) || 30));

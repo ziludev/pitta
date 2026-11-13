@@ -10,7 +10,7 @@ import { collectChanges, commitChanges, ensureRepo } from "./changes.ts";
 import { mergeWorktree } from "./worktree.ts";
 import { listApprovals, resolveApproval } from "./approvals.ts";
 import { surfaceMeta, updateSurfaceMeta } from "./surface-meta.ts";
-import { chatAccess, ownerChatId } from "./access.ts";
+import { chatAccess, ownerChatId, setChatLevel, type ChatLevel } from "./access.ts";
 import { recent } from "./audit.ts";
 import { removeWorktree, worktreePaths } from "./worktree.ts";
 import { branches, commitDiff, commitLog, compareUrl, pushBranch, remoteInfo } from "./git-info.ts";
@@ -783,6 +783,20 @@ export async function startAgentServer(runtime: AgentRuntime): Promise<AgentServ
           envChats: config.feishu.allowedChatIds,
           ownerChat: await ownerChatId(runtime.harness, context).catch(() => undefined),
         });
+      }
+
+      if (req.method === "POST" && path === "/api/access") {
+        // Setting a chat's level is an owner decision; the CLI carries the same token as every
+        // other route, so this is no more exposed than `durable access` is.
+        const body = await readJson(req);
+        const chatId = typeof body["chatId"] === "string" ? body["chatId"].trim() : "";
+        const level = typeof body["level"] === "string" ? body["level"].trim() : "";
+        const levels: ChatLevel[] = ["closed", "owner", "group"];
+        if (chatId.length === 0) return send(res, 400, { error: "chatId required" });
+        if (!levels.includes(level as ChatLevel)) return send(res, 400, { error: `level must be one of ${levels.join(" / ")}` });
+        await setChatLevel(runtime.harness, context, chatId, level as ChatLevel);
+        log("http", "chat level set", { chatId, level });
+        return send(res, 200, { chatId, level });
       }
 
       if (req.method === "GET" && path === "/api/audit") {

@@ -3,7 +3,7 @@ import { defineExtension, hook, ToolTask } from "@earendil-works/pi-durable";
 import { config } from "./config.ts";
 import { requestApproval, surfaceForConversation } from "./channel.ts";
 import { hasGrant } from "./grants.ts";
-import { ChatPolicy, readRoots } from "./access.ts";
+import { ChatPolicy, guestRoots } from "./access.ts";
 import { log } from "./log.ts";
 import { record } from "./audit.ts";
 import { getHarness, getSessionContext } from "./runtime-ref.ts";
@@ -71,10 +71,103 @@ export function approvalReason(tool: string, args: Record<string, unknown>): App
  * What a guest may call. A guest is anyone in a shared group who is not the owner.
  *
  * Read-only used to be a sentence in the instructions; it is now a decision here, before the
- * tool runs, because a prompt does not stop `cat .env`. Read is allowed so the bot can still
- * help with code questions in a group; the shell is not, because it can reach anything.
+ * tool runs, because a prompt does not stop `cat .env`. A group member investigating a problem
+ * needs the shell (git log, grep, a select against the test db), so bash is on the surface with
+ * a command-level allowlist under it — see guestShellBlockReason.
  */
-const GUEST_TOOLS = new Set(["read", "skill", "recall", "remind", "logs_query", "project_search"]);
+const GUEST_TOOLS = new Set(["read", "bash", "skill", "recall", "remind", "logs_query", "project_search"]);
+
+/** Commands a guest may run at all. Everything absent here is refused before it starts. */
+const GUEST_SHELL_COMMANDS = new Set([
+  "ls", "cat", "head", "tail", "wc", "grep", "egrep", "fgrep", "rg", "find", "tree", "file",
+  "stat", "du", "df", "pwd", "echo", "date", "which", "basename", "dirname", "realpath",
+  "sort", "uniq", "cut", "tr", "jq", "diff", "comm", "column", "xxd", "strings", "test",
+  "git", "psql", "curl", "dig", "nslookup", "host", "ping", "nc", "sleep", "true",
+]);
+
+/** `git log` is investigation; `git checkout` is a change. Only these subcommands pass. */
+const GUEST_GIT_SUBCOMMANDS = new Set([
+  "log", "show", "diff", "status", "blame", "grep", "ls-files", "rev-parse", "describe",
+  "remote", "shortlog", "cat-file", "show-ref", "for-each-ref", "whatchanged", "count-objects",
+  "ls-tree", "name-rev", "merge-base", "diff-tree",
+]);
+
+/** Shapes that turn a read into a write, or into a second program we did not vet. */
+const GUEST_SHELL_DENY: Array<[RegExp, string]> = [
+  [/\$\(|`/, "子命令替换"],
+  [/(^|[^>])>{1,2}(?![>=])/, "重定向写文件"],
+  [/\btee\b/, "写文件"],
+  [/\bsudo\b/, "提权执行"],
+  [/\b(xargs|eval|source|exec|env)\b/, "间接执行"],
+  [/\bfind\b[^|;&\n]*\s(-delete|-exec|-execdir|-ok|-fprint\S*|-fls)\b/, "批量删除/执行/写文件"],
+  [/\b(curl|wget)\b[^|;&\n]*\s(-o|-O|-d|-F|-T|-X|--data\S*|--upload-file|--output)\b/, "下载落盘或发起写请求"],
+  [/--output[=\s]/, "写文件"],
+  [/\b(docker|kubectl|aws|gcloud|gsutil|gh|npm|npx|yarn|pnpm|pip|brew|ssh|scp|rsync)\b/, "外部系统的写操作"],
+  [/\b(rm|mv|cp|chmod|chown|mkdir|touch|ln|dd|truncate|kill|pkill)\b/, "改文件或进程"],
+];
+
+/** psql is on the list for `select`; one update and the "read-only" claim is a lie. */
+const GUEST_SQL_WRITE = /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|copy|vacuum)\b/i;
+const GUEST_SQL_READ = /^\s*(select|with|explain|show|table|values|\\d)/i;
+
+/** A token that reads as a filesystem path, so it can be checked against the guest roots. */
+function looksLikePath(token: string): boolean {
+  return token.startsWith("/") || token.startsWith("./") || token.startsWith("../") || token.startsWith("~/");
+}
+
+/** Command text with quoted arguments blanked, so `where a > 1` is not read as a redirect. */
+function withoutQuoted(text: string): string {
+  return text.replace(/'(?:[^']|'')*'/g, "''").replace(/"(?:[^"\\]|\\.)*"/g, '""');
+}
+
+/**
+ * Why a guest shell call is refused, or undefined when it may run. The rule is a positive list
+ * of read-only commands plus per-command checks, not a blacklist of dangerous strings: a
+ * blacklist is one flag away from `git -c core.pager='sh -c ...' log`.
+ */
+export function guestShellBlockReason(command: string, roots: readonly string[] = [config.workspace]): string | undefined {
+  const raw = command.trim();
+  if (raw.length === 0) return "这个群是 guest 模式：命令为空。";
+  const bare = withoutQuoted(raw);
+  for (const [pattern, why] of GUEST_SHELL_DENY) {
+    if (pattern.test(bare)) return `这个群是 guest 模式：${why}（这里只允许只读查证）。`;
+  }
+  for (const segment of raw.split(/&&|\|\||;|\|/).map((part) => part.trim()).filter((part) => part.length > 0)) {
+    const tokens = segment.split(/\s+/);
+    const name = tokens[0] ?? "";
+    if (!GUEST_SHELL_COMMANDS.has(name)) {
+      return `这个群是 guest 模式：不能执行 ${name}（只允许只读查证：git log / grep / psql select 这类）。`;
+    }
+    if (name === "git") {
+      // `git -C <path> log` and `git --no-pager show` are still reads; `-c` is not, because it
+      // sets config and config can name a program to run.
+      let sub = 1;
+      while (sub < tokens.length && tokens[sub]?.startsWith("-")) {
+        if (tokens[sub] === "-C" || tokens[sub] === "--git-dir" || tokens[sub] === "--work-tree") sub += 2;
+        else if (tokens[sub] === "--no-pager" || tokens[sub] === "-P") sub += 1;
+        else return `这个群是 guest 模式：git ${tokens[sub] ?? ""} 不接受（只允许 git log / show / diff / grep 这类只读查询）。`;
+      }
+      if (!GUEST_GIT_SUBCOMMANDS.has(tokens[sub] ?? "")) {
+        return `这个群是 guest 模式：git ${tokens[sub] ?? ""} 会改仓库，只允许 git log / show / diff / grep 这类。`;
+      }
+    }
+    if (name === "psql") {
+      const marker = segment.search(/\s-c\s/);
+      const sql = marker >= 0 ? segment.slice(marker + 3) : segment;
+      if (GUEST_SQL_WRITE.test(withoutQuoted(sql)) || !GUEST_SQL_READ.test(sql.replace(/^\s*['"]?/, ""))) {
+        return "这个群是 guest 模式：psql 只允许查（select / show / \\d），不允许写。";
+      }
+    }
+    for (const token of tokens) {
+      const cleaned = token.replace(/^['"]|['"]$/g, "");
+      if (!looksLikePath(cleaned)) continue;
+      if (outsideRoots(cleaned, roots) || GUEST_DENIED_PATHS.some((pattern) => pattern.test(cleaned))) {
+        return `这个群是 guest 模式：不能碰 ${cleaned}（可读范围之外或敏感文件）。`;
+      }
+    }
+  }
+  return undefined;
+}
 
 /** Even inside the workspace, a guest read must never return these. */
 const GUEST_DENIED_PATHS = [
@@ -95,13 +188,14 @@ export function guestBlockReason(
   roots: readonly string[] = [config.workspace],
 ): string | undefined {
   if (!GUEST_TOOLS.has(tool)) {
-    return `这个群是 guest 模式：不能用 ${tool}。需要改代码或跑命令，请 alex 在私聊里说。`;
+    return `这个群是 guest 模式：不能用 ${tool}（这里只读查证：read / project_search / logs_query / 只读 bash）。`;
   }
-  if (tool === "read") {
-    const path = typeof args["path"] === "string" ? args["path"] : "";
-    if (outsideRoots(path, roots) || GUEST_DENIED_PATHS.some((pattern) => pattern.test(path))) {
-      return `这个群是 guest 模式：不能读 ${path}（可读范围之外或敏感文件）。`;
-    }
+  if (tool === "bash") {
+    return guestShellBlockReason(typeof args["command"] === "string" ? args["command"] : "", roots);
+  }
+  const path = typeof args["path"] === "string" ? args["path"] : "";
+  if (path.length > 0 && (outsideRoots(path, roots) || GUEST_DENIED_PATHS.some((pattern) => pattern.test(path)))) {
+    return `这个群是 guest 模式：不能读 ${path}（可读范围之外或敏感文件）。`;
   }
   return undefined;
 }
@@ -129,7 +223,7 @@ export const guardExtension = defineExtension({
           .snapshot(ChatPolicy, api.conversationId as unknown as never, context)
           .catch(() => undefined);
         if (policy?.guest === true && policy.turn !== "owner") {
-          const roots = await readRoots(api, api.conversationId as unknown as number, context);
+          const roots = await guestRoots(api, api.conversationId as unknown as number, context);
           const blocked = guestBlockReason(call.name, args, roots);
           if (blocked !== undefined) {
             log("approval", "guest tool blocked", { tool: call.name });
