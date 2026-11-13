@@ -288,3 +288,12 @@
     display: none;
   }
 }
+
+/* Native scrollbars instead of webkit pseudo-elements: one property, themed by the design tokens,
+   and it also covers the overscroll gutter. */
+@layer base {
+  html {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+}

@@ -78,9 +78,11 @@ export function Composer() {
             void send();
           }
         }}
+        // `rows` is the fallback: with field-sizing the height follows the text, three lines is what
+        // a browser without it shows. The max keeps a pasted log from eating the transcript.
         rows={3}
         placeholder={tr(lang, "placeholder")}
-        className="resize-none text-[13px]"
+        className="max-h-40 min-h-[64px] resize-none text-[13px] [field-sizing:content]"
       />
       <div className="mt-2 flex items-center justify-between">
         <div className="flex min-w-0 items-center gap-2">
