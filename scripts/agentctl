@@ -14,7 +14,7 @@
 # NODE_BIN overrides the node binary baked into the plist (default: `command -v node`).
 set -euo pipefail
 
-LABEL="com.alex.pi-durable-agent"
+LABEL="com.pitta.agent"
 BACKUP_LABEL="$LABEL.backup"
 PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
 AGENTS="$HOME/Library/LaunchAgents"

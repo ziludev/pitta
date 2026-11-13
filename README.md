@@ -115,6 +115,7 @@ Everything lives in `.env`; `.env.example` explains every key.
 | `FEISHU_APP_ID`, `FEISHU_APP_SECRET` | the Feishu app; without them the bridge does not start |
 | `FEISHU_ALLOWED_SENDER_IDS` | who is the owner — required, and the only people who may approve |
 | `FEISHU_ALLOWED_CHAT_IDS` | chats pinned to `owner` level (empty: every chat starts `closed`) |
+| `AGENT_OWNER_NAME` | the name the prompt uses for the owner; wording only, never a permission |
 | `FEISHU_DONE_PING_SECONDS` | extra completion message for turns longer than this; `0` off |
 | `AGENT_PROVIDER`, `AGENT_MODEL`, `AGENT_THINKING` | default provider, model and thinking level |
 | `MAGPIE_BASE_URL`, `MAGPIE_API_KEY` | when `AGENT_PROVIDER=magpie`: a local OpenAI-compatible proxy |
@@ -126,30 +127,53 @@ Everything lives in `.env`; `.env.example` explains every key.
 | `SLS_LOGSTORE_PREFIX` | for `logs_query`: the logstore is named `<prefix>-<env>-stdout` |
 | `AGENT_ASR` | local whisper transcription: `auto` or `off` |
 
-## Quickstart
+## Install
 
-Requires Node 22+ and macOS for the launchd and client parts (`ffmpeg`, `whisper` and `git` are optional extras).
+macOS (launchd and the desktop client are macOS-only), Node 22+, `git`. `ffmpeg`, `whisper` and
+`lark-cli` are optional extras for transcription, voice messages and the native Feishu tools.
 
 ```bash
-cp .env.example .env          # fill in FEISHU_APP_ID / FEISHU_APP_SECRET at least
-npm install
-
-durable doctor                # checks both sides: this machine and the Feishu app
-durable setup                 # or answer prompts, write .env, then run the same checks
-npm start                     # run once in the foreground
-
-./scripts/agentctl install    # hand it to launchd: starts at login, restarts on crash
-./scripts/agentctl logs
+git clone https://github.com/ziludev/pitta.git && cd pitta
+./bin/durable setup
 ```
 
-In the Feishu developer console:
+`setup` walks six steps and stops where you would otherwise guess:
 
-1. Events and callbacks → subscribe over **long connection**
-2. Subscribe to `im.message.receive_v1` and the `card.action.trigger` callback (approval and Continue buttons)
-3. Permissions: `im:message`, `im:message:send_as_bot`, `im:message.p2p_msg:readonly`, `im:message.group_at_msg:readonly`
-4. Create a version and publish it — an unpublished change is not a change
+1. **Node and dependencies** — checks the version, runs `npm install` if `node_modules` is missing.
+2. **The model gateway** — DeepSeek, OpenAI, Anthropic, or a local OpenAI-compatible proxy. It asks
+   for the key and the model id and writes both into `.env`.
+3. **The Feishu app** — App ID and App Secret from 凭证与基础信息.
+4. **Your open_id** — this is what makes you the owner. Left blank, every member of every group the
+   bot joins would count as you, able to tap approvals and run code.
+5. **A read-back of the console** — credentials, bot capability, delivery mode, published version,
+   subscribed events, `card.action.trigger`, scopes, and whether the bot is in any chat. Each ✗ says
+   which menu fixes it.
+6. **launchd** — hands the job over so it starts at login and restarts after a crash.
 
-`durable doctor` reads each of those back and says what is missing and where to click.
+What to click in the Feishu developer console (open.feishu.cn → your app):
+
+| Menu | Set |
+|---|---|
+| 添加应用能力 | 机器人 |
+| 权限管理 | `im:message`, `im:message:send_as_bot`, `im:message.p2p_msg:readonly`, `im:message.group_at_msg:readonly`; add `im:message.group_msg` if you want topic replies without an @mention |
+| 事件与回调 → 订阅方式 | **使用长连接接收事件** — no public IP, domain or certificate |
+| 事件与回调 → 回调 | `card.action.trigger` (the approval and Continue buttons) |
+| 事件与回调 → 事件 | `im.message.receive_v1` |
+| 版本管理与发布 | 创建版本 → 申请发布. An unpublished change is not a change |
+
+Then:
+
+```bash
+durable doctor            # the same read-back, any time
+./scripts/agentctl logs   # what the agent is doing
+./scripts/agentctl status # pid, runs, exit code
+```
+
+**Why there is no one-click Feishu setup**: a Feishu custom app is tenant-scoped — its App ID and
+secret can only be created by you, inside your own tenant (crossing tenants means an ISV app, an
+OAuth flow and a marketplace review). So the automated part stops exactly at that wall: everything
+after the two credentials is scripted and verified. Colleagues in the same tenant can share one app
+and each run their own instance; the owner list decides who controls what.
 
 ### Desktop client
 
@@ -169,7 +193,7 @@ Front end: shadcn/ui **Nova** (`radix-nova`) with Tailwind v4, Lucide icons, Mot
 ln -sf "$PWD/bin/durable" ~/.local/bin/durable
 
 durable                 # command overview
-durable setup           # write .env and check it
+durable setup           # guided install: deps, gateway, Feishu, checks, launchd
 durable doctor          # local and Feishu checks
 durable ask "…"         # one question, streamed
 durable chat            # multi-turn REPL (/new /stop /exit)
@@ -180,8 +204,6 @@ durable audit [n]       # the last n permission decisions
 ```
 
 Conversation commands go through the local HTTP/WS bridge, so they work while launchd owns the process. The name is `durable` because `agent` belongs to grok's CLI.
-
-**On "one-click Feishu setup"**: a Feishu custom app is tenant-scoped — its App ID and secret can only be created by you in your own tenant's console (cross-tenant means an ISV app and a review). So the CLI automates everything after that: writing the config, verifying every switch, starting, diagnosing. Colleagues in the same tenant can share one app and run their own instances.
 
 ## Operations
 

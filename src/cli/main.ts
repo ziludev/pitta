@@ -3,16 +3,18 @@
  * bridge, so it works while the desktop app and the Feishu bot are up; process-level
  * commands delegate to scripts/agentctl.
  */
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import WebSocket from "ws";
 import { checkFeishu, type Check } from "./feishu-check.ts";
+import { renderEnv } from "./env-file.ts";
 import { formatEvent, type AuditEvent } from "../audit.ts";
 
-const HOME = process.env.PI_DURABLE_HOME ?? join(homedir(), "learn", "pi-durable-agent");
+// Resolved from this file so a checkout in any directory works; PI_DURABLE_HOME overrides.
+const PROJECT = process.env.PI_DURABLE_HOME ?? join(import.meta.dirname, "..", "..");
+const HOME = PROJECT;
 const ENV_FILE = join(HOME, ".env");
 
 const c = {
@@ -92,48 +94,119 @@ async function doctor(): Promise<void> {
   console.log(bad === 0 ? c.green("\n飞书侧没问题，可以启动了：./scripts/agentctl install\n") : c.red(`\n飞书侧还有 ${bad} 项要修\n`));
 }
 
+/** Steps a stranger needs, in the order the console asks for them. */
+const PROVIDERS: Array<{ id: string; label: string; key: string; model: string }> = [
+  { id: "deepseek", label: "DeepSeek", key: "DEEPSEEK_API_KEY", model: "deepseek-chat" },
+  { id: "openai", label: "OpenAI", key: "OPENAI_API_KEY", model: "gpt-5" },
+  { id: "anthropic", label: "Anthropic", key: "ANTHROPIC_API_KEY", model: "claude-sonnet-4-5" },
+  { id: "magpie", label: "magpie 本机代理（OpenAI 兼容，127.0.0.1:3425）", key: "MAGPIE_API_KEY", model: "" },
+];
+
 async function setup(): Promise<void> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const values = env();
+  // Piped input is served from a queue: readline's close event would otherwise cancel the
+  // remaining questions even though their answers were already written to the pipe.
+  const piped = process.stdin.isTTY ? undefined : readFileSync(0, "utf8").split("\n");
+  let cursor = 0;
   const ask = async (label: string, current: string | undefined, secret = false): Promise<string> => {
-    const shown = current === undefined || current.length === 0 ? "" : secret ? c.dim("(已设置，回车保留)") : c.dim(`(${current})`);
-    const answer = (await rl.question(`  ${label} ${shown}: `)).trim();
+    const shown =
+      current === undefined || current.length === 0 ? "" : secret ? c.dim("(已设置，回车保留)") : c.dim(`(${current})`);
+    let raw: string;
+    if (piped === undefined) {
+      raw = await rl.question(`  ${label} ${shown}: `);
+    } else {
+      raw = piped[cursor++] ?? "";
+      console.log(`  ${label} ${shown}: ${secret ? c.dim("…") : raw}`);
+    }
+    const answer = raw.trim();
     return answer.length === 0 ? (current ?? "") : answer;
   };
 
-  console.log(c.bold("\n飞书自建应用（开发者后台 → 凭证与基础信息）"));
-  const appId = await ask("App ID", values["FEISHU_APP_ID"]);
-  const appSecret = await ask("App Secret", values["FEISHU_APP_SECRET"], true);
-  console.log(c.dim("  允许的会话可以先留空，启动后按日志里的 id 再填；群里也可以发 /allow 自授权"));
-  console.log(c.dim("  允许的 open_id 必须填：留空等于把群里每个人都当成 alex"));
-  const chats = await ask("允许的 chat_id（逗号分隔）", values["FEISHU_ALLOWED_CHAT_IDS"]);
-  const senders = await ask("允许的 open_id（逗号分隔）", values["FEISHU_ALLOWED_SENDER_IDS"]);
-  rl.close();
+  console.log(c.bold("\ndurable setup — 把 agent 跑起来\n"));
+  const major = Number(process.versions.node.split(".")[0]);
+  if (major < 22) {
+    console.log(c.red(`  ✗ 需要 Node 22+，当前 ${process.versions.node}`));
+    rl.close();
+    process.exit(1);
+  }
+  console.log(c.green(`  ✓ Node ${process.versions.node}`));
 
-  const merged = { ...values };
-  merged["FEISHU_APP_ID"] = appId;
-  merged["FEISHU_APP_SECRET"] = appSecret;
-  merged["FEISHU_ALLOWED_CHAT_IDS"] = chats;
-  merged["FEISHU_ALLOWED_SENDER_IDS"] = senders;
-  const body = Object.entries(merged)
-    .map(([key, value]) => `${key}=${value}`)
-    .join("\n");
-  writeFileSync(ENV_FILE, `${body}\n`, "utf8");
-  console.log(c.green(`\n已写入 ${ENV_FILE}`));
+  if (!existsSync(join(HOME, "node_modules"))) {
+    console.log(c.dim("  安装依赖（npm install）…"));
+    execFileSync("npm", ["install"], { cwd: HOME, stdio: "inherit" });
+  }
+  console.log(c.green("  ✓ 依赖就绪"));
 
-  console.log(c.bold("\n检查"));
+  console.log(c.bold("\n模型网关"));
+  PROVIDERS.forEach((entry, index) => console.log(`  ${index + 1}) ${entry.label}`));
+  const picked = (await ask(`选择 1-${PROVIDERS.length}`, "1")).trim();
+  const provider = PROVIDERS[Math.max(0, Number(picked) - 1)] ?? PROVIDERS[0]!;
+  if (provider.id === "magpie") {
+    const baseUrl = await ask("网关地址", values["MAGPIE_BASE_URL"] ?? "http://127.0.0.1:3425/v1");
+    const model = await ask("模型 id（Agent 页里选的那个，如 vendor/model-name）", values["AGENT_MODEL"]);
+    values["MAGPIE_BASE_URL"] = baseUrl;
+    values["MAGPIE_API_KEY"] = await ask("网关 key", values["MAGPIE_API_KEY"] ?? "magpie", true);
+    values["AGENT_MODEL"] = model;
+  } else {
+    const model = await ask(`模型 id`, values["AGENT_MODEL"] ?? provider.model);
+    const key = await ask(`${provider.key}`, values[provider.key], true);
+    if (key.length === 0) {
+      console.log(c.yellow(`  ! 没填 ${provider.key}，这一轮跑不起来；可以之后写进 .env`));
+    }
+    values[provider.key] = key;
+    values["AGENT_MODEL"] = model;
+  }
+  values["AGENT_PROVIDER"] = provider.id;
+
+  console.log(c.bold("\n飞书自建应用") + c.dim("（开发者后台 → 凭证与基础信息）"));
+  values["FEISHU_APP_ID"] = await ask("App ID", values["FEISHU_APP_ID"]);
+  values["FEISHU_APP_SECRET"] = await ask("App Secret", values["FEISHU_APP_SECRET"], true);
+  console.log(c.dim("  允许的 chat_id 可以先留空，启动后按日志里的 id 再填；群里也能发 /allow 自授权"));
+  console.log(c.dim("  允许的 open_id 必须填：留空等于把群里每个人都当成主人，能点审批、能改代码"));
+  values["FEISHU_ALLOWED_CHAT_IDS"] = await ask("允许的 chat_id（逗号分隔）", values["FEISHU_ALLOWED_CHAT_IDS"]);
+  values["FEISHU_ALLOWED_SENDER_IDS"] = await ask("你的 open_id（逗号分隔）", values["FEISHU_ALLOWED_SENDER_IDS"]);
+
+  const existing = existsSync(ENV_FILE) ? readFileSync(ENV_FILE, "utf8") : "";
+  writeFileSync(ENV_FILE, renderEnv(existing, values), "utf8");
+  console.log(c.green(`\n已写入 ${ENV_FILE}`) + c.dim("（你手写的注释和其他键都保留）"));
+
+  console.log(c.bold("\n体检"));
   const checks = await checkFeishu(
-    appId,
-    appSecret,
-    senders
+    values["FEISHU_APP_ID"] ?? "",
+    values["FEISHU_APP_SECRET"] ?? "",
+    (values["FEISHU_ALLOWED_SENDER_IDS"] ?? "")
       .split(",")
       .map((id) => id.trim())
       .filter((id) => id.length > 0),
   );
+  const mark = (level: string): string =>
+    level === "ok" ? c.green("✓") : level === "warn" ? c.yellow("!") : c.red("✗");
   for (const check of checks) {
-    const mark = check.level === "ok" ? c.green("✓") : check.level === "warn" ? c.yellow("!") : c.red("✗");
-    console.log(`  ${mark} ${check.label}${check.hint === undefined ? "" : c.dim(`  → ${check.hint}`)}`);
+    console.log(`  ${mark(check.level)} ${check.label}${check.hint === undefined ? "" : c.dim(`  → ${check.hint}`)}`);
   }
+  const blocked = checks.some((check) => check.level === "bad");
+
+  console.log(c.bold("\n启动"));
+  const answer = (await ask("交给 launchd 托管（开机自启、崩溃重启）？[Y/n]", "y")).trim().toLowerCase();
+  rl.close();
+  if (answer !== "n" && answer !== "no") {
+    try {
+      execFileSync("./scripts/agentctl", ["install"], { cwd: HOME, stdio: "inherit" });
+      console.log(c.dim("  日志：./scripts/agentctl logs    状态：./scripts/agentctl status"));
+    } catch (error) {
+      console.log(c.yellow(`  ! launchd 没装上：${(error as Error).message}`));
+      console.log(c.dim("    在仓库根目录手动跑一次：./scripts/agentctl install（仅 macOS）"));
+    }
+  } else {
+    console.log(c.dim(`  前台跑：npm start（或 ./scripts/agentctl start）`));
+  }
+
+  console.log(
+    blocked
+      ? c.yellow("\n还有 ✗ 项没解决，按上面的提示在控制台改完再重启：./scripts/agentctl restart")
+      : c.green("\n好了。在飞书里给机器人发一条消息，或在终端 durable ask \"你好\""),
+  );
 }
 
 type Conversation = { surfaceId: string; conversationId: number; kind?: string; title?: string; archived?: boolean };
@@ -297,7 +370,7 @@ function usage(): void {
   console.log(`${c.bold("durable")} — 个人助理的 CLI
 
 ${c.bold("开箱")}
-  durable setup                写 .env（App ID/Secret/白名单）并立刻体检
+  durable setup                引导式安装：依赖、模型网关、飞书凭据、体检、launchd
   durable doctor               本地 + 飞书双侧体检，告诉你控制台还差什么
 
 ${c.bold("对话")}（走本机桥接，agent 在跑也能用）

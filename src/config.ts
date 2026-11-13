@@ -68,6 +68,8 @@ export const config = {
     appSecret: process.env.FEISHU_APP_SECRET ?? "",
     allowedChatIds: list("FEISHU_ALLOWED_CHAT_IDS"),
     allowedSenderIds: list("FEISHU_ALLOWED_SENDER_IDS"),
+    /** The name the prompt calls the owner; behaviour never depends on it. */
+    ownerName: process.env.AGENT_OWNER_NAME ?? "主人",
     mentionsOnly: bool("FEISHU_MENTIONS_ONLY", true),
     /**
      * Threading: "auto" answers in a topic when the asker @s the bot or the message

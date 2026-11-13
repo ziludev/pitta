@@ -13,12 +13,12 @@ export async function checkFeishu(appId: string, appSecret: string, ownerIds: st
   // makes every group member count as the owner.
   checks.push(
     ownerIds.length > 0
-      ? { ok: true, level: "ok", label: `alex 已配置：${ownerIds.length} 个 open_id` }
+      ? { ok: true, level: "ok", label: `主人已配置：${ownerIds.length} 个 open_id` }
       : {
           ok: false,
           level: "bad",
           label: "FEISHU_ALLOWED_SENDER_IDS 为空",
-          hint: "填你自己的 open_id（群里 @ 我 后看日志里的 sender=ou_…），否则任何人都被当作 alex",
+          hint: "填你自己的 open_id（群里 @ 我 后看日志里的 sender=ou_…），否则任何人都被当作主人",
         },
   );
   if (appId.length === 0 || appSecret.length === 0) {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+
 import { levelOf, type ChatLevel } from "../src/access.ts";
 import { rejectionReason, type Gate } from "../src/feishu.ts";
 
@@ -72,6 +73,7 @@ test("levelOf: a stored level wins, `.env` is the fallback, everything else is c
 // not demote him. Memory stays off for the conversation either way.
 test("a shared group tells alex he may change files, and a guest that he may not", async () => {
   const { groupInstructions } = await import("../src/feishu.ts");
+  const { config } = await import("../src/config.ts");
   const owner = groupInstructions("owner");
   const guest = groupInstructions("guest");
 
@@ -81,7 +83,9 @@ test("a shared group tells alex he may change files, and a guest that he may not
   assert.match(guest, /只读/);
   assert.doesNotMatch(guest, /按他说的改文件/);
   assert.doesNotMatch(guest, /旧规则已作废/);
-  for (const text of [owner, guest]) assert.match(text, /不要透露 alex/, "memory rule is the same for both");
+  for (const text of [owner, guest]) {
+    assert.match(text, new RegExp(`不要透露 ${config.feishu.ownerName}`), "memory rule is the same for both");
+  }
   assert.match(groupInstructions("guest", "只回答本群主题"), /只回答本群主题/, "/open keeps its topic rule");
   assert.match(groupInstructions("owner"), /方括号是网关标注的说话人/, "the bracket convention is explained");
 });
@@ -92,9 +96,10 @@ test("a shared group tells alex he may change files, and a guest that he may not
 test("each group message carries who is speaking", async () => {
   const { speakerTag } = await import("../src/feishu.ts");
   const owner = "ou_0123456789abcdef0123456789abcdef";
-  assert.match(speakerTag(true, owner), /^\[alex 本人 ou_01234\]/);
+  const { config } = await import("../src/config.ts");
+  assert.match(speakerTag(true, owner), new RegExp(`^\\[${config.feishu.ownerName} 本人 ou_01234\\]`));
   assert.match(speakerTag(false, "ou_9abc1a2b3c4d"), /^\[群成员 ou_9abc1\]/);
-  assert.doesNotMatch(speakerTag(false, "ou_9abc1a2b3c4d"), /alex/);
+  assert.doesNotMatch(speakerTag(false, "ou_9abc1a2b3c4d"), /本人/);
 });
 
 // What the model actually said in the group, and what must not be mistaken for a refusal.

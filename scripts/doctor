@@ -5,7 +5,7 @@ set -uo pipefail
 
 PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
 DB="${AGENT_DB:-$PROJECT/.data/agent.sqlite}"
-LABEL="com.alex.pi-durable-agent"
+LABEL="com.pitta.agent"
 ok() { printf '  \033[32m✓\033[0m %s\n' "$1"; }
 bad() { printf '  \033[31m✗\033[0m %s\n' "$1"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$1"; }

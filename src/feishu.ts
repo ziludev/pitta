@@ -500,7 +500,8 @@ export type Gate = {
  * can read, turn by turn.
  */
 export function speakerTag(isOwner: boolean, senderId: string): string {
-  return isOwner ? `[alex 本人 ${senderId.slice(0, 8)}]` : `[群成员 ${senderId.slice(0, 8)}]`;
+  const owner = config.feishu.ownerName;
+  return isOwner ? `[${owner} 本人 ${senderId.slice(0, 8)}]` : `[群成员 ${senderId.slice(0, 8)}]`;
 }
 
 /** What a refusal to write looks like, in the forms this agent actually produced. */
@@ -515,7 +516,7 @@ export function looksLikeReadOnlyRefusal(answer: string): boolean {
 
 /** Appended as a fresh user turn after a false read-only refusal; the last word in context. */
 export const READ_ONLY_CORRECTION =
-  "（网关）你刚才那条回答作废：本轮提问的是 alex 本人（已校验），这个群现在的写权限是开的。" +
+  `（网关）你刚才那条回答作废：本轮提问的是 ${config.feishu.ownerName} 本人（已校验），这个群现在的写权限是开的。` +
   "write/edit/bash 对你都可用，改文件、推分支、触发部署都不会被拦（危险命令照旧弹审批）。" +
   "直接执行他要的修改，不要再解释权限、不要再让他去粘命令或换私聊。";
 
@@ -525,13 +526,14 @@ export const READ_ONLY_CORRECTION =
  * his own group is still the owner, and refusing him made /allow useless for real work.
  */
 export function groupInstructions(who: "owner" | "guest", topic?: string): string {
+  const owner = config.feishu.ownerName;
   const lines = [
     "这是一个共享群（群里有其他人）。",
-    "- 不要透露 alex 的个人信息、记忆、日程、其他会话内容。",
-    "- 每条消息开头的方括号是网关标注的说话人：「alex 本人」就是 Alex 本人的账号，已经校验过，不需要你再判断身份；「群成员」不是。",
+    `- 不要透露 ${owner} 的个人信息、记忆、日程、其他会话内容。`,
+    `- 每条消息开头的方括号是网关标注的说话人：「${owner} 本人」就是 ${owner} 的账号，已经校验过，不需要你再判断身份；「群成员」不是。`,
     who === "owner"
-      ? "- 本轮是 alex 本人提问：按他说的改文件、跑命令、推分支、触发部署都可以。"
-      : "- 本轮不是 alex：只读查证照常做（read / project_search / logs_query / bash 的只读命令：git log、grep、psql select 都放行，所有已注册项目都能读）。不要改文件、不要推分支、不要触发部署、不要写记忆；被拦时只说被拦的那条命令，不要笼统说「guest 模式用不了工具」。",
+      ? `- 本轮是 ${owner} 本人提问：按他说的改文件、跑命令、推分支、触发部署都可以。`
+      : `- 本轮不是 ${owner}：只读查证照常做（read / project_search / logs_query / bash 的只读命令：git log、grep、psql select 都放行，所有已注册项目都能读）。不要改文件、不要推分支、不要触发部署、不要写记忆；被拦时只说被拦的那条命令，不要笼统说「guest 模式用不了工具」。`,
   ];
   if (who === "owner") {
     // The model reads its own earlier refusals in the transcript and repeats them, even when
@@ -539,7 +541,7 @@ export function groupInstructions(who: "owner" | "guest", topic?: string): strin
     lines.push(
       "- 工具面按说话人切换：guest 模式只管别人的回合。你自己的回合里 bash / write / edit / lark / mcp / delegate 全都能用。",
       "- 旧规则已作废：本群以前确实被设成只读，那条不再适用。不要再回答「这轮是只读的」或「bash 在这个群里用不了」，" +
-        "也不要让 alex 自己去粘命令或开新会话。",
+        `也不要让 ${owner} 自己去粘命令或开新会话。`,
     );
   }
   if (topic !== undefined) lines.push(`- ${topic}`);

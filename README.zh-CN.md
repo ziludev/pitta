@@ -146,6 +146,7 @@
 | `FEISHU_APP_ID`、`FEISHU_APP_SECRET` | 飞书自建应用；缺了飞书桥不启动 |
 | `FEISHU_ALLOWED_SENDER_IDS` | 谁是主人 —— 必填，也只有这些人能点审批 |
 | `FEISHU_ALLOWED_CHAT_IDS` | 固定成 `owner` 级别的会话（留空则每个会话都从 `closed` 开始） |
+| `AGENT_OWNER_NAME` | 提示词里怎么称呼主人；只影响措辞，不影响权限 |
 | `FEISHU_DONE_PING_SECONDS` | 超过多少秒额外发一条完成消息；`0` 关闭 |
 | `AGENT_PROVIDER`、`AGENT_MODEL`、`AGENT_THINKING` | 默认 provider、模型、思考档 |
 | `MAGPIE_BASE_URL`、`MAGPIE_API_KEY` | `AGENT_PROVIDER=magpie` 时的本机代理地址与 key |
@@ -157,30 +158,47 @@
 | `SLS_LOGSTORE_PREFIX` | `logs_query` 的 logstore 名是 `<prefix>-<env>-stdout` |
 | `AGENT_ASR` | 本地 whisper 转写：`auto` 或 `off` |
 
-## 快速开始
+## 安装
+
+macOS（launchd 与桌面端只做了 macOS），Node 22+，`git`。`ffmpeg`、`whisper`、`lark-cli` 是可选扩展：
+语音转写、语音消息、飞书原生工具。
 
 ```bash
-cp .env.example .env          # 至少填 FEISHU_APP_ID / FEISHU_APP_SECRET
-npm install
-npm run typecheck
-npm test                      # 纯逻辑单测（node --test）
-
-durable doctor                # 本地 + 飞书双侧体检（推荐先跑）
-durable setup                 # 或者交互式写 .env 并立刻体检
-
-npm start                     # 前台跑一次试试
-./scripts/agentctl install    # 交给 launchd 常驻（开机自启 + 崩溃重启）
-./scripts/agentctl logs
+git clone https://github.com/ziludev/pitta.git && cd pitta
+./bin/durable setup
 ```
 
-### 飞书后台要开的
+`setup` 走六步，正好覆盖容易卡住的几处：
 
-1. 事件与回调 → 订阅方式选 **使用长连接接收事件**
-2. 订阅事件 `im.message.receive_v1`，回调 `card.action.trigger`（审批按钮）
-3. 权限：`im:message`、`im:message:send_as_bot`、`im:message.p2p_msg:readonly`、`im:message.group_at_msg:readonly`
-4. 创建版本 → 发布（不发布等于没配）
+1. **Node 与依赖** —— 检查版本；`node_modules` 不在就跑 `npm install`。
+2. **模型网关** —— DeepSeek / OpenAI / Anthropic / 本机 OpenAI 兼容代理；问 key 和模型 id，写进 `.env`。
+3. **飞书应用** —— 凭证与基础信息里的 App ID、App Secret。
+4. **你的 open_id** —— 这条决定谁是主人。留空的话，机器人所在每个群的每个人都算主人，能点审批、能改代码。
+5. **把控制台读回来** —— 凭证、机器人能力、订阅方式、已发布版本、已订阅事件、`card.action.trigger`、权限、机器人是否已在某个会话；每个 ✗ 都写明去哪个菜单改。
+6. **launchd** —— 交出去，开机自启、崩溃重启。
 
-`durable doctor` 会把上面每一项读回来校验，缺什么、去哪儿点，都直接说。
+飞书开发者后台要点的（open.feishu.cn → 你的应用）：
+
+| 菜单 | 设置 |
+|---|---|
+| 添加应用能力 | 机器人 |
+| 权限管理 | `im:message`、`im:message:send_as_bot`、`im:message.p2p_msg:readonly`、`im:message.group_at_msg:readonly`；想在话题里不 @ 也回复，再加 `im:message.group_msg` |
+| 事件与回调 → 订阅方式 | **使用长连接接收事件**（不需要公网 IP、域名、证书） |
+| 事件与回调 → 回调 | `card.action.trigger`（审批与「继续」按钮） |
+| 事件与回调 → 事件 | `im.message.receive_v1` |
+| 版本管理与发布 | 创建版本 → 申请发布。不发布等于没配 |
+
+之后：
+
+```bash
+durable doctor            # 同一套读回校验，随时可跑
+./scripts/agentctl logs   # 看 agent 在做什么
+./scripts/agentctl status # pid、runs、退出码
+```
+
+**为什么没有「一键装飞书应用」**：飞书自建应用是租户内的，App ID 和 Secret 只能你自己在自己的租户里建
+（跨租户就意味着做 ISV 应用、走 OAuth 和审核上架）。所以自动化停在墙前一步：拿到两个凭据之后的所有事都脚本化并校验。
+同租户的同事可以共用一个应用、各跑各的实例，谁能控制什么由主人名单决定。
 
 ### 桌面客户端
 
@@ -202,7 +220,7 @@ npm run install-app  # 同一份装进 /Applications（应用列表里能看到�
 ln -sf "$PWD/bin/durable" ~/.local/bin/durable   # 放到 PATH
 
 durable                 # 命令总览
-durable setup           # 写 .env（App ID/Secret/白名单）并体检
+durable setup           # 引导式安装：依赖、网关、飞书凭据、体检、launchd
 durable doctor          # 本地 + 飞书双侧体检
 durable ask "…"         # 一次性提问（流式）
 durable chat            # 多轮 REPL（/new /stop /exit）
