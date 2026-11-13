@@ -16,9 +16,8 @@ export type TurnDetails = {
 };
 
 /**
- * Per-message record of what the agent actually did. Feishu cards cannot be
- * expanded in place, so the "查看详情" button reads this instead of re-running
- * anything.
+ * Per-message record of what the agent actually did. The answer card carries the folded panel;
+ * this is what the client and cards sent before that read back.
  */
 export const TurnDetailsDoc = defineDoc<{ turns: Record<string, TurnDetails> }>({
   kind: "app.turn-details",

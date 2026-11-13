@@ -99,13 +99,47 @@ function continueButton(messageId: string): CardButton[] {
  */
 type CardHeader = { template: "green" | "orange" | "grey" | "red"; title: string };
 
+/**
+ * The steps of a turn as a folded panel in the answer card itself. It used to be a 「查看详情」
+ * button — only in 1:1 chats, and it answered with a second card, so a group never saw the work
+ * at all and every answer looked like a form to fill in.
+ */
+function detailPanel(details: Omit<TurnDetails, "at">): Record<string, unknown> {
+  const lines = details.steps.map((step, index) => {
+    const mark = step.ok ? "✅" : "⚠️";
+    return `${index + 1}. ${mark} **${step.name}**\n${step.preview.length > 0 ? `　${step.preview}` : "　（无输出）"}`;
+  });
+  const summary = `${details.steps.length} 步 · ${details.seconds}s${
+    details.costUsd > 0.00005 ? ` · $${details.costUsd.toFixed(4)}` : ""
+  }`;
+  return {
+    tag: "collapsible_panel",
+    expanded: false,
+    header: {
+      title: { tag: "markdown", content: `**本轮执行详情** · ${summary}` },
+      vertical_align: "center",
+      icon: { tag: "standard_icon", token: "down-small-ccm_outlined", size: "16px 16px" },
+      icon_position: "right",
+      icon_expanded_angle: -180,
+    },
+    border: { color: "grey", corner_radius: "5px" },
+    vertical_spacing: "8px",
+    padding: "8px 8px 8px 8px",
+    elements: [{ tag: "markdown", content: lines.join("\n\n") }],
+  };
+}
+
 function card(
   markdown: string,
   meta?: string,
   buttons?: CardButton[],
   header?: CardHeader,
+  details?: Omit<TurnDetails, "at">,
 ): Record<string, unknown> {
   const elements: Array<Record<string, unknown>> = [{ tag: "markdown", content: markdown }];
+  if (details !== undefined && details.steps.length > 0) {
+    elements.push(detailPanel(details));
+  }
   if (meta !== undefined) {
     elements.push({ tag: "note", elements: [{ tag: "plain_text", content: meta }] });
   }
@@ -648,10 +682,11 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     meta?: string,
     buttons?: CardButton[],
     header?: CardHeader,
+    details?: Omit<TurnDetails, "at">,
   ): Promise<void> {
     const response = await client.im.message.patch({
       path: { message_id: messageId },
-      data: { content: JSON.stringify(card(markdown, meta, buttons, header)) },
+      data: { content: JSON.stringify(card(markdown, meta, buttons, header, details)) },
     });
     if (response?.code !== 0) {
       throw new Error(`patch failed: ${response?.code} ${response?.msg ?? ""}`);
@@ -695,9 +730,10 @@ export async function startFeishuBridge(runtime: AgentRuntime): Promise<FeishuBr
     meta: string,
     buttons?: CardButton[],
     header?: CardHeader,
+    details?: Omit<TurnDetails, "at">,
   ): Promise<void> {
     try {
-      await patchCard(cardId, markdown, meta, buttons, header);
+      await patchCard(cardId, markdown, meta, buttons, header, details);
       log("feishu", "final card patched", { chatId, cardId, chars: markdown.length });
       return;
     } catch (error) {
@@ -974,6 +1010,7 @@ const continuing = new Set<string>();
       return { toast: { type: "success", content: "继续中…" } };
     }
 
+    // Answers now carry the panel themselves; this only serves buttons on cards sent before that.
     if (value["kind"] === "detail") {
       const messageId = typeof value["messageId"] === "string" ? value["messageId"] : "";
       const chatId = payload.context?.open_chat_id ?? "";
@@ -1654,28 +1691,24 @@ const continuing = new Set<string>();
           model: modelUsed,
           thinking: String(agentPlan?.thinkingLevel ?? ""),
         });
-        // The step list is always recorded (the client reads it); the button under the answer is for
-        // a 1:1 chat only. In a group nobody pressed it and it made every answer look like a form.
-        let buttons: CardButton[] | undefined;
+        // The steps are always recorded (the client reads them) and now ride along in the answer
+        // card as a folded panel, so a group sees the work too and nothing has to be pressed.
+        let steps: Omit<TurnDetails, "at"> | undefined;
         if (settled.entry !== undefined) {
-          const steps = await runtime
+          const taken = await runtime
             .turnSteps(conversation, settled.entry as unknown as number, settled.answer as unknown as number)
             .catch(() => []);
-          if (steps.length > 0) {
-            await saveTurnDetails(runtime.harness, context, message.message_id, {
-              steps,
-              seconds,
-              costUsd: cost,
-            }).catch((error) => logError("feishu", "could not save turn details", error));
-            if (message.chat_type !== "group") {
-              buttons = [{ label: "查看详情", value: { kind: "detail", messageId: message.message_id } }];
-            }
+          if (taken.length > 0) {
+            steps = { steps: taken, seconds, costUsd: cost };
+            await saveTurnDetails(runtime.harness, context, message.message_id, steps).catch((error) =>
+              logError("feishu", "could not save turn details", error),
+            );
           }
         }
-        await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", meta, buttons, {
+        await deliverAnswer(chatId, cardId, answer || "（模型没有返回文本）", meta, undefined, {
           template: "green",
           title: "✅ 答完了",
-        });
+        }, steps);
         if (seconds >= config.feishu.donePingSeconds) {
           await pingDone(
             chatId,
